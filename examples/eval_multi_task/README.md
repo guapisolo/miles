@@ -10,3 +10,8 @@
 
 ## IFBench Notes
 - When `ifbench` is used, `miles/rollout/rm_hub/ifbench.py` will automatically prepares the scoring environment, so no additional manual setup is required beyond providing the dataset path.
+
+## HLE Notes
+- Set your `OPENAI_API_KEY` (and optionally `HLE_JUDGE_MODEL`) before running evaluation. The default judge model is `o3-mini-2025-01-31`.
+- When `hle` is configured, `miles/rollout/rm_hub/hle.py` clones the official [centerforaisafety/hle](https://github.com/centerforaisafety/hle) repo, installs `examples/eval_multi_task/requirements_hle.txt`, and imports the OpenAI-based judge.
+- Place the evaluation set at `/root/hle/hle.jsonl` (or update `multi_task.yaml`). Each record should contain a `prompt` field (string or chat format) and a reference `label`.

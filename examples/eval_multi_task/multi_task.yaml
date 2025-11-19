@@ -15,3 +15,7 @@ eval:
       path: /root/ifbench/IFBench_eval.jsonl
       rm_type: ifbench
       n_samples_per_eval_prompt: 1
+    - name: hle       # huggingface-cli download --repo-type dataset cais/hle --local-dir /root/hle (gated)
+      path: /root/hle/hle.jsonl
+      rm_type: hle
+      n_samples_per_eval_prompt: 1
