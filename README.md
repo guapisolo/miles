@@ -10,11 +10,15 @@ Miles keeps slime’s lightweight, modular design, but focuses on:
 - Stable, controllable RL for large MoE models  
 - Production-grade features  
 
+
+More details can be found in the [LMSYS blog post here](https://lmsys.org/blog/2025-11-19-miles/).
+
 <p align="left">
   <img src="imgs/miles_logo.png" alt="Miles Logo" width="500">
 </p>
 
-> A journey of a thousand miles begins with a single step.
+> A journey of a thousand miles is made one small step at a time.
+
 
 ---
 
