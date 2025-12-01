@@ -33,12 +33,12 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." &>/dev/null && pwd)"
 source "${REPO_ROOT}/scripts/models/qwen3-4B.sh"
 
 # Store eval/delegate settings in a YAML config similar to examples/eval_multi_task.
-EVAL_CONFIG_PATH=${SKILLS_EVAL_CONFIG_PATH:-"${REPO_ROOT}/examples/eval/examples/multi_tasks.yaml"}
+EVAL_CONFIG_PATH=${SKILLS_EVAL_CONFIG_PATH:-"${REPO_ROOT}/examples/eval/scripts/multi_tasks.yaml"}
 
 CKPT_ARGS=(
    --hf-checkpoint /root/shared/Qwen3-4B
    --ref-load /root/shared/Qwen3-4B_torch_dist
-   # --load /root/shared/Qwen3-4B_slime/
+   --load /root/shared/Qwen3-4B_slime/
    --save /root/shared/Qwen3-4B_slime/
    --save-interval 20
 )
