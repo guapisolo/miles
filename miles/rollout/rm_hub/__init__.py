@@ -12,6 +12,8 @@ from .math_dapo_utils import compute_score as compute_score_dapo
 from .math_utils import extract_answer as extract_boxed_answer
 from .math_utils import grade_answer_verl
 
+from .evolving_gym_rm import evolving_gym_rm
+import json
 
 async def remote_rm(args, sample: Sample):
     payload = {
@@ -50,6 +52,8 @@ async def async_rm(args, sample: Sample, **kwargs):
         return 1 if grade_answer_verl(response, label) else 0
     elif rm_type == "f1":
         return f1_score(response, label)[0]
+    elif rm_type == "evolving-gym":
+        return await evolving_gym_rm(args=args, sample=sample)
     else:
         raise NotImplementedError(f"Rule-based RM for {type} is not implemented.")
 
