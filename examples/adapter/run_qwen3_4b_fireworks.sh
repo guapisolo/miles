@@ -12,8 +12,6 @@ pkill -9 python
 
 set -ex
 
-python3 examples/adapter/gsm8k/agent.py &
-
 # will prevent ray from buffering stdout/stderr
 export PYTHONBUFFERED=16
 
@@ -42,6 +40,7 @@ ROLLOUT_ARGS=(
    --label-key label
    --apply-chat-template
    --num-rollout 100
+   --rm-type math 
    --rollout-batch-size 8
    --n-samples-per-prompt 8
    --rollout-max-response-len 8192
@@ -127,6 +126,9 @@ EXTRA_ARGS=${EXTRA_ARGS:-""}
 # launch the master node of ray in container
 export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
 export CUDA_VISIBLE_DEVICES=4,5,6,7
+
+python3 examples/adapter/gsm8k/agent.py &
+
 ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 4 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
 
 # Build the runtime environment JSON with proper variable substitution

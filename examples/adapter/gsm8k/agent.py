@@ -28,9 +28,11 @@ def _build_completion_payload(request: InitRequest) -> dict[str, Any]:
     if "max_new_tokens" in completion_params and "max_tokens" not in completion_params:
         completion_params["max_tokens"] = completion_params.pop("max_new_tokens")
 
+    messages = [msg.dump_mdoel_for_chat_completion_request() for msg in (request.messages or [])]
+
     payload = {
         "model": model,
-        "messages": request.messages,
+        "messages": messages,
         **{k: v for k, v in completion_params.items() if v is not None},
     }
     if request.tools:
