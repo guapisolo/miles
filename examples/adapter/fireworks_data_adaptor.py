@@ -1,4 +1,8 @@
-
+"""
+python examples/adapter/fireworks_data_adaptor.py \
+  --input examples/adapter/gsm8k/gsm8k_sample.jsonl \
+  --output examples/adapter/gsm8k/gsm8k_miles_sample.jsonl
+"""
 import argparse
 import json
 import logging
@@ -80,7 +84,7 @@ def main() -> int:
     parser.add_argument("--input", default=default_input, help="Path to Fireworks jsonl file.")
     parser.add_argument("--output", default=default_output, help="Path to save Miles jsonl file.")
     parser.add_argument("--prompt-key", default="prompt", help="Key name for prompt in output jsonl.")
-    parser.add_argument("--label-key", default="labels", help="Key name for labels in output jsonl.")
+    parser.add_argument("--label-key", default="label", help="Key name for labels in output jsonl.")
     args = parser.parse_args()
 
     rows = convert_fireworks_to_miles_rows(

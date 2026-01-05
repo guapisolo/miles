@@ -15,16 +15,8 @@ TOKENIZER = None
 MASK_GENERATOR = None
 
 
-def _get_agent_base_url(args: Namespace) -> str:
-    base_url = getattr(args, "agent_base_url", None) or os.environ.get("MILES_AGENT_BASE_URL")
-    if not base_url:
-        base_url = "http://127.0.0.1:8000"
-    return base_url.rstrip("/")
-
-
 def _get_sglang_base_url(args: Namespace) -> str:
-    host = _wrap_ipv6(args.sglang_router_ip)
-    return f"http://{host}:{args.sglang_router_port}/v1"
+    return f"http://{args.sglang_router_ip}:{args.sglang_router_port}/v1"
 
 
 def _blank_rollout_metadata() -> RolloutMetadata:
@@ -62,7 +54,7 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
         sample.status == Sample.Status.PENDING or sample.status == Sample.Status.ABORTED
     ), f"Sample status is {sample.status}"
 
-    init_url = f"{_get_agent_base_url(args)}/init"
+    init_url = f"{args.agent_base_url}/init"
     messages = _coerce_messages(sample.prompt)
     tools = sample.metadata.get("tools") if sample.metadata else None
     completion_params = dict(sampling_params)
