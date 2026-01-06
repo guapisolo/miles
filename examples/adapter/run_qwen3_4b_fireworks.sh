@@ -40,7 +40,7 @@ ROLLOUT_ARGS=(
    --label-key label
    --apply-chat-template
    --num-rollout 100
-   --rm-type math 
+   --rm-type placeholder 
    --rollout-batch-size 8
    --n-samples-per-prompt 8
    --rollout-max-response-len 8192

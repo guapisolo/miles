@@ -60,6 +60,8 @@ async def async_rm(args, sample: Sample, **kwargs):
         return compute_ifbench_reward(response, label, metadata=metadata)
     elif rm_type == "random":
         return random.randint(0, 1)
+    elif rm_type == "placeholder":
+        raise NotImplementedError("Placeholder reward should never be reached. Please check your rollout configuration.")
     elif rm_type:
         raise NotImplementedError(f"Rule-based RM for {rm_type} is not implemented.")
     else:

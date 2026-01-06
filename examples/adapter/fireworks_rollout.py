@@ -6,7 +6,8 @@ from typing import Any
 from eval_protocol import InitRequest
 from eval_protocol.types.remote_rollout_processor import RolloutMetadata
 
-from miles.utils.http_utils import _wrap_ipv6, post
+from examples.adapter.fireworks_reward import custom_reward
+from miles.utils.http_utils import post
 from miles.utils.mask_utils import MultiTurnLossMaskGenerator
 from miles.utils.processing_utils import load_tokenizer
 from miles.utils.types import Sample
@@ -88,5 +89,7 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     if sample.metadata is None:
         sample.metadata = {}
     sample.metadata["rollout_messages"] = result_messages
+
+    sample.reward = await custom_reward(args, sample)
     return sample
     
