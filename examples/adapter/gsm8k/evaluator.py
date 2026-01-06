@@ -19,7 +19,7 @@ def extract_answer_digits(ground_truth: str) -> Optional[str]:
 
 
 def gsm8k_reward_row(row: EvaluationRow, **kwargs) -> EvaluationRow:
-    logger.info("I am beginning to execute GSM8k rollout: %s", row.execution_metadata.rollout_id)
+    # logger.info("I am beginning to execute GSM8k rollout: %s", row.execution_metadata.rollout_id)
     assistant_messages = [message for message in row.messages if message.role == "assistant"]
     last_assistant_content = assistant_messages[-1].content if assistant_messages else ""
     prediction = extract_answer_digits(str(last_assistant_content))
@@ -42,7 +42,7 @@ def gsm8k_reward_row(row: EvaluationRow, **kwargs) -> EvaluationRow:
         is_score_valid=True,
         reason=reason,
     )
-    logger.info("I am done executing GSM8k rollout: %s", row.execution_metadata.rollout_id)
+    # logger.info("I am done executing GSM8k rollout: %s", row.execution_metadata.rollout_id)
     row.evaluation_result = evaluation_result
     return row
 

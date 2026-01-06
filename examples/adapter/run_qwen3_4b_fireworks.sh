@@ -39,13 +39,13 @@ ROLLOUT_ARGS=(
    --input-key prompt
    --label-key label
    --apply-chat-template
-   --num-rollout 100
+   --num-rollout 1000
    --rm-type placeholder 
-   --rollout-batch-size 8
+   --rollout-batch-size 32
    --n-samples-per-prompt 8
    --rollout-max-response-len 8192
    --rollout-temperature 1
-   --global-batch-size 64
+   --global-batch-size 256
    --balance-data
 )
 
@@ -127,7 +127,7 @@ EXTRA_ARGS=${EXTRA_ARGS:-""}
 export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
 export CUDA_VISIBLE_DEVICES=4,5,6,7
 
-python3 examples/adapter/gsm8k/agent.py &
+python3 examples/adapter/gsm8k/agent.py > agent.log &
 
 ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 4 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
 

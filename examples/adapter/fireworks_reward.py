@@ -1,7 +1,14 @@
+from functools import lru_cache
+
 from eval_protocol.models import EvaluationRow
 
-from examples.adapter.gsm8k.evaluator import gsm8k_reward_row
+from miles.utils.misc import load_function
 from miles.utils.types import Sample
+
+
+@lru_cache(maxsize=None)
+def _get_reward_function(path: str):
+    return load_function(path)
 
 
 def _build_messages(sample: Sample) -> list[dict]:
@@ -12,5 +19,6 @@ def _build_messages(sample: Sample) -> list[dict]:
 
 async def custom_reward(args, sample: Sample, **kwargs) -> float:
     row = EvaluationRow(messages=_build_messages(sample), ground_truth=sample.label)
-    row = gsm8k_reward_row(row, **kwargs)
+    reward_function = _get_reward_function(args.reward_function_path)
+    row = reward_function(row, **kwargs)
     return row.evaluation_result.score
