@@ -1,15 +1,13 @@
-
-import os
 from argparse import Namespace
 from typing import Any
 
 from eval_protocol import InitRequest
 from eval_protocol.types.remote_rollout_processor import RolloutMetadata
-
 from examples.adapter.fireworks_reward import custom_reward
+
+from miles.rollout.sglang_rollout import GenerateState
 from miles.utils.http_utils import post
 from miles.utils.mask_utils import MultiTurnLossMaskGenerator
-from miles.utils.processing_utils import load_tokenizer
 from miles.utils.types import Sample
 
 TOKENIZER = None
@@ -40,13 +38,8 @@ def _extract_assistant_content(messages: list[dict[str, Any]]) -> str:
     return messages[-1]["content"]
 
 
-def _get_tokenizer_and_mask_generator(args: Namespace):
-    global TOKENIZER, MASK_GENERATOR
-    if TOKENIZER is None:
-        TOKENIZER = load_tokenizer(args.hf_checkpoint, trust_remote_code=True)
-    if MASK_GENERATOR is None:
-        MASK_GENERATOR = MultiTurnLossMaskGenerator(TOKENIZER, tokenizer_type=args.loss_mask_type)
-    return TOKENIZER, MASK_GENERATOR
+def _get_tokenizer_and_mask_generator(args: Namespace, state: GenerateState):
+    return state.tokenizer, MultiTurnLossMaskGenerator(state.tokenizer, tokenizer_type=args.loss_mask_type)
 
 
 async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, Any]) -> Sample:
@@ -55,6 +48,7 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
         sample.status == Sample.Status.PENDING or sample.status == Sample.Status.ABORTED
     ), f"Sample status is {sample.status}"
 
+    # state = GenerateState(args)
     init_url = f"{args.agent_base_url}/init"
     messages = _coerce_messages(sample.prompt)
     tools = sample.metadata.get("tools") if sample.metadata else None
@@ -72,24 +66,13 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
         metadata=_blank_rollout_metadata(),
     )
 
-    response = await post(init_url, init_request.model_dump(exclude_none=True))
-    result_messages = response["result"]["messages"]
+    resp = await post(init_url, init_request.model_dump(exclude_none=True))
+    if resp["status"] != "success":
+        raise ValueError(f"Failed to initialize agent: {resp['error']}")
 
-    assistant_content = _extract_assistant_content(result_messages)
-    _, mask_generator = _get_tokenizer_and_mask_generator(args)
-    token_ids, loss_mask = mask_generator.get_loss_mask(result_messages)
-    response_length = mask_generator.get_response_lengths([loss_mask])[0]
+    # response: ChatCompletionResponse = ChatCompletionResponse.model_validate(resp["result"].parse(to=dict))
 
-    sample.tokens = token_ids
-    sample.response = assistant_content
-    sample.response_length = response_length
-    sample.loss_mask = loss_mask[-response_length:] if response_length else []
-    sample.status = Sample.Status.COMPLETED
-
-    if sample.metadata is None:
-        sample.metadata = {}
-    sample.metadata["rollout_messages"] = result_messages
+    # TODO: use miles router to handle the response
 
     sample.reward = await custom_reward(args, sample)
     return sample
-    
