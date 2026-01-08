@@ -1,11 +1,10 @@
 import logging
+from typing import Any
 
 import uvicorn
 from eval_protocol import FireworksTracingHttpHandler, InitRequest, RolloutIdFilter, Status
+from examples.adapter.utils.agent_helper import call_llm
 from fastapi import FastAPI
-from sglang.srt.entrypoints.openai.protocol import ChatCompletionResponse
-
-from .utils.agent_helper import call_llm
 
 app = FastAPI()
 
@@ -14,7 +13,7 @@ fireworks_handler = FireworksTracingHttpHandler()
 logging.getLogger().addHandler(fireworks_handler)
 
 
-def execute_agent(request: InitRequest) -> ChatCompletionResponse:
+def execute_agent(request: InitRequest) -> list[dict[str, Any]]:
     """Minimal GSM8K agent flow: call the SGLang OpenAI-compatible endpoint."""
 
     messages = [msg.dump_mdoel_for_chat_completion_request() for msg in (request.messages or [])]
@@ -22,7 +21,8 @@ def execute_agent(request: InitRequest) -> ChatCompletionResponse:
     # ... agent logic ...
 
     response = call_llm(request, messages)
-    return response
+    messages.append(response.choices[0].message.model_dump())
+    return messages
 
 
 @app.post("/init")

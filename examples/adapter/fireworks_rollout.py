@@ -48,12 +48,13 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
         sample.status == Sample.Status.PENDING or sample.status == Sample.Status.ABORTED
     ), f"Sample status is {sample.status}"
 
-    # state = GenerateState(args)
+    state = GenerateState(args)
     init_url = f"{args.agent_base_url}/init"
     messages = _coerce_messages(sample.prompt)
     tools = sample.metadata.get("tools") if sample.metadata else None
     completion_params = dict(sampling_params)
 
+    # print(f"prompt: {sample.prompt}")
     if "model" not in completion_params:
         model_name = getattr(args, "model_name", None) or getattr(args, "hf_checkpoint", None) or "default"
         completion_params["model"] = model_name
@@ -70,9 +71,18 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     if resp["status"] != "success":
         raise ValueError(f"Failed to initialize agent: {resp['error']}")
 
-    # response: ChatCompletionResponse = ChatCompletionResponse.model_validate(resp["result"].parse(to=dict))
+    # TODO: better use miles router to handle the responses
 
-    # TODO: use miles router to handle the response
+    messages = resp["result"]
+    # print(f"messages: {messages}")
+    sample.response = messages[-1]["content"]
+    tokenizer, mask_gen = _get_tokenizer_and_mask_generator(args, state)
+    token_ids, loss_mask = mask_gen.get_loss_mask(messages, tools=tools)
+    response_length = mask_gen.get_response_lengths([loss_mask])[0]
 
-    sample.reward = await custom_reward(args, sample)
+    sample.tokens = token_ids
+    sample.response_length = response_length
+    sample.loss_mask = loss_mask[-response_length:]
+
+    sample.reward = await custom_reward(args, messages, sample.label)
     return sample

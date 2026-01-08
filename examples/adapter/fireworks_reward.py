@@ -1,12 +1,14 @@
-from functools import lru_cache
+from argparse import Namespace
+from functools import cache
+from typing import Any
 
-from eval_protocol.models import EvaluationRow
+from eval_protocol.models import EvaluationRow, Message
 
 from miles.utils.misc import load_function
 from miles.utils.types import Sample
 
 
-@lru_cache(maxsize=None)
+@cache
 def _get_reward_function(path: str):
     return load_function(path)
 
@@ -17,8 +19,10 @@ def _build_messages(sample: Sample) -> list[dict]:
     return messages
 
 
-async def custom_reward(args, sample: Sample, **kwargs) -> float:
-    row = EvaluationRow(messages=_build_messages(sample), ground_truth=sample.label)
+async def custom_reward(args: Namespace, messages: list[dict[str, Any]], label: str | None, **kwargs) -> float:
+    row = EvaluationRow(
+        messages=[Message.model_validate(message) for message in messages], ground_truth=label, **kwargs
+    )
     reward_function = _get_reward_function(args.reward_function_path)
     row = reward_function(row, **kwargs)
     return row.evaluation_result.score

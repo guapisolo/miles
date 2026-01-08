@@ -65,10 +65,10 @@ def call_llm(request: InitRequest, messages: list[dict[str, Any]]) -> ChatComple
         "messages": messages,  # notice: we do not use request.messages here
         "tools": request.tools,
         **openai_compatible_params,
-        **extra_body_params,
+        "extra_body": {**extra_body_params},
     }
 
     client = OpenAI(base_url=base_url, api_key="EMPTY")
     json_response = client.chat.completions.with_raw_response.create(**payload)
-    response = ChatCompletionResponse.model_validate(json_response.parse(to=dict))
+    response = ChatCompletionResponse.model_validate(json_response.parse().model_dump())
     return response
