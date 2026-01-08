@@ -4,23 +4,25 @@ import pytest
 from eval_protocol import InitRequest
 from eval_protocol.types.remote_rollout_processor import RolloutMetadata
 
-from examples.adapter.gsm8k import agent
+from examples.adapter.math import agent
 
 
 @pytest.mark.unit
 def test_execute_agent_builds_payload(monkeypatch):
     captured = {}
 
-    def fake_post(url, json, timeout):
-        captured["url"] = url
-        captured["json"] = json
+    def fake_call_llm(request, messages):
+        captured["request"] = request
+        captured["messages"] = list(messages)
+        return types.SimpleNamespace(
+            choices=[
+                types.SimpleNamespace(
+                    message=types.SimpleNamespace(model_dump=lambda: {"role": "assistant", "content": "ok"})
+                )
+            ]
+        )
 
-        response = types.SimpleNamespace()
-        response.raise_for_status = lambda: None
-        response.json = lambda: {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
-        return response
-
-    monkeypatch.setattr(agent.httpx, "post", fake_post)
+    monkeypatch.setattr(agent, "call_llm", fake_call_llm)
 
     request = InitRequest(
         completion_params={"model": "qwen3-4b", "temperature": 0.1, "max_new_tokens": 16},
@@ -38,10 +40,9 @@ def test_execute_agent_builds_payload(monkeypatch):
 
     result = agent.execute_agent(request)
 
-    assert captured["url"] == "http://localhost:8001/v1/chat/completions"
-    assert captured["json"]["model"] == "qwen3-4b"
-    assert captured["json"]["messages"] == [{"role": "user", "content": "hi"}]
-    assert captured["json"]["max_tokens"] == 16
-    assert "max_new_tokens" not in captured["json"]
-    assert captured["json"]["tools"] == [{"type": "function", "function": {"name": "noop"}}]
-    assert result["messages"][-1]["content"] == "ok"
+    expected_messages = [msg.dump_mdoel_for_chat_completion_request() for msg in (request.messages or [])]
+    expected_messages.append({"role": "assistant", "content": "ok"})
+
+    assert captured["request"] is request
+    assert captured["messages"] == expected_messages[:-1]
+    assert result == expected_messages

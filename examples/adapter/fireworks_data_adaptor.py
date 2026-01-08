@@ -1,19 +1,20 @@
 """
 python examples/adapter/fireworks_data_adaptor.py \
-  --input examples/adapter/gsm8k/gsm8k_sample.jsonl \
-  --output examples/adapter/gsm8k/gsm8k_miles_sample.jsonl
+  --input examples/adapter/math/gsm8k_sample.jsonl \
+  --output examples/adapter/math/gsm8k_miles_sample.jsonl
 """
+
 import argparse
 import json
 import logging
 import os
 import re
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
 
-def extract_answer_digits(ground_truth: str) -> Optional[str]:
+def extract_answer_digits(ground_truth: str) -> str | None:
     if not ground_truth:
         return None
 
@@ -27,7 +28,7 @@ def extract_answer_digits(ground_truth: str) -> Optional[str]:
 
 
 def _read_jsonl(path: str) -> Iterable[dict]:
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         for line_no, line in enumerate(handle, start=1):
             line = line.strip()
             if not line:
@@ -71,16 +72,10 @@ def _write_jsonl(path: str, rows: Iterable[dict]) -> None:
 
 
 def main() -> int:
-    default_input = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "gsm8k", "gsm8k_sample.jsonl")
-    )
-    default_output = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "gsm8k", "gsm8k_sample_miles.jsonl")
-    )
+    default_input = os.path.abspath(os.path.join(os.path.dirname(__file__), "gsm8k", "gsm8k_sample.jsonl"))
+    default_output = os.path.abspath(os.path.join(os.path.dirname(__file__), "gsm8k", "gsm8k_sample_miles.jsonl"))
 
-    parser = argparse.ArgumentParser(
-        description="Convert Fireworks jsonl data into Miles prompt/label format."
-    )
+    parser = argparse.ArgumentParser(description="Convert Fireworks jsonl data into Miles prompt/label format.")
     parser.add_argument("--input", default=default_input, help="Path to Fireworks jsonl file.")
     parser.add_argument("--output", default=default_output, help="Path to save Miles jsonl file.")
     parser.add_argument("--prompt-key", default="prompt", help="Key name for prompt in output jsonl.")

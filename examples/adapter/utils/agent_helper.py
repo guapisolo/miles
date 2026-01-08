@@ -68,6 +68,7 @@ def call_llm(request: InitRequest, messages: list[dict[str, Any]]) -> ChatComple
         "extra_body": {**extra_body_params},
     }
 
+    print(f"payload: {payload}")
     client = OpenAI(base_url=base_url, api_key="EMPTY")
     json_response = client.chat.completions.with_raw_response.create(**payload)
     response = ChatCompletionResponse.model_validate(json_response.parse().model_dump())

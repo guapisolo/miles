@@ -1,3 +1,4 @@
 
 agent_base_url: http://127.0.0.1:8000
-reward_function_path: examples.adapter.gsm8k.evaluator.gsm8k_reward_row
+# reward_function_path: examples.adapter.math.gsm8k_evaluator.gsm8k_reward_row
+reward_function_path: examples.adapter.math.deepscaler_evaluator.deepscaler_reward_row

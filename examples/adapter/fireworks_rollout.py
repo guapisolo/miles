@@ -74,8 +74,6 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     # TODO: better use miles router to handle the responses
 
     messages = resp["result"]
-    # print(f"messages: {messages}")
-    sample.response = messages[-1]["content"]
     tokenizer, mask_gen = _get_tokenizer_and_mask_generator(args, state)
     token_ids, loss_mask = mask_gen.get_loss_mask(messages, tools=tools)
     response_length = mask_gen.get_response_lengths([loss_mask])[0]
@@ -85,4 +83,5 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     sample.loss_mask = loss_mask[-response_length:]
 
     sample.reward = await custom_reward(args, messages, sample.label)
+    # print(f"messages: {messages}, reward: {sample.reward}")
     return sample

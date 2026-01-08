@@ -1,14 +1,13 @@
 # Adapted from https://github.com/eval-protocol/quickstart-gsm8k
 import logging
 import re
-from typing import Optional
 
 from eval_protocol.models import EvaluateResult, EvaluationRow
 
 logger = logging.getLogger(__name__)
 
 
-def extract_answer_digits(ground_truth: str) -> Optional[str]:
+def extract_answer_digits(ground_truth: str) -> str | None:
     if not ground_truth:
         return None
 
