@@ -1,16 +1,11 @@
-import logging
 from typing import Any
 
 import uvicorn
-from eval_protocol import FireworksTracingHttpHandler, InitRequest, RolloutIdFilter, Status
+from eval_protocol import InitRequest
 from examples.adapter.utils.agent_helper import call_llm
 from fastapi import FastAPI
 
 app = FastAPI()
-
-# Configure Fireworks tracing handler globally
-fireworks_handler = FireworksTracingHttpHandler()
-logging.getLogger().addHandler(fireworks_handler)
 
 
 def execute_agent(request: InitRequest) -> list[dict[str, Any]]:
@@ -28,21 +23,21 @@ def execute_agent(request: InitRequest) -> list[dict[str, Any]]:
 @app.post("/init")
 def init(request: InitRequest):
     # Create rollout-specific logger with filter
-    rollout_logger = logging.getLogger(f"eval_server.{request.metadata.rollout_id}")
-    rollout_logger.addFilter(RolloutIdFilter(request.metadata.rollout_id))
+    # rollout_logger = logging.getLogger(f"eval_server.{request.metadata.rollout_id}")
+    # rollout_logger.addFilter(RolloutIdFilter(request.metadata.rollout_id))
 
     try:
         result = execute_agent(request)
 
-        rollout_logger.info(
-            f"Rollout {request.metadata.rollout_id} completed", extra={"status": Status.rollout_finished()}
-        )
+        # rollout_logger.info(
+        #     f"Rollout {request.metadata.rollout_id} completed", extra={"status": Status.rollout_finished()}
+        # )
 
         return {"status": "success", "result": result}
-    except Exception as exc:
-        rollout_logger.error(
-            f"Rollout {request.metadata.rollout_id} failed: {exc}", extra={"status": Status.rollout_error(str(exc))}
-        )
+    except Exception:
+        # rollout_logger.error(
+        #     f"Rollout {request.metadata.rollout_id} failed: {exc}", extra={"status": Status.rollout_error(str(exc))}
+        # )
         raise
 
 

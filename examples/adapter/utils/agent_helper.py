@@ -1,7 +1,9 @@
+import logging
+import time
 from typing import Any
 
+import httpx
 from eval_protocol import InitRequest
-from openai import OpenAI
 from sglang.srt.entrypoints.openai.protocol import ChatCompletionResponse
 
 OPENAI_COMPATIBLE_PARAMS = {
@@ -29,6 +31,13 @@ OPENAI_COMPATIBLE_PARAMS = {
     "reasoning_effort",
 }
 
+logger = logging.getLogger(__name__)
+_HTTP_CLIENT: httpx.Client | None = None
+_HTTP_BASE_URL: str | None = None
+_HTTP_TIMEOUT_SECONDS = 60.0
+_HTTP_MAX_RETRIES = 60
+_HTTP_RETRY_INTERVAL_SECONDS = 1.0
+
 
 def build_openai_compatible_params(
     completion_params: dict[str, Any],
@@ -52,6 +61,16 @@ def _normalize_base_url(base_url: str | None) -> str:
     return base_url
 
 
+def _get_http_client(base_url: str) -> httpx.Client:
+    global _HTTP_CLIENT, _HTTP_BASE_URL
+    if _HTTP_CLIENT is None or _HTTP_BASE_URL != base_url:
+        if _HTTP_CLIENT is not None:
+            _HTTP_CLIENT.close()
+        _HTTP_BASE_URL = base_url
+        _HTTP_CLIENT = httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS)
+    return _HTTP_CLIENT
+
+
 def call_llm(request: InitRequest, messages: list[dict[str, Any]]) -> ChatCompletionResponse:
     base_url = _normalize_base_url(request.model_base_url)
     completion_params = dict(request.completion_params or {})
@@ -69,7 +88,19 @@ def call_llm(request: InitRequest, messages: list[dict[str, Any]]) -> ChatComple
     }
 
     print(f"payload: {payload}")
-    client = OpenAI(base_url=base_url, api_key="EMPTY")
-    json_response = client.chat.completions.with_raw_response.create(**payload)
-    response = ChatCompletionResponse.model_validate(json_response.parse().model_dump())
+    url = f"{base_url}/chat/completions"
+    client = _get_http_client(base_url)
+    response = None
+    for attempt in range(1, _HTTP_MAX_RETRIES + 1):
+        try:
+            http_response = client.post(url, json=payload)
+            http_response.raise_for_status()
+            response = http_response.json()
+            break
+        except httpx.RequestError:
+            if attempt == _HTTP_MAX_RETRIES:
+                raise
+            logger.warning("OpenAI API error, retrying... (attempt %s/%s)", attempt, _HTTP_MAX_RETRIES)
+            time.sleep(_HTTP_RETRY_INTERVAL_SECONDS)
+    response = ChatCompletionResponse.model_validate(response)
     return response

@@ -19,6 +19,7 @@ from miles.utils.async_utils import run
 from miles.utils.data import Dataset
 from miles.utils.eval_config import EvalDatasetConfig
 from miles.utils.http_utils import get, post
+from miles.utils.mask_utils import MultiTurnLossMaskGenerator
 from miles.utils.misc import SingletonMeta, load_function
 from miles.utils.processing_utils import encode_image_for_rollout_engine, load_processor, load_tokenizer
 from miles.utils.types import Sample
@@ -40,6 +41,7 @@ class GenerateState(metaclass=SingletonMeta):
         self.args = args
         self.tokenizer = load_tokenizer(args.hf_checkpoint, trust_remote_code=True)
         self.processor = load_processor(args.hf_checkpoint, trust_remote_code=True)
+        self.mask_generator = MultiTurnLossMaskGenerator(self.tokenizer, tokenizer_type=args.loss_mask_type)
 
         self.semaphore = asyncio.Semaphore(
             args.sglang_server_concurrency * args.rollout_num_gpus // args.rollout_num_gpus_per_engine

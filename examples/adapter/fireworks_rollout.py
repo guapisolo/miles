@@ -7,11 +7,7 @@ from examples.adapter.fireworks_reward import custom_reward
 
 from miles.rollout.sglang_rollout import GenerateState
 from miles.utils.http_utils import post
-from miles.utils.mask_utils import MultiTurnLossMaskGenerator
 from miles.utils.types import Sample
-
-TOKENIZER = None
-MASK_GENERATOR = None
 
 
 def _get_sglang_base_url(args: Namespace) -> str:
@@ -38,8 +34,8 @@ def _extract_assistant_content(messages: list[dict[str, Any]]) -> str:
     return messages[-1]["content"]
 
 
-def _get_tokenizer_and_mask_generator(args: Namespace, state: GenerateState):
-    return state.tokenizer, MultiTurnLossMaskGenerator(state.tokenizer, tokenizer_type=args.loss_mask_type)
+def _get_tokenizer_and_mask_generator(_args: Namespace, state: GenerateState):
+    return state.tokenizer, state.mask_generator
 
 
 async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, Any]) -> Sample:
@@ -74,6 +70,7 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     # TODO: better use miles router to handle the responses
 
     messages = resp["result"]
+    sample.response = _extract_assistant_content(messages)
     tokenizer, mask_gen = _get_tokenizer_and_mask_generator(args, state)
     token_ids, loss_mask = mask_gen.get_loss_mask(messages, tools=tools)
     response_length = mask_gen.get_response_lengths([loss_mask])[0]
