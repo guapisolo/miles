@@ -39,11 +39,12 @@ ROLLOUT_ARGS=(
    --prompt-data /root/dapo-math-17k/dapo-math-17k.jsonl
    --input-key prompt
    --label-key label
-   --num-rollout 1000
+   --num-rollout 300
+   --rollout-shuffle
    --rm-type placeholder 
    --rollout-batch-size 32
    --n-samples-per-prompt 8
-   --rollout-max-response-len 16384
+   --rollout-max-response-len 8192
    --rollout-temperature 1
    --global-batch-size 256
    --balance-data
@@ -58,7 +59,7 @@ EVAL_ARGS=(
 )
 
 PERF_ARGS=(
-   --tensor-model-parallel-size 1
+   --tensor-model-parallel-size 2
    --sequence-parallel
    --pipeline-model-parallel-size 1
    --context-parallel-size 1
@@ -117,7 +118,7 @@ MISC_ARGS=(
 )
 
 CUSTOM_ARGS=(
-    --custom-config-path examples/adapter/config.yaml
+    --custom-config-path examples/adapter/math/dapo_config.yaml
     --custom-generate-function-path examples.adapter.fireworks_rollout.generate
 )
 
@@ -127,7 +128,8 @@ EXTRA_ARGS=${EXTRA_ARGS:-""}
 export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
 # export CUDA_VISIBLE_DEVICES=4,5,6,7
 
-python3 examples/adapter/math/agent.py > agent.log &
+# python3 examples/adapter/math/agent.py > agent.log &
+(sleep 10 && python3 examples/adapter/math/agent.py > agent.log 2>&1) &
 
 ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
 

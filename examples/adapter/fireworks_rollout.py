@@ -83,5 +83,5 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     sample.loss_mask = loss_mask[-response_length:]
 
     sample.reward = await custom_reward(args, messages, sample.label)
-    # print(f"messages: {messages}, reward: {sample.reward}")
+    # print(f"messages: {messages}, label: {sample.label}, reward: {sample.reward}")
     return sample
