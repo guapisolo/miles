@@ -8,26 +8,26 @@ from fastapi import FastAPI
 app = FastAPI()
 
 
-def execute_agent(request: InitRequest) -> list[dict[str, Any]]:
+async def execute_agent(request: InitRequest) -> list[dict[str, Any]]:
     """Minimal GSM8K agent flow: call the SGLang OpenAI-compatible endpoint."""
 
     messages = [msg.dump_mdoel_for_chat_completion_request() for msg in (request.messages or [])]
 
     # ... agent logic ...
 
-    response = call_llm(request, messages)
+    response = await call_llm(request, messages)
     messages.append(response.choices[0].message.model_dump())
     return messages
 
 
 @app.post("/init")
-def init(request: InitRequest):
+async def init(request: InitRequest):
     # Create rollout-specific logger with filter
     # rollout_logger = logging.getLogger(f"eval_server.{request.metadata.rollout_id}")
     # rollout_logger.addFilter(RolloutIdFilter(request.metadata.rollout_id))
 
     try:
-        result = execute_agent(request)
+        result = await execute_agent(request)
 
         # rollout_logger.info(
         #     f"Rollout {request.metadata.rollout_id} completed", extra={"status": Status.rollout_finished()}

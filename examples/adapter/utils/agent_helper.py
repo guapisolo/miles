@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from typing import Any
@@ -32,11 +33,12 @@ OPENAI_COMPATIBLE_PARAMS = {
 }
 
 logger = logging.getLogger(__name__)
-_HTTP_CLIENT: httpx.Client | None = None
+_HTTP_CLIENT: httpx.AsyncClient | None = None
 _HTTP_BASE_URL: str | None = None
 _HTTP_TIMEOUT_SECONDS = 60.0
 _HTTP_MAX_RETRIES = 60
 _HTTP_RETRY_INTERVAL_SECONDS = 1.0
+_HTTP_CLIENT_LOCK = asyncio.Lock()
 
 
 def build_openai_compatible_params(
@@ -61,17 +63,24 @@ def _normalize_base_url(base_url: str | None) -> str:
     return base_url
 
 
-def _get_http_client(base_url: str) -> httpx.Client:
+HTTP_CLIENT_CONCURRENCY = 2048
+
+
+async def _get_http_client(base_url: str) -> httpx.AsyncClient:
     global _HTTP_CLIENT, _HTTP_BASE_URL
-    if _HTTP_CLIENT is None or _HTTP_BASE_URL != base_url:
-        if _HTTP_CLIENT is not None:
-            _HTTP_CLIENT.close()
-        _HTTP_BASE_URL = base_url
-        _HTTP_CLIENT = httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS)
-    return _HTTP_CLIENT
+    async with _HTTP_CLIENT_LOCK:
+        if _HTTP_CLIENT is None or _HTTP_BASE_URL != base_url:
+            if _HTTP_CLIENT is not None:
+                await _HTTP_CLIENT.aclose()
+            _HTTP_BASE_URL = base_url
+            _HTTP_CLIENT = httpx.AsyncClient(
+                limits=httpx.Limits(max_connections=HTTP_CLIENT_CONCURRENCY),
+                timeout=httpx.Timeout(None),
+            )
+        return _HTTP_CLIENT
 
 
-def call_llm(request: InitRequest, messages: list[dict[str, Any]]) -> ChatCompletionResponse:
+async def call_llm(request: InitRequest, messages: list[dict[str, Any]]) -> ChatCompletionResponse:
     base_url = _normalize_base_url(request.model_base_url)
     completion_params = dict(request.completion_params or {})
     model = completion_params.pop("model", None) or "default"
@@ -87,13 +96,12 @@ def call_llm(request: InitRequest, messages: list[dict[str, Any]]) -> ChatComple
         "extra_body": {**extra_body_params},
     }
 
-    print(f"payload: {payload}")
     url = f"{base_url}/chat/completions"
-    client = _get_http_client(base_url)
+    client = await _get_http_client(base_url)
     response = None
     for attempt in range(1, _HTTP_MAX_RETRIES + 1):
         try:
-            http_response = client.post(url, json=payload)
+            http_response = await client.post(url, json=payload)
             http_response.raise_for_status()
             response = http_response.json()
             break
