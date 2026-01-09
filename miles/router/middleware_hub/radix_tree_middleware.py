@@ -66,21 +66,25 @@ class RadixTreeMiddleware(BaseHTTPMiddleware):
         self.router.radix_tree = self.radix_tree
 
     async def dispatch(self, request: Request, call_next):
-
         path = request.url.path
+        if path == "/generate":
+            return await self._generate(request, call_next)
+        if path == "/retrieve_from_text":
+            return await self._retrieve_from_text(request)
+        return await call_next(request)
 
-        if path != "/generate":
-            return await call_next(request)
-
+    async def _generate(self, request: Request, call_next):
         request_json = await request.json()
         if "text" in request_json:
             input_text = request_json.pop("text", "")
         elif "input_ids" in request_json:
             input_text = self.tokenizer.decode(request_json["input_ids"])
         else:
-            input_text = None
+            input_text = ""
+
         if not input_text:
             return await call_next(request)
+
         input_tokens, input_logprobs, input_loss_mask = self.radix_tree.retrieve_from_text(
             input_text, return_logprob=True
         )
@@ -153,6 +157,20 @@ class RadixTreeMiddleware(BaseHTTPMiddleware):
                     if getattr(self.router, "verbose", False):
                         print(f"[miles-router] Warning: Failed to cache trajectory: {e}")
         return response
+
+    async def _retrieve_from_text(self, request: Request):
+        payload = await request.json()
+        text = payload.get("text", "")
+        token_ids, logp, loss_mask = self.radix_tree.retrieve_from_text(text, return_logprob=True)
+        result = {
+            "tokens": token_ids,
+            "response": text,
+            "loss_mask": loss_mask,
+            "token_length": len(token_ids),
+            "loss_mask_length": len(loss_mask),
+            "rollout_logp": logp,
+        }
+        return JSONResponse(result)
 
 
 async def postprocess_sample_with_radix_tree(args, sample: Sample, output: dict):
