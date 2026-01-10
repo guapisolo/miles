@@ -173,13 +173,13 @@ class RadixTreeMiddleware(BaseHTTPMiddleware):
         return JSONResponse(result)
 
 
-async def postprocess_sample_with_radix_tree(args, sample: Sample, output: dict):
+async def postprocess_sample_with_radix_tree(args, sample: Sample, text: str):
     assert not args.partial_rollout, "Currently partial rollout is not supported when using miles router"
     retrieve_url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/retrieve_from_text"
-    retrieve_payload = {"text": sample.prompt + output["text"], "return_logp": True}
+    retrieve_payload = {"text": sample.prompt + text, "return_logp": True}
     retrieve_output = await post(retrieve_url, retrieve_payload)
     sample.tokens = retrieve_output["tokens"]
-    sample.response += output["text"]
+    sample.response += text
     sample.loss_mask = retrieve_output["loss_mask"]
     sample.response_length = get_response_lengths([sample.loss_mask])[0]
     sample.loss_mask = sample.loss_mask[-sample.response_length :]

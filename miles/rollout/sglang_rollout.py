@@ -156,7 +156,7 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     if args.use_miles_router and "RadixTreeMiddleware" in args.miles_router_middleware_paths:
         from miles.router.middleware_hub.radix_tree_middleware import postprocess_sample_with_radix_tree
 
-        sample = await postprocess_sample_with_radix_tree(args, sample, output)
+        sample = await postprocess_sample_with_radix_tree(args, sample, output["text"])
     else:
         if "output_token_logprobs" in output["meta_info"]:
             new_response_tokens = [item[1] for item in output["meta_info"]["output_token_logprobs"]]

@@ -1,3 +1,4 @@
+from miles.router.middleware_hub.radix_tree_middleware import postprocess_sample_with_radix_tree
 from miles.utils.http_utils import post
 from miles.utils.types import Sample
 
@@ -29,4 +30,7 @@ async def openai_generate(args, sample: Sample, sampling_params: dict):
         sample.status = Sample.Status.TRUNCATED
     elif finish_reason == "stop":
         sample.status = Sample.Status.COMPLETED
+
+    sample = await postprocess_sample_with_radix_tree(args, sample, content)
+
     return sample
