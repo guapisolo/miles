@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# 基于 scripts/run-qwen3-4B.sh，增加 OpenAI 兼容中间件与自定义 generate，用于验证 openai_format 链路。
 set -euo pipefail
 
 # for rerun the task
@@ -101,7 +100,7 @@ WANDB_ARGS=(
    --use-wandb
    --wandb-project miles-prod
    --wandb-group qwen3-4B-openai-format
-   --wandb-key ${WANDB_KEY:-""}
+   --wandb-key ${WANDB_KEY}
 )
 
 SGLANG_ARGS=(
