@@ -11,7 +11,7 @@ from miles.utils.types import Sample
 
 
 def _get_sglang_base_url(args: Namespace) -> str:
-    return f"http://{args.sglang_router_ip}:{args.sglang_router_port}/v1"
+    return f"http://{args.sglang_router_ip}:{args.sglang_router_port}"
 
 
 def _blank_rollout_metadata() -> RolloutMetadata:
@@ -44,7 +44,7 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
         sample.status == Sample.Status.PENDING or sample.status == Sample.Status.ABORTED
     ), f"Sample status is {sample.status}"
 
-    state = GenerateState(args)
+    # state = GenerateState(args)
     init_url = f"{args.agent_base_url}/init"
     messages = _coerce_messages(sample.prompt)
     tools = sample.metadata.get("tools") if sample.metadata else None
@@ -70,14 +70,6 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     # TODO: better use miles router to handle the responses
 
     messages = resp["result"]
-    sample.response = _extract_assistant_content(messages)
-    tokenizer, mask_gen = _get_tokenizer_and_mask_generator(args, state)
-    token_ids, loss_mask = mask_gen.get_loss_mask(messages, tools=tools)
-    response_length = mask_gen.get_response_lengths([loss_mask])[0]
-
-    sample.tokens = token_ids
-    sample.response_length = response_length
-    sample.loss_mask = loss_mask[-response_length:]
 
     sample.reward = await custom_reward(args, messages, sample.label)
     # print(f"messages: {messages}, label: {sample.label}, reward: {sample.reward}")
