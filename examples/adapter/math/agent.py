@@ -2,7 +2,7 @@ from typing import Any
 
 import uvicorn
 from eval_protocol import InitRequest
-from examples.adapter.utils.agent_helper import call_llm
+from examples.adapter.utils.agent_helper import post
 from fastapi import FastAPI
 
 app = FastAPI()
@@ -11,11 +11,20 @@ app = FastAPI()
 async def execute_agent(request: InitRequest) -> list[dict[str, Any]]:
     """Minimal GSM8K agent flow: call the SGLang OpenAI-compatible endpoint."""
 
-    messages = [msg.dump_mdoel_for_chat_completion_request() for msg in (request.messages or [])]
-
-    # ... agent logic ...
-
-    response = await call_llm(request, messages)
+    chat_completion_url = f"{request.model_base_url}/chat/completions"
+    completion_params = (
+        request.completion_params
+    )  # These are default params for the request. You can modify them as you like.
+    messages = [
+        msg.dump_mdoel_for_chat_completion_request() for msg in (request.messages or [])
+    ]  # fetch messages from the request
+    payload = {
+        "model": completion_params.model,
+        "messages": messages,
+        "tools": request.tools,
+        **completion_params,
+    }
+    response = await post(chat_completion_url, payload)
     messages.append(response.choices[0].message.model_dump())
     return messages
 
