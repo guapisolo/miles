@@ -122,8 +122,8 @@ MISC_ARGS=(
 
 CUSTOM_ARGS=(
    --use-miles-router
-   --miles-router-middleware-paths miles.router.middleware_hub.radix_tree_middleware:RadixTreeMiddleware miles.router.middleware_hub.openai_compat_middleware:OpenAICompatMiddleware
-   --custom-generate-function-path examples/openai_format/openai_generate.py:openai_generate
+   --miles-router-middleware-paths miles.router.middleware_hub.openai_compat_middleware.OpenAICompatMiddleware
+   --custom-generate-function-path examples.openai_format.openai_generate.openai_generate
 )
 
 # launch the master node of ray in container
@@ -156,4 +156,4 @@ ray job submit --address="http://127.0.0.1:8265" \
    ${EVAL_ARGS[@]} \
    ${SGLANG_ARGS[@]} \
    ${MISC_ARGS[@]} \
-   "$@"
+   ${CUSTOM_ARGS[@]}
