@@ -6,6 +6,7 @@ from eval_protocol.types.remote_rollout_processor import RolloutMetadata
 from examples.adapter.fireworks_reward import custom_reward
 
 from miles.rollout.sglang_rollout import GenerateState
+from miles.router.middleware_hub.radix_tree_middleware import postprocess_sample_from_messages
 from miles.utils.http_utils import post
 from miles.utils.types import Sample
 
@@ -44,7 +45,7 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
         sample.status == Sample.Status.PENDING or sample.status == Sample.Status.ABORTED
     ), f"Sample status is {sample.status}"
 
-    # state = GenerateState(args)
+    state = GenerateState(args)
     init_url = f"{args.agent_base_url}/init"
     messages = _coerce_messages(sample.prompt)
     tools = sample.metadata.get("tools") if sample.metadata else None
@@ -70,6 +71,9 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     # TODO: better use miles router to handle the responses
 
     messages = resp["result"]
+
+    sample = await postprocess_sample_from_messages(args, sample, messages, state.tokenizer)
+    sample.status = Sample.Status.COMPLETED
 
     sample.reward = await custom_reward(args, messages, sample.label)
     # print(f"messages: {messages}, label: {sample.label}, reward: {sample.reward}")

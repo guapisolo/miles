@@ -12,12 +12,11 @@ async def execute_agent(request: InitRequest) -> list[dict[str, Any]]:
     """Minimal GSM8K agent flow: call the SGLang OpenAI-compatible endpoint."""
 
     chat_completion_url = f"{request.model_base_url}/chat/completions"
-    completion_params = (
-        request.completion_params
-    )  # These are default params for the request. You can modify them as you like.
-    messages = [
-        msg.dump_mdoel_for_chat_completion_request() for msg in (request.messages or [])
-    ]  # fetch messages from the request
+    # These are default params for the request. You can modify them as you like.
+    completion_params = request.completion_params
+    # fetch messages from the request
+    messages = [msg.dump_mdoel_for_chat_completion_request() for msg in (request.messages or [])]
+    # build payload for the chat completion request
     payload = {
         "model": completion_params.model,
         "messages": messages,
