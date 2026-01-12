@@ -44,6 +44,7 @@ class OpenAICompatMiddleware(RadixTreeMiddleware):
 
         prompt_text = self.tokenizer.apply_chat_template(
             chat_request.messages,
+            tools=chat_request.tools,
             tokenize=False,
             add_generation_prompt=True,
             **self.chat_template_kwargs,

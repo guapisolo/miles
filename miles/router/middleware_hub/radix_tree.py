@@ -576,13 +576,14 @@ class StringRadixTrie:
         for child in node.children:
             self._print_node(child, depth + 1)
 
-    def retrieve_from_text(self, text: str, return_logprob: bool = True):
+    def retrieve_from_text(self, text: str, return_logprob: bool = True, force_match: bool = False):
         """
         Get tokens from text by looking up in radix tree or using tokenizer.
         Also fetches weight version from worker during this operation.
         Args:
             text: Input text to get tokens for
             return_logprob: If True, also return log probabilities
+            force_match: If True, raise an error if the match is not an exact match
         Returns:
             List of token IDs corresponding to the input text if return_logprob is False.
             Tuple of (token_ids, logp) if return_logprob is True.
@@ -592,6 +593,8 @@ class StringRadixTrie:
 
         # If we have a match and it covers the entire text, return the tokens
         if result.matched_prefix and result.token_ids:
+            if force_match and len(result.remaining_string) > 0:
+                raise ValueError(f"Force match is True but remaining string is not empty: {result.remaining_string}")
             additional_tokens = self.tokenizer(result.remaining_string, add_special_tokens=False)["input_ids"]
             return (
                 result.token_ids + additional_tokens,

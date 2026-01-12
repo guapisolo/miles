@@ -39,7 +39,8 @@ ROLLOUT_ARGS=(
    --prompt-data /root/dapo-math-17k/dapo-math-17k.jsonl
    --input-key prompt
    --label-key label
-   --apply-chat-template
+   # --apply-chat-template 
+   # When using OpenAI format, we directly use orignal prompt message as the prompt input without applying chat template
    # --rollout-shuffle
    --rm-type deepscaler
    --num-rollout 3000

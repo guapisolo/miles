@@ -1,5 +1,6 @@
 import asyncio
 import json
+from typing import Any
 
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -161,7 +162,9 @@ class RadixTreeMiddleware(BaseHTTPMiddleware):
     async def _retrieve_from_text(self, request: Request):
         payload = await request.json()
         text = payload.get("text", "")
-        token_ids, logp, loss_mask = self.radix_tree.retrieve_from_text(text, return_logprob=True)
+        token_ids, logp, loss_mask = self.radix_tree.retrieve_from_text(
+            text, return_logprob=True, force_match=payload.get("force_match", False)
+        )
         result = {
             "tokens": token_ids,
             "response": text,
@@ -183,5 +186,38 @@ async def postprocess_sample_with_radix_tree(args, sample: Sample, text: str):
     sample.loss_mask = retrieve_output["loss_mask"]
     sample.response_length = get_response_lengths([sample.loss_mask])[0]
     sample.loss_mask = sample.loss_mask[-sample.response_length :]
+    sample.rollout_log_probs = retrieve_output["rollout_logp"][-sample.response_length :]
+    return sample
+
+
+async def postprocess_sample_from_messages(args, sample: Sample, messages: list[dict[str, Any]], tokenizer):
+    def apply_chat_template(input: list[dict[str, Any]]):
+        return tokenizer.apply_chat_template(
+            input,
+            tools=sample.metadata.get("tools", None),
+            tokenize=False,
+            add_generation_prompt=True,
+            **(args.apply_chat_template_kwargs or {}),
+        )
+
+    # Notice: Now we put chat messages in sample.prompt, we should
+    assert args.apply_chat_template is False, "apply_chat_template should be False when using OpenAI format"
+    full_text = apply_chat_template(messages)
+
+    retrieve_url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/retrieve_from_text"
+    retrieve_payload = {"text": full_text, "return_logp": True, "force_match": True}
+    # Here we force the match to be exact, because we assume the last message is assistant message,
+    # and all the previous messages have been put into radix tree.
+    retrieve_output = await post(retrieve_url, retrieve_payload)
+
+    prompt_text = apply_chat_template(sample.prompt)
+    # TITO is already supported in radix tree, we can directly got response part by subtracting prompt part.
+    prompt_tokens = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+    prompt_tokens_length = len(prompt_tokens)
+
+    sample.tokens = retrieve_output["tokens"]
+    sample.response = full_text[len(prompt_text) :]
+    sample.response_length = len(retrieve_output["tokens"]) - prompt_tokens_length
+    sample.loss_mask = retrieve_output["loss_mask"][-sample.response_length :]
     sample.rollout_log_probs = retrieve_output["rollout_logp"][-sample.response_length :]
     return sample

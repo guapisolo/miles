@@ -1,20 +1,25 @@
 from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest
 
-from miles.router.middleware_hub.radix_tree_middleware import postprocess_sample_with_radix_tree
+from miles.rollout.sglang_rollout import GenerateState
+from miles.router.middleware_hub.radix_tree_middleware import postprocess_sample_from_messages
 from miles.utils.http_utils import post
 from miles.utils.openai_utils import sampling_params_to_chat_request
 from miles.utils.types import Sample
 
 
 async def openai_generate(args, sample: Sample, sampling_params: dict):
-    messages = sample.prompt if isinstance(sample.prompt, list) else [{"role": "user", "content": sample.prompt}]
+    assert (
+        args.apply_chat_template is False
+    ), "OpenAI format does not support apply_chat_template during data preparation"
+    assert isinstance(sample.prompt, list), "OpenAI format only supports list of messages as prompt"
+    messages = sample.prompt
+    state = GenerateState(args)
     model = getattr(args, "hf_checkpoint", None) or "default"
     chat_request = sampling_params_to_chat_request(messages, model, sampling_params)
 
     data = await openai_rollout(args, chat_request)
 
     choice = data["choices"][0]
-    content = choice["message"]["content"]
     finish_reason = choice.get("finish_reason")
 
     if finish_reason == "length":
@@ -22,7 +27,7 @@ async def openai_generate(args, sample: Sample, sampling_params: dict):
     elif finish_reason == "stop":
         sample.status = Sample.Status.COMPLETED
 
-    sample = await postprocess_sample_with_radix_tree(args, sample, content)
+    sample = await postprocess_sample_from_messages(args, sample, messages, state.tokenizer)
 
     return sample
 
