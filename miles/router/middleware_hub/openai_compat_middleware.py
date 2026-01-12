@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from fastapi import Request
@@ -17,7 +18,7 @@ class OpenAICompatMiddleware(RadixTreeMiddleware):
 
     async def dispatch(self, request, call_next):
         if request.url.path == "/v1/chat/completions":
-            return await self.chat_completions(request)
+            return await self.chat_completions(request, call_next)
         return await super().dispatch(request, call_next)
 
     def _build_generate_payload(self, prompt_text: str, chat_request: ChatCompletionRequest) -> dict[str, Any]:
@@ -27,7 +28,7 @@ class OpenAICompatMiddleware(RadixTreeMiddleware):
             self.tokenizer,
         )
 
-    async def chat_completions(self, request: Request):
+    async def chat_completions(self, request: Request, call_next):
         payload = await request.json()
         try:
             chat_request = ChatCompletionRequest.model_validate(payload)
@@ -52,14 +53,21 @@ class OpenAICompatMiddleware(RadixTreeMiddleware):
 
         generate_payload = self._build_generate_payload(prompt_text, chat_request)
 
-        worker_url = self.router._use_url()
-        url = f"{worker_url}/generate"
-        try:
-            response = await self.router.client.post(url, json=generate_payload)
-            response.raise_for_status()
-            output = response.json()
-        finally:
-            self.router._finish_url(worker_url)
+        # Route chat request through RadixTreeMiddleware while proxying to worker /generate.
+        request._json = generate_payload
+
+        async def _call_generate(inner_request: Request):
+            worker_url = self.router._use_url()
+            url = f"{worker_url}/generate"
+            try:
+                response = await self.router.client.post(url, json=await inner_request.json())
+                response.raise_for_status()
+                return JSONResponse(content=response.json())
+            finally:
+                self.router._finish_url(worker_url)
+
+        response = await super()._generate(request, _call_generate)
+        output = json.loads(response.body.decode("utf-8"))
 
         model = chat_request.model or getattr(self.router.args, "hf_checkpoint", "default")
         prompt_tokens = len(generate_payload.get("input_ids") or [])
