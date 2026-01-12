@@ -64,6 +64,9 @@ def chat_request_to_generate_payload(
     }
 
 
+# TODO: this is a temporary build response function for OpenAI format.
+# We'd better directly use sglang OpenAIServingChat _build_chat_response to make sure
+# OpenAI format output always align with SGLang's pipeline.
 def build_chat_response(
     model: str,
     output: dict[str, Any],
@@ -74,7 +77,7 @@ def build_chat_response(
     text = output.get("text", "")
 
     logprobs_field = None
-    output_token_logprobs = meta.get("output_token_logprobs") or output.get("output_token_logprobs")
+    output_token_logprobs = meta.get("output_token_logprobs")
     if output_token_logprobs:
         token_ids = [item[1] for item in output_token_logprobs]
         token_logps = [item[0] for item in output_token_logprobs]
@@ -96,7 +99,7 @@ def build_chat_response(
     )
 
     # TODO: Temporarily hard code stop token removal for chat template.
-    if text.endswith("<|im_end|>"):
+    if text.endswith("<|im_end|>") or text.endswith("<|im_end>\n"):
         text = text[:-10]
 
     choice = ChatCompletionResponseChoice(

@@ -40,7 +40,7 @@ ROLLOUT_ARGS=(
    --input-key prompt
    --label-key label
    # --apply-chat-template 
-   # When using OpenAI format, we directly use orignal prompt message as the prompt input without applying chat template
+   # When using OpenAI format, we directly use original prompt message as the prompt input without applying chat template to avoid redundant tokenize and detokenize.
    # --rollout-shuffle
    --rm-type deepscaler
    --num-rollout 3000
