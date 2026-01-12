@@ -24,7 +24,7 @@ class OpenAICompatMiddleware(RadixTreeMiddleware):
         return chat_request_to_generate_payload(
             prompt_text,
             chat_request,
-            lambda text: self.router.radix_tree.retrieve_from_text(text, return_logprob=True)[0],
+            self.tokenizer,
         )
 
     async def chat_completions(self, request: Request):

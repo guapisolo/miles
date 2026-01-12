@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Callable
 from typing import Any
 
 from sglang.srt.entrypoints.openai.protocol import (
@@ -11,6 +10,7 @@ from sglang.srt.entrypoints.openai.protocol import (
     ToolCallConstraint,
     UsageInfo,
 )
+from transformers import AutoTokenizer
 
 
 def sampling_params_to_chat_request(
@@ -34,20 +34,10 @@ def sampling_params_to_chat_request(
     return ChatCompletionRequest.model_validate(data)
 
 
-def openai_payload_to_generate(
-    prompt_text: str, retrieve_input_ids: Callable[[str], list[int]], payload: dict[str, Any]
-) -> dict[str, Any]:
-    try:
-        chat_request = ChatCompletionRequest.model_validate(payload)
-    except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"Invalid ChatCompletionRequest payload: {exc}") from exc
-    return chat_request_to_generate_payload(prompt_text, chat_request, retrieve_input_ids)
-
-
 def chat_request_to_generate_payload(
     prompt_text: str,
     chat_request: ChatCompletionRequest,
-    retrieve_input_ids: Callable[[str], list[int]],
+    tokenizer: AutoTokenizer,
     model_generation_config: dict[str, Any] | None = None,
     tool_call_constraint: ToolCallConstraint | None = None,
 ) -> dict[str, Any]:
@@ -57,14 +47,16 @@ def chat_request_to_generate_payload(
     else:
         stop_list = stop_field or []
 
+    # pick params from chat request first, then default model params
     sampling_params = chat_request.to_sampling_params(
         stop_list, model_generation_config or chat_request._DEFAULT_SAMPLING_PARAMS, tool_call_constraint
     )
 
+    tokens = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
     # Note: return_routed_experts. are not supported yet.
-    # image_data is to be tested.
+    # TODO: How to handle image_data?
     return {
-        "input_ids": retrieve_input_ids(prompt_text),
+        "input_ids": tokens,
         "sampling_params": sampling_params,
         "return_logprob": True,
         "return_text_in_logprobs": True,  # Should keep this true to map token/logprob indices to text indices.
@@ -102,6 +94,10 @@ def build_chat_response(
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
     )
+
+    # TODO: Temporarily hard code stop token removal for chat template.
+    if text.endswith("<|im_end|>"):
+        text = text[:-10]
 
     choice = ChatCompletionResponseChoice(
         index=0,

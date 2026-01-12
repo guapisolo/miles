@@ -192,11 +192,12 @@ async def postprocess_sample_with_radix_tree(args, sample: Sample, text: str):
 
 async def postprocess_sample_from_messages(args, sample: Sample, messages: list[dict[str, Any]], tokenizer):
     def apply_chat_template(input: list[dict[str, Any]]):
+        # Notice: We should not add generation prompt here, because we're post processing the sample.
         return tokenizer.apply_chat_template(
             input,
             tools=sample.metadata.get("tools", None),
             tokenize=False,
-            add_generation_prompt=True,
+            add_generation_prompt=False,
             **(args.apply_chat_template_kwargs or {}),
         )
 
