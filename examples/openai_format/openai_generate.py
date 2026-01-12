@@ -1,3 +1,4 @@
+import logging
 from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest
 
 from miles.rollout.sglang_rollout import GenerateState
@@ -5,6 +6,8 @@ from miles.router.middleware_hub.radix_tree_middleware import postprocess_sample
 from miles.utils.http_utils import post
 from miles.utils.openai_utils import sampling_params_to_chat_request
 from miles.utils.types import Sample
+
+logger = logging.getLogger(__name__)
 
 
 async def openai_generate(args, sample: Sample, sampling_params: dict):
@@ -17,18 +20,10 @@ async def openai_generate(args, sample: Sample, sampling_params: dict):
     model = getattr(args, "hf_checkpoint", None) or "default"
     chat_request = sampling_params_to_chat_request(messages, model, sampling_params)
 
-    data = await openai_rollout(args, chat_request)
-
-    choice = data["choices"][0]
-    finish_reason = choice.get("finish_reason")
-
-    if finish_reason == "length":
-        sample.status = Sample.Status.TRUNCATED
-    elif finish_reason == "stop":
-        sample.status = Sample.Status.COMPLETED
-
+    messages = await openai_rollout(args, chat_request)
+    sample.status = Sample.Status.COMPLETED
     sample = await postprocess_sample_from_messages(args, sample, messages, state.tokenizer)
-
+    # logger.info(f"sample: {sample}")
     return sample
 
 
@@ -36,4 +31,9 @@ async def openai_rollout(args, chat_request: ChatCompletionRequest) -> list:
     base_url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/v1/chat/completions"
     payload = chat_request.model_dump(exclude_none=True)
     data = await post(base_url, payload, max_retries=3)
-    return data
+
+    choice = data["choices"][0]
+    assistant_msg = choice["message"]  # {"role": "assistant", "content": "..."}
+    messages = payload["messages"] + [assistant_msg]
+
+    return messages
