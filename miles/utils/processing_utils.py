@@ -13,7 +13,12 @@ DEFAULT_PATCH_SIZE = 14
 
 
 def load_tokenizer(name_or_path: str, **kwargs):
-    return AutoTokenizer.from_pretrained(name_or_path, **kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(name_or_path, **kwargs)
+    if name_or_path.lower().find("qwen3", 0) != -1:
+        from miles.utils.chat_template_utils import load_qwen3_chat_template
+
+        tokenizer.chat_template = load_qwen3_chat_template()
+    return tokenizer
 
 
 def load_processor(name_or_path: str, **kwargs):
