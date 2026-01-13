@@ -590,11 +590,12 @@ class StringRadixTrie:
         """
         # Call find_longest_prefix to get the match result
         result = self.find_longest_prefix(text)
-
         # If we have a match and it covers the entire text, return the tokens
         if result.matched_prefix and result.token_ids:
             if force_match and len(result.remaining_string) > 0:
-                raise ValueError(f"Force match is True but remaining string is not empty: {result.remaining_string}")
+                raise ValueError(
+                    f"Force match is True but remaining string is not empty: {repr(result.remaining_string)}"
+                )
             additional_tokens = self.tokenizer(result.remaining_string, add_special_tokens=False)["input_ids"]
             return (
                 result.token_ids + additional_tokens,

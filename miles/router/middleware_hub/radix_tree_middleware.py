@@ -121,8 +121,11 @@ class RadixTreeMiddleware(BaseHTTPMiddleware):
 
         if isinstance(response_data, dict) and "text" in response_data and "output_ids" in response_data:
             generated_text = response_data["text"]
-
             full_text = input_text + generated_text
+            # Make sure there is no \n at the end of the full text
+            # TODO: If we use token level radix tree, we can remove this step.
+            if full_text.endswith("\n"):
+                full_text = full_text[:-1]
             if full_text:
                 try:
                     if "output_token_logprobs" in response_data.get("meta_info", {}):
@@ -204,6 +207,12 @@ async def postprocess_sample_from_messages(args, sample: Sample, messages: list[
     # Notice: Now we put chat messages in sample.prompt, we should
     assert args.apply_chat_template is False, "apply_chat_template should be False when using OpenAI format"
     full_text = apply_chat_template(messages)
+
+    # Apply chat template may automatically add \n at the end, but '/generate' endpoint does not append \n sometimes.
+    # We always trim the \n at the end of the full text and radix tree input
+    # TODO: If we use token level radix tree, we can remove this step.
+    if full_text.endswith("\n"):
+        full_text = full_text[:-1]
 
     retrieve_url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/retrieve_from_text"
     retrieve_payload = {"text": full_text, "return_logp": True, "force_match": True}
