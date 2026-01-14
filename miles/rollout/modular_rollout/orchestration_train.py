@@ -148,9 +148,8 @@ async def generate_rollout_async(
 
 class SimpleTrainRolloutFn:
     def __init__(self, input: RolloutFnConstructorInput):
-        self.args = input.args
         self.data_source = input.data_source
-        self.state = GenerateState(self.args)
+        self.state = GenerateState(input.args)
 
     async def __call__(self, input: RolloutFnTrainInput) -> RolloutFnTrainOutput:
         output, aborted_samples = await generate_rollout_async(

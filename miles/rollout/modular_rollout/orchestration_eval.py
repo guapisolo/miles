@@ -112,15 +112,14 @@ async def eval_rollout_single_dataset(
 
 class SimpleEvalRolloutFn:
     def __init__(self, input: RolloutFnConstructorInput):
-        self.args = input.args
         self.prompt_dataset_cache = {}
-        self.state = GenerateState(self.args)
+        self.state = GenerateState(input.args)
 
     async def __call__(self, input: RolloutFnEvalInput) -> RolloutFnEvalOutput:
-        assert not self.args.group_rm, "Group RM is not supported for eval rollout"
+        assert not self.state.args.group_rm, "Group RM is not supported for eval rollout"
 
         coros = []
-        for dataset_cfg in getattr(self.args, "eval_datasets", []) or []:
+        for dataset_cfg in getattr(self.state.args, "eval_datasets", []) or []:
             coros.append(eval_rollout_single_dataset(self.state, dataset_cfg, self.prompt_dataset_cache))
         results_list = await asyncio.gather(*coros)
         results = {}
