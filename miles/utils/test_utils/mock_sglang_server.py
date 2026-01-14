@@ -1,18 +1,14 @@
-import asyncio
 import re
-import socket
-import threading
-import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from transformers import AutoTokenizer
 
 from miles.utils.http_utils import find_available_port
+from miles.utils.test_utils.thread_server import ThreadServer
 
 
 @dataclass(frozen=True)
@@ -38,8 +34,7 @@ class MockSGLangServer:
         self.port = port or find_available_port(30000)
 
         self.app = FastAPI()
-        self.server: uvicorn.Server | None = None
-        self.server_thread: threading.Thread | None = None
+        self._server: ThreadServer | None = None
 
         self._setup_routes()
 
@@ -86,36 +81,12 @@ class MockSGLangServer:
             return JSONResponse(content={"status": "ok"})
 
     def start(self):
-        config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="info")
-        self.server = uvicorn.Server(config)
-
-        def run_server():
-            asyncio.run(self.server.serve())
-
-        self.server_thread = threading.Thread(target=run_server, daemon=True)
-        self.server_thread.start()
-
-        self._wait_for_server_to_start()
-
-    def _wait_for_server_to_start(self):
-        for _ in range(50):
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                result = sock.connect_ex((self.host, self.port))
-                sock.close()
-                if result == 0:
-                    break
-            except Exception:
-                pass
-            time.sleep(0.1)
-        else:
-            raise RuntimeError(f"Failed to start server on {self.host}:{self.port}")
+        self._server = ThreadServer(self.app, host=self.host, port=self.port)
+        self._server.start()
 
     def stop(self):
-        if self.server:
-            self.server.should_exit = True
-        if self.server_thread and self.server_thread.is_alive():
-            self.server_thread.join(timeout=2.0)
+        if self._server is not None:
+            self._server.stop()
 
     @property
     def url(self) -> str:
@@ -127,7 +98,7 @@ def default_process_fn(prompt: str) -> ProcessResult:
     if match:
         num = int(match.group(1))
         ans = 1 + num
-        return ProcessResult(text=f"It is {ans}.", finish_reason="stop")
+        return ProcessResult(text=f"\\boxed{{{ans}}}", finish_reason="stop")
     return ProcessResult(text="I don't understand.", finish_reason="stop")
 
 

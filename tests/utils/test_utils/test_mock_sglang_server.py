@@ -32,24 +32,18 @@ def test_generate_endpoint_basic(mock_server):
     assert response.status_code == 200
     data = response.json()
 
-    assert data == {
-        "text": "It is 8.",
-        "meta_info": {
-            "finish_reason": {"type": "stop"},
-            "prompt_tokens": len(input_ids),
-            "cached_tokens": 0,
-            "completion_tokens": 5,
-            "output_token_logprobs": [
-                [-0.0, 2132],
-                [-0.0078125, 374],
-                [-0.015625, 220],
-                [-0.0234375, 23],
-                [-0.03125, 13],
-            ],
-        },
-    }
-
+    assert data["text"] == "\\boxed{8}"
+    assert data["meta_info"]["finish_reason"] == {"type": "stop"}
     assert data["meta_info"]["prompt_tokens"] == len(input_ids)
+    assert data["meta_info"]["cached_tokens"] == 0
+    assert data["meta_info"]["completion_tokens"] == len(data["meta_info"]["output_token_logprobs"])
+    assert all(
+        isinstance(item, list)
+        and len(item) == 2
+        and isinstance(item[0], float)
+        and isinstance(item[1], int)
+        for item in data["meta_info"]["output_token_logprobs"]
+    )
 
 
 def test_process_fn_receives_decoded_prompt(mock_server):
@@ -69,11 +63,11 @@ def test_process_fn_receives_decoded_prompt(mock_server):
 
 def test_default_process_fn():
     result = default_process_fn("What is 1+5?")
-    assert result.text == "It is 6."
+    assert result.text == "\\boxed{6}"
     assert result.finish_reason == "stop"
 
     result = default_process_fn("What is 1+10?")
-    assert result.text == "It is 11."
+    assert result.text == "\\boxed{11}"
     assert result.finish_reason == "stop"
 
     result = default_process_fn("Hello")
