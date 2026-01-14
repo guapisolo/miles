@@ -1,5 +1,4 @@
 import asyncio
-import random
 import re
 import socket
 import threading
@@ -7,7 +6,6 @@ import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -64,10 +62,7 @@ class MockSGLangServer:
             if process_result.finish_reason == "length":
                 finish_reason_dict["length"] = completion_tokens
 
-            output_token_logprobs = [
-                (-1 / 128 * i, token_id)
-                for i, token_id in enumerate(output_ids)
-            ]
+            output_token_logprobs = [(-1 / 128 * i, token_id) for i, token_id in enumerate(output_ids)]
 
             response = {
                 "text": process_result.text,
