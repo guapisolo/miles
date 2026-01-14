@@ -134,6 +134,10 @@ class TestSupportedRolloutFormats:
 
 
 class TestSupportedGenerateFormats:
+    """
+    Documentation test similar to TestSupportedRolloutFormats
+    """
+
     @pytest.mark.parametrize("evaluation", [False, True])
     def test_format_1_legacy_function_with_evaluation_param(self, make_generate_fn_input, evaluation):
         async def legacy_generate_fn(args, sample, sampling_params, evaluation=False):
