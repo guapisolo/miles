@@ -38,12 +38,14 @@ class RolloutFnEvalInput(RolloutFnBaseInput):
         return True
 
 
+# TODO make it frozen
 @dataclass
 class RolloutFnTrainOutput:
     samples: list[list[Sample]]
     metrics: dict[str, Any] = None
 
 
+# TODO make it frozen
 @dataclass
 class RolloutFnEvalOutput:
     data: dict[str, dict[str, Any]]
@@ -62,8 +64,18 @@ class RolloutFnProtocol(Protocol):
     def __call__(self, input: RolloutFnInput) -> RolloutFnOutput | Awaitable[RolloutFnOutput]: ...
 
 
+@dataclass(frozen=True)
+class GenerateFnInput:
+    pass
+
+
+@dataclass(frozen=True)
+class GenerateFnOutput:
+    pass
+
+
 # TODO: may add add_arguments
 # TODO: may add save/load if need it to be stateful
 @runtime_checkable
 class GenerateFnProtocol(Protocol):
-    def __call__(self, input: RolloutFnInput) -> RolloutFnOutput | Awaitable[RolloutFnOutput]: ...
+    def __call__(self, input: GenerateFnInput) -> Awaitable[GenerateFnOutput]: ...
