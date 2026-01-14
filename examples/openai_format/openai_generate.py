@@ -22,8 +22,14 @@ async def openai_generate(args, sample: Sample, sampling_params: dict):
 
     messages = await openai_rollout(args, chat_request)
     sample.status = Sample.Status.COMPLETED
+    print("[debug] messages: ", repr(messages))
     sample = await postprocess_sample_from_messages(args, sample, messages, state.tokenizer)
-    # logger.info(f"sample: {sample}")
+    print("[debug] sample: ", repr(sample))
+    with open("oai_sample.jsonl", "w") as f:
+        import json
+
+        sample_dict = sample.to_dict()
+        f.write(json.dumps(sample_dict) + "\n")
     return sample
 
 
@@ -35,5 +41,4 @@ async def openai_rollout(args, chat_request: ChatCompletionRequest) -> list:
     choice = data["choices"][0]
     assistant_msg = choice["message"]  # {"role": "assistant", "content": "..."}
     messages = payload["messages"] + [assistant_msg]
-
     return messages

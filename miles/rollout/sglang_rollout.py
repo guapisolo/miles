@@ -184,6 +184,11 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
         )
 
     sample.update_from_meta_info(args, output["meta_info"])
+    with open("sglang_sample.jsonl", "w") as f:
+        import json
+
+        sample_dict = sample.to_dict()
+        f.write(json.dumps(sample_dict) + "\n")
 
     return sample
 

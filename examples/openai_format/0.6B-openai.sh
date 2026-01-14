@@ -24,32 +24,32 @@ fi
 echo "HAS_NVLINK: $HAS_NVLINK (detected $NVLINK_COUNT NVLink references)"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-source "${SCRIPT_DIR}/../../scripts/models/qwen3-4B.sh"
+source "${SCRIPT_DIR}/../../scripts/models/qwen3-0.6B.sh"
 
 CKPT_ARGS=(
-   --hf-checkpoint /root/shared/Qwen3-4B
+   --hf-checkpoint /root/shared/Qwen3-0.6B
    #--hf-checkpoint /root/Qwen3-4B-FP8
-   --ref-load /root/shared/Qwen3-4B_torch_dist
-   # --load /root/shared/Qwen3-4B_miles/
-   --save /root/shared/Qwen3-4B_miles/
+   --ref-load /root/shared/Qwen3-0.6B_torch_dist
+   # --load /root/shared/Qwen3-0.6B_miles/
+   --save /root/shared/Qwen3-0.6B_miles/
    --save-interval 100
 )
 
 ROLLOUT_ARGS=(
-   --prompt-data /root/dapo-math-17k/dapo-math-17k.jsonl
+   # --prompt-data /root/dapo-math-17k/dapo-math-17k.jsonl
+   # --prompt-data examples/adapter/math/gsm8k_miles_sample.jsonl
+   --prompt-data examples/adapter/math/dapo_miles_sample.jsonl
    --input-key prompt
    --label-key label
-   # --apply-chat-template 
-   # When using OpenAI format, we directly use original prompt message as the prompt input without applying chat template to avoid redundant tokenize and detokenize.
    # --rollout-shuffle
    --rm-type deepscaler
-   --num-rollout 3000
-   --rollout-batch-size 32
-   --n-samples-per-prompt 8
+   --num-rollout 1
+   --rollout-batch-size 1
+   --n-samples-per-prompt 1
    --rollout-max-response-len 8192
    --rollout-temperature 1
 
-   --global-batch-size 256
+   --global-batch-size 1
    --balance-data
 )
 
@@ -62,7 +62,7 @@ EVAL_ARGS=(
 )
 
 PERF_ARGS=(
-   --tensor-model-parallel-size 2
+   --tensor-model-parallel-size 1
    --sequence-parallel
    --pipeline-model-parallel-size 1
    --context-parallel-size 1
@@ -122,15 +122,18 @@ MISC_ARGS=(
 )
 
 CUSTOM_ARGS=(
+   # When using OpenAI format, we directly use orignal prompt message as the prompt input without applying chat template
+   # --apply-chat-template 
    --use-miles-router
    --miles-router-middleware-paths miles.router.middleware_hub.openai_compat_middleware.OpenAICompatMiddleware
    --custom-generate-function-path examples.openai_format.openai_generate.openai_generate
+   --sglang-reasoning-parser qwen3
 )
 
 # launch the master node of ray in container
 export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
-export CUDA_VISIBLE_DEVICES=4,5,6,7
-ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 4 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
+export CUDA_VISIBLE_DEVICES=7
+ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 1 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
 
 # Build the runtime environment JSON with proper variable substitution
 RUNTIME_ENV_JSON="{
@@ -145,7 +148,7 @@ ray job submit --address="http://127.0.0.1:8265" \
    --runtime-env-json="${RUNTIME_ENV_JSON}" \
    -- python3 train.py \
    --actor-num-nodes 1 \
-   --actor-num-gpus-per-node 4 \
+   --actor-num-gpus-per-node 1 \
    --colocate \
    ${MODEL_ARGS[@]} \
    ${CKPT_ARGS[@]} \

@@ -122,6 +122,7 @@ class RadixTreeMiddleware(BaseHTTPMiddleware):
         if isinstance(response_data, dict) and "text" in response_data and "output_ids" in response_data:
             generated_text = response_data["text"]
             full_text = input_text + generated_text
+            print("[debug] insert full_text: ", repr(full_text))
             # Make sure there is no \n at the end of the full text
             # TODO: If we use token level radix tree, we can remove this step.
             if full_text.endswith("\n"):
@@ -211,6 +212,7 @@ async def postprocess_sample_from_messages(args, sample: Sample, messages: list[
     # Apply chat template may automatically add \n at the end, but '/generate' endpoint does not append \n sometimes.
     # We always trim the \n at the end of the full text and radix tree input
     # TODO: If we use token level radix tree, we can remove this step.
+    print("[debug] query full_text: ", repr(full_text))
     if full_text.endswith("\n"):
         full_text = full_text[:-1]
 
