@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from argparse import Namespace
 from collections.abc import Callable
 
 import sglang_router
@@ -24,13 +25,7 @@ async def abort(state: GenerateState, pendings: set, rollout_id: int) -> list[li
     assert not state.aborted
     state.aborted = True
 
-    if parse(sglang_router.__version__) <= parse("0.2.1") or args.use_miles_router:
-        response = await get(f"http://{args.sglang_router_ip}:{args.sglang_router_port}/list_workers")
-        urls = response["urls"]
-    else:
-        response = await get(f"http://{args.sglang_router_ip}:{args.sglang_router_port}/workers")
-        urls = [worker["url"] for worker in response["workers"]]
-
+    urls = get_worker_urls(args)
     logger.info(f"Abort request for {urls}")
     await asyncio.gather(*[post(f"{url}/abort_request", {"abort_all": True}) for url in urls])
 
@@ -54,6 +49,15 @@ async def abort(state: GenerateState, pendings: set, rollout_id: int) -> list[li
         logger.info(f"Collected {count} partial samples into the data buffer")
 
     return aborted_samples
+
+
+async def get_worker_urls(args: Namespace):
+    if parse(sglang_router.__version__) <= parse("0.2.1") or args.use_miles_router:
+        response = await get(f"http://{args.sglang_router_ip}:{args.sglang_router_port}/list_workers")
+        return response["urls"]
+    else:
+        response = await get(f"http://{args.sglang_router_ip}:{args.sglang_router_port}/workers")
+        return [worker["url"] for worker in response["workers"]]
 
 
 def submit_generate_tasks(state: GenerateState, samples: list[list[Sample]]):
