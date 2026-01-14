@@ -1,6 +1,6 @@
 from argparse import Namespace
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from miles.utils.types import Sample
 
@@ -45,6 +45,14 @@ class RolloutFnTrainOutput:
 class RolloutFnEvalOutput:
     data: dict[str, dict[str, Any]]
     metrics: dict[str, Any] = None
+
+
+class RolloutFnProtocol(Protocol):
+    def __init__(self, input: RolloutFnConstructorInput):
+        ...
+
+    def __call__(self, input: RolloutFnTrainInput | RolloutFnEvalInput) -> RolloutFnTrainOutput | RolloutFnEvalOutput:
+        ...
 
 
 # TODO move / refactor
