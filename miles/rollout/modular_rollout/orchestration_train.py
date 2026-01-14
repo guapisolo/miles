@@ -20,8 +20,6 @@ logger = logging.getLogger(__name__)
 async def abort(state: GenerateState, pendings: set, rollout_id: int) -> list[list[Sample]]:
     args = state.args
 
-    aborted_samples = []
-
     assert not state.aborted
     state.aborted = True
 
@@ -30,6 +28,7 @@ async def abort(state: GenerateState, pendings: set, rollout_id: int) -> list[li
     await asyncio.gather(*[post(f"{url}/abort_request", {"abort_all": True}) for url in urls])
 
     # make sure all the pending tasks are finished
+    aborted_samples = []
     while pendings:
         done, pendings = await asyncio.wait(pendings, return_when=asyncio.FIRST_COMPLETED)
 
