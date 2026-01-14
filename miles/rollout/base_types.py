@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 from argparse import Namespace
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from miles.rollout.data_source import DataSource
-from miles.rollout.modular_rollout.orchestration_common import GenerateState
 from miles.utils.types import Sample
+
+if TYPE_CHECKING:
+    from miles.rollout.modular_rollout.orchestration_common import GenerateState
 
 
 @dataclass(frozen=True)

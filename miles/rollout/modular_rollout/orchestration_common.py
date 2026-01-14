@@ -112,6 +112,7 @@ async def generate_and_rm(
             return sample
 
         with state.dp_rank_context() as _:
+            # TODO load function only once during whole lifetime
             if args.custom_generate_function_path is not None:
                 fn = load_generate_function(args.custom_generate_function_path)
             else:
