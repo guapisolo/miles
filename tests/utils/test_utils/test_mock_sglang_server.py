@@ -33,23 +33,21 @@ def test_generate_endpoint_basic(mock_server):
     data = response.json()
 
     assert data == {
-        "text": "It is 8.",
+        "text": "\\boxed{8}",
         "meta_info": {
             "finish_reason": {"type": "stop"},
             "prompt_tokens": len(input_ids),
             "cached_tokens": 0,
             "completion_tokens": 5,
             "output_token_logprobs": [
-                [-0.0, 2132],
-                [-0.0078125, 374],
-                [-0.015625, 220],
+                [-0.0, 59],
+                [-0.0078125, 79075],
+                [-0.015625, 90],
                 [-0.0234375, 23],
-                [-0.03125, 13],
+                [-0.03125, 92],
             ],
         },
     }
-
-    assert data["meta_info"]["prompt_tokens"] == len(input_ids)
 
 
 def test_process_fn_receives_decoded_prompt(mock_server):
@@ -69,11 +67,11 @@ def test_process_fn_receives_decoded_prompt(mock_server):
 
 def test_default_process_fn():
     result = default_process_fn("What is 1+5?")
-    assert result.text == "It is 6."
+    assert result.text == "\\boxed{6}"
     assert result.finish_reason == "stop"
 
     result = default_process_fn("What is 1+10?")
-    assert result.text == "It is 11."
+    assert result.text == "\\boxed{11}"
     assert result.finish_reason == "stop"
 
     result = default_process_fn("Hello")
