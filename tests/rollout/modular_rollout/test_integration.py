@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from miles.rollout.base_types import RolloutFnConstructorInput, RolloutFnEvalInput, RolloutFnTrainInput
@@ -6,11 +8,10 @@ from miles.rollout.modular_rollout.orchestration_train import SimpleTrainRollout
 from miles.utils.types import Sample
 
 
-@pytest.mark.asyncio
-async def test_simple_train_rollout_fn_integration(rollout_integration_env):
+def test_simple_train_rollout_fn_integration(rollout_integration_env):
     args, data_source = rollout_integration_env
     fn = SimpleTrainRolloutFn(RolloutFnConstructorInput(args=args, data_source=data_source))
-    out = await fn(RolloutFnTrainInput(rollout_id=0))
+    out = asyncio.run(fn(RolloutFnTrainInput(rollout_id=0)))
 
     assert len(out.samples) == args.rollout_batch_size
     group = out.samples[0]
@@ -21,11 +22,10 @@ async def test_simple_train_rollout_fn_integration(rollout_integration_env):
     assert sample.reward == 1
 
 
-@pytest.mark.asyncio
-async def test_simple_eval_rollout_fn_integration(rollout_integration_env):
+def test_simple_eval_rollout_fn_integration(rollout_integration_env):
     args, data_source = rollout_integration_env
     fn = SimpleEvalRolloutFn(RolloutFnConstructorInput(args=args, data_source=data_source))
-    out = await fn(RolloutFnEvalInput(rollout_id=0))
+    out = asyncio.run(fn(RolloutFnEvalInput(rollout_id=0)))
 
     assert "toy" in out.data
     rewards = out.data["toy"]["rewards"]
