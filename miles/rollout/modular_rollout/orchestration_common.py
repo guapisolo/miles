@@ -46,6 +46,11 @@ class GenerateState:
         self.dp_counts = [0] * (args.sglang_dp_size or 1)
         self.dp_rank = 0
 
+        if args.custom_generate_function_path is not None:
+            self.generate_function = load_generate_function(args.custom_generate_function_path)
+        else:
+            self.generate_function = generate
+
         self.reset()
 
     @contextmanager
@@ -107,13 +112,13 @@ async def generate_and_rm(
             return sample
 
         with state.dp_rank_context() as _:
-            # TODO load function only once during whole lifetime
-            if args.custom_generate_function_path is not None:
-                fn = load_generate_function(args.custom_generate_function_path)
-            else:
-                fn = generate
-            output = await fn(
-                GenerateFnInput(state=state, sample=sample, sampling_params=sampling_params, evaluation=evaluation)
+            output = await state.generate_function(
+                GenerateFnInput(
+                    state=state,
+                    sample=sample,
+                    sampling_params=sampling_params,
+                    evaluation=evaluation,
+                )
             )
             sample = output.sample
 
