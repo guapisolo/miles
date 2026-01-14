@@ -1,3 +1,4 @@
+import json
 from argparse import Namespace
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -82,7 +83,7 @@ def _with_miles_router(args: Namespace) -> Iterator[ThreadServer]:
 def _write_jsonl(path: str, rows: list[dict]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for row in rows:
-            f.write(__import__("json").dumps(row, ensure_ascii=False) + "\n")
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 @pytest.fixture
