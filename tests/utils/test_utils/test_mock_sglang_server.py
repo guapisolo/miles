@@ -28,10 +28,16 @@ def test_generate_endpoint_basic(mock_server):
     assert response.status_code == 200
     data = response.json()
 
-    assert "text" in data
-    assert "meta_info" in data
+    assert data == {
+        "text": data["text"],
+        "meta_info": {
+            "finish_reason": {"type": data["meta_info"]["finish_reason"]["type"]},
+            "prompt_tokens": len(input_ids),
+            "cached_tokens": 0,
+            "completion_tokens": data["meta_info"]["completion_tokens"],
+        },
+    }
     assert data["meta_info"]["finish_reason"]["type"] in ["stop", "length", "abort"]
-    assert data["meta_info"]["prompt_tokens"] == len(input_ids)
     assert data["meta_info"]["completion_tokens"] > 0
 
 
