@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 async def eval_rollout_single_dataset(
-    args: Namespace, dataset_cfg: EvalDatasetConfig, prompt_dataset_cache: dict[Any, Dataset],
+    args: Namespace,
+    dataset_cfg: EvalDatasetConfig,
+    prompt_dataset_cache: dict[Any, Dataset],
 ) -> dict[str, dict[str, list[Any]]]:
     assert not args.group_rm, "Group RM is not supported for eval rollout"
 
