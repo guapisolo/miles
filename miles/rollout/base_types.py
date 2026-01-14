@@ -5,7 +5,7 @@ from typing import Any
 from miles.utils.types import Sample
 
 
-@dataclass
+@dataclass(frozen=True)
 class RolloutFnBaseInput:
     args: Namespace
     rollout_id: int
@@ -16,14 +16,14 @@ class RolloutFnBaseInput:
 
 
 # subclassing for different data in the future
-@dataclass
+@dataclass(frozen=True)
 class RolloutFnTrainInput(RolloutFnBaseInput):
     @property
     def evaluation(self):
         return False
 
 
-@dataclass
+@dataclass(frozen=True)
 class RolloutFnEvalInput(RolloutFnBaseInput):
     @property
     def evaluation(self):
