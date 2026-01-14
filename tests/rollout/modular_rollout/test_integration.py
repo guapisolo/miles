@@ -36,7 +36,7 @@ def _expected_sample(*, group_index: int | None) -> Sample:
     )
 
 
-ROLLOUT_ARGV_VARIANTS = [
+_ROLLOUT_ARGV_VARIANTS = [
     pytest.param([], id="old_rollout_old_generate"),
     pytest.param(
         ["--rollout-function-path", "modular_rollout", "--custom-generate-function-path", "sglang_rollout.generate"],
@@ -46,7 +46,7 @@ ROLLOUT_ARGV_VARIANTS = [
 ]
 
 
-@pytest.mark.parametrize("rollout_integration_env", ROLLOUT_ARGV_VARIANTS, indirect=True)
+@pytest.mark.parametrize("rollout_integration_env", _ROLLOUT_ARGV_VARIANTS, indirect=True)
 def test_simple_train_rollout_fn_integration(rollout_integration_env):
     args, data_source = rollout_integration_env
     fn = SimpleTrainRolloutFn(RolloutFnConstructorInput(args=args, data_source=data_source))
@@ -58,7 +58,7 @@ def test_simple_train_rollout_fn_integration(rollout_integration_env):
     assert group[0] == _expected_sample(group_index=0)
 
 
-@pytest.mark.parametrize("rollout_integration_env", ROLLOUT_ARGV_VARIANTS, indirect=True)
+@pytest.mark.parametrize("rollout_integration_env", _ROLLOUT_ARGV_VARIANTS, indirect=True)
 def test_simple_eval_rollout_fn_integration(rollout_integration_env):
     args, data_source = rollout_integration_env
     fn = SimpleEvalRolloutFn(RolloutFnConstructorInput(args=args, data_source=data_source))
