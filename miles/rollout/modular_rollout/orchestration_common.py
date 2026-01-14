@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from miles.rollout.base_types import GenerateFnInput
-from miles.rollout.modular_rollout.compatibility import call_generate_function
+from miles.rollout.modular_rollout.compatibility import call_generate_function, load_generate_function
 from miles.rollout.modular_rollout.inference_wrapper import generate
 from miles.rollout.rm_hub import async_rm, batched_async_rm
 from miles.utils.misc import SingletonMeta, load_function
@@ -113,11 +113,11 @@ async def generate_and_rm(
 
         with state.dp_rank_context() as _:
             if args.custom_generate_function_path is not None:
-                fn = load_function(args.custom_generate_function_path)
+                fn = load_generate_function(args.custom_generate_function_path)
             else:
                 fn = generate
-            sample = await call_generate_function(
-                fn, GenerateFnInput(state=state, sample=sample, sampling_params=sampling_params, evaluation=evaluation)
+            sample = await fn(
+                GenerateFnInput(state=state, sample=sample, sampling_params=sampling_params, evaluation=evaluation)
             )
 
     # for the rm that need the whole group, we will not do the rm here
