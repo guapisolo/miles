@@ -97,4 +97,4 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
     sample.update_from_meta_info(args, output["meta_info"])
 
-    return sample
+    return GenerateFnOutput(sample=sample)
