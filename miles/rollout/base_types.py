@@ -9,6 +9,7 @@ from miles.utils.types import Sample
 @dataclass(frozen=True)
 class RolloutFnConstructorInput:
     args: Namespace
+    # TODO may refactor DataSource API
     data_source: DataSource
 
 
