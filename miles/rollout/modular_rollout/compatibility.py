@@ -7,7 +7,7 @@ from miles.rollout.base_types import (
     RolloutFnInput,
     RolloutFnOutput,
     RolloutFnProtocol,
-    RolloutFnTrainOutput,
+    RolloutFnTrainOutput, GenerateFnInput, GenerateFnOutput,
 )
 from miles.utils.async_utils import run
 from miles.utils.misc import load_function
@@ -48,3 +48,13 @@ def call_rollout_function(fn: RolloutFnProtocol, input: RolloutFnInput) -> Rollo
         output = run(output)
 
     return output
+
+async def call_generate_function(fn, input: GenerateFnInput) -> GenerateFnOutput:
+    # TODO handle
+    # # if signature has evaluation, pass evaluation
+    # if "evaluation" in inspect.signature(custom_generate_func).parameters:
+    #     return await fn(args, sample, sampling_params, evaluation=evaluation)
+    # else:
+    #     return await fn(args, sample, sampling_params)
+
+    return fn(input)
