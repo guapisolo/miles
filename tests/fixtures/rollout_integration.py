@@ -76,6 +76,9 @@ def _write_jsonl(path: str, rows: list[dict]) -> None:
     Path(path).write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
 
 
+def _cleanup_legacy_singleton():
+    SingletonMeta._instances.pop(GenerateState, None)
+
 @pytest.fixture
 def rollout_integration_env(tmp_path, request):
     extra_argv = request.param
@@ -87,7 +90,7 @@ def rollout_integration_env(tmp_path, request):
     router_port = find_available_port(20000)
     args = _build_args(data_path=data_path, router_port=router_port, extra_argv=extra_argv)
 
-    SingletonMeta._instances.pop(GenerateState, None)
+    _cleanup_legacy_singleton()
 
     with with_mock_server(model_name=args.hf_checkpoint) as mock_server:
         with _with_miles_router(args) as router_server:
@@ -101,4 +104,4 @@ def rollout_integration_env(tmp_path, request):
             data_source = RolloutDataSourceWithBuffer(args)
             yield args, data_source
 
-    SingletonMeta._instances.pop(GenerateState, None)
+    _cleanup_legacy_singleton()
