@@ -31,13 +31,12 @@ def test_generate_endpoint_basic(mock_server):
     assert data == {
         "text": data["text"],
         "meta_info": {
-            "finish_reason": {"type": data["meta_info"]["finish_reason"]["type"]},
-            "prompt_tokens": len(input_ids),
+            "finish_reason": {"type": "stop"},
+            "prompt_tokens": 5,
             "cached_tokens": 0,
             "completion_tokens": data["meta_info"]["completion_tokens"],
         },
     }
-    assert data["meta_info"]["finish_reason"]["type"] in ["stop", "length", "abort"]
     assert data["meta_info"]["completion_tokens"] > 0
 
 
