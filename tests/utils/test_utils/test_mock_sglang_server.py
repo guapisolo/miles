@@ -34,10 +34,9 @@ def test_generate_endpoint_basic(mock_server):
             "finish_reason": {"type": "stop"},
             "prompt_tokens": 5,
             "cached_tokens": 0,
-            "completion_tokens": data["meta_info"]["completion_tokens"],
+            "completion_tokens": 4,
         },
     }
-    assert data["meta_info"]["completion_tokens"] > 0
 
 
 def test_finish_reason_stop(mock_server):
