@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from miles.rollout.modular_rollout.api_call_wrapper import generate
+from miles.rollout.modular_rollout.inference_wrapper import generate
 from miles.rollout.rm_hub import async_rm, batched_async_rm
 from miles.utils.misc import SingletonMeta, load_function
 from miles.utils.processing_utils import load_processor, load_tokenizer
