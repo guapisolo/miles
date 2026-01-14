@@ -1,7 +1,32 @@
+from argparse import Namespace
 from dataclasses import dataclass
 from typing import Any
 
 from miles.utils.types import Sample
+
+@dataclass
+class RolloutFnBaseInput:
+    args: Namespace
+    rollout_id: int
+    data_source: Any
+
+    @property
+    def evaluation(self):
+        raise NotImplementedError
+
+
+@dataclass
+class RolloutFnTrainInput(RolloutFnBaseInput):
+    @property
+    def evaluation(self):
+        return False
+
+
+@dataclass
+class RolloutFnEvalInput(RolloutFnBaseInput):
+    @property
+    def evaluation(self):
+        return True
 
 
 @dataclass
