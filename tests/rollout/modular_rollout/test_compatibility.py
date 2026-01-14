@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,11 @@ from miles.rollout.base_types import (
     RolloutFnTrainInput,
     RolloutFnTrainOutput,
 )
-from miles.rollout.modular_rollout.compatibility import LegacyRolloutFnAdapter, load_rollout_function
+from miles.rollout.modular_rollout.compatibility import (
+    LegacyRolloutFnAdapter,
+    call_rollout_function,
+    load_rollout_function,
+)
 
 
 @pytest.fixture
@@ -48,7 +53,7 @@ class TestLegacyRolloutFnAdapter:
         mock_fn = MagicMock(return_value=mock_samples)
         adapter = LegacyRolloutFnAdapter(constructor_input, mock_fn)
 
-        result = adapter(RolloutFnTrainInput(rollout_id=1))
+        result = call_rollout_function(adapter, RolloutFnTrainInput(rollout_id=1))
 
         mock_fn.assert_called_once_with("dummy_args", 1, "dummy_data_source", evaluation=False)
         assert isinstance(result, RolloutFnTrainOutput)
@@ -59,7 +64,7 @@ class TestLegacyRolloutFnAdapter:
         mock_fn = MagicMock(return_value=mock_data)
         adapter = LegacyRolloutFnAdapter(constructor_input, mock_fn)
 
-        result = adapter(RolloutFnEvalInput(rollout_id=2))
+        result = call_rollout_function(adapter, RolloutFnEvalInput(rollout_id=2))
 
         mock_fn.assert_called_once_with("dummy_args", 2, "dummy_data_source", evaluation=True)
         assert isinstance(result, RolloutFnEvalOutput)
@@ -70,7 +75,7 @@ class TestLegacyRolloutFnAdapter:
         mock_fn = MagicMock(return_value=expected_output)
         adapter = LegacyRolloutFnAdapter(constructor_input, mock_fn)
 
-        result = adapter(RolloutFnTrainInput(rollout_id=0))
+        result = call_rollout_function(adapter, RolloutFnTrainInput(rollout_id=0))
 
         assert result is expected_output
 
@@ -79,6 +84,44 @@ class TestLegacyRolloutFnAdapter:
         mock_fn = MagicMock(return_value=expected_output)
         adapter = LegacyRolloutFnAdapter(constructor_input, mock_fn)
 
-        result = adapter(RolloutFnEvalInput(rollout_id=0))
+        result = call_rollout_function(adapter, RolloutFnEvalInput(rollout_id=0))
 
         assert result is expected_output
+
+
+async def async_mock_fn_train(args, rollout_id, data_source, evaluation):
+    await asyncio.sleep(0.01)
+    return RolloutFnTrainOutput(samples=[[{"text": "async_sample"}]])
+
+
+async def async_mock_fn_eval(args, rollout_id, data_source, evaluation):
+    await asyncio.sleep(0.01)
+    return RolloutFnEvalOutput(data={"metric": {"accuracy": 0.95}})
+
+
+class TestCallRolloutFunction:
+    def test_sync_function(self, constructor_input):
+        mock_samples = [[{"text": "sample"}]]
+        mock_fn = MagicMock(return_value=mock_samples)
+        adapter = LegacyRolloutFnAdapter(constructor_input, mock_fn)
+
+        result = call_rollout_function(adapter, RolloutFnTrainInput(rollout_id=1))
+
+        assert isinstance(result, RolloutFnTrainOutput)
+        assert result.samples == mock_samples
+
+    def test_async_function_train(self, constructor_input):
+        adapter = LegacyRolloutFnAdapter(constructor_input, async_mock_fn_train)
+
+        result = call_rollout_function(adapter, RolloutFnTrainInput(rollout_id=1))
+
+        assert isinstance(result, RolloutFnTrainOutput)
+        assert result.samples == [[{"text": "async_sample"}]]
+
+    def test_async_function_eval(self, constructor_input):
+        adapter = LegacyRolloutFnAdapter(constructor_input, async_mock_fn_eval)
+
+        result = call_rollout_function(adapter, RolloutFnEvalInput(rollout_id=2))
+
+        assert isinstance(result, RolloutFnEvalOutput)
+        assert result.data == {"metric": {"accuracy": 0.95}}
