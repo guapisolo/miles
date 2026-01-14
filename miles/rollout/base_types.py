@@ -60,3 +60,10 @@ RolloutFnOutput = RolloutFnTrainOutput | RolloutFnEvalOutput
 @runtime_checkable
 class RolloutFnProtocol(Protocol):
     def __call__(self, input: RolloutFnInput) -> RolloutFnOutput | Awaitable[RolloutFnOutput]: ...
+
+
+# TODO: may add add_arguments
+# TODO: may add save/load if need it to be stateful
+@runtime_checkable
+class GenerateFnProtocol(Protocol):
+    def __call__(self, input: RolloutFnInput) -> RolloutFnOutput | Awaitable[RolloutFnOutput]: ...
