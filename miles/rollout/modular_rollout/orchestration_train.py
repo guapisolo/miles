@@ -57,20 +57,21 @@ async def abort(state: GenerateState, pendings: set, rollout_id: int) -> list[li
     return aborted_samples
 
 
-def submit_generate_tasks(state: GenerateState, pendings: set, samples: list[list[Sample]]) -> None:
-    for group in samples:
-        pendings.add(
-            asyncio.create_task(
-                # submit a group of samples as a single task.
-                generate_and_rm_group(
-                    state,
-                    group,
-                    sampling_params=state.sampling_params.copy(),
-                    evaluation=False,
-                )
+def submit_generate_tasks(state: GenerateState, samples: list[list[Sample]]) -> None:
+    tasks = [
+        asyncio.create_task(
+            # submit a group of samples as a single task.
+            generate_and_rm_group(
+                state,
+                group,
+                sampling_params=state.sampling_params.copy(),
+                evaluation=False,
             )
         )
+        for group in samples
+    ]
     state.remaining_batch_size += len(samples)
+    return tasks
 
 
 async def generate_rollout_async(
@@ -98,7 +99,7 @@ async def generate_rollout_async(
         while state.remaining_batch_size < target_data_size:
             # get samples from the buffer and submit the generation requests.
             samples = data_source(args.over_sampling_batch_size)
-            submit_generate_tasks(state, pendings, samples)
+            pendings |= submit_generate_tasks(state, samples)
 
         # wait for the generation to finish
         done, pendings = await asyncio.wait(pendings, return_when=asyncio.FIRST_COMPLETED)
