@@ -1,3 +1,5 @@
+from typing import Callable
+
 from miles.rollout.base_types import (
     RolloutFnConstructorInput,
     RolloutFnEvalOutput,
@@ -8,10 +10,10 @@ from miles.rollout.base_types import (
 
 
 class LegacyRolloutFnAdapter:
-    def __init__(self, input: RolloutFnConstructorInput):
+    def __init__(self, input: RolloutFnConstructorInput, fn: Callable):
         self.args = input.args
         self.data_source = input.data_source
-        self.fn = TODO
+        self.fn = fn
 
     def __call__(self, input: RolloutFnInput) -> RolloutFnOutput:
         output = self.fn(self.args, input.rollout_id, self.data_source, evaluation=input.evaluation)
