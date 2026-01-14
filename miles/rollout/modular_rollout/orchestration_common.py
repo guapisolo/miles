@@ -16,11 +16,7 @@ from miles.utils.types import Sample
 logger = logging.getLogger(__name__)
 
 
-class GenerateState(metaclass=SingletonMeta):
-    """
-    The global state for the generation process.
-    """
-
+class GenerateState:
     def __init__(self, args: Namespace) -> None:
         # persistent state for the generation process
         self.args = args
@@ -75,7 +71,7 @@ class GenerateState(metaclass=SingletonMeta):
                 asyncio.create_task(
                     # submit a group of samples as a single task.
                     generate_and_rm_group(
-                        self.args,
+                        self,
                         group,
                         sampling_params=self.sampling_params.copy(),
                         evaluation=False,
@@ -86,11 +82,13 @@ class GenerateState(metaclass=SingletonMeta):
 
 
 async def generate_and_rm(
-    args: Namespace,
+    state: GenerateState,
     sample: Sample | list[Sample],
     sampling_params: dict[str, Any],
     evaluation: bool = False,
 ) -> Sample | list[Sample]:
+    args = state.args
+
     # mask previous off-policy generation for partial rollout
     if args.partial_rollout and args.mask_offpolicy_in_partial_rollout and sample.response_length > 0:
         sample.loss_mask = [0] * sample.response_length
@@ -101,8 +99,6 @@ async def generate_and_rm(
         if not args.group_rm:
             assert sample.reward is not None
         return sample
-
-    state = GenerateState(args)
 
     # generate
     async with state.semaphore:
@@ -148,9 +144,10 @@ async def generate_and_rm(
 
 
 async def generate_and_rm_group(
-    args: Namespace, group: list[Sample], sampling_params: dict[str, Any], evaluation: bool = False
+    state: GenerateState,
+    group: list[Sample], sampling_params: dict[str, Any], evaluation: bool = False
 ) -> list[Sample]:
-    state = GenerateState(args)
+    args = state.args
 
     if state.aborted:
         return group

@@ -16,7 +16,6 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
     if args.ci_test:
         assert isinstance(sample.prompt, str)
 
-    state = GenerateState(args)
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
     assert (

@@ -17,10 +17,11 @@ from miles.utils.types import Sample
 logger = logging.getLogger(__name__)
 
 
-async def abort(args: Namespace, rollout_id: int) -> list[list[Sample]]:
+async def abort(state: GenerateState, rollout_id: int) -> list[list[Sample]]:
+    args = state.args
+
     aborted_samples = []
 
-    state = GenerateState(args)
     assert not state.aborted
     state.aborted = True
 

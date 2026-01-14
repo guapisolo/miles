@@ -69,7 +69,7 @@ async def eval_rollout_single_dataset(
             tasks.append(
                 asyncio.create_task(
                     generate_and_rm(
-                        args,
+                        state,
                         sample,
                         sampling_params=sampling_params,
                         evaluation=True,
