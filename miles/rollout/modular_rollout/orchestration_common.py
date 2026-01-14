@@ -40,10 +40,7 @@ class GenerateState:
             sampling_seed_base = args.rollout_seed
             self.group_sampling_seeds = [sampling_seed_base + i for i in range(args.n_samples_per_prompt)]
 
-        if args.custom_generate_function_path is not None:
-            self.generate_function = load_generate_function(args.custom_generate_function_path)
-        else:
-            self.generate_function = generate
+        self.generate_function = load_generate_function(args.custom_generate_function_path) or generate
 
         self.reset()
 

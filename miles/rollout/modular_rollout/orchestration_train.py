@@ -76,9 +76,7 @@ async def generate_rollout_async(
     assert args.rollout_global_dataset
 
     # instantiate data filters
-    dynamic_filter = (
-        load_function(args.dynamic_sampling_filter_path) if args.dynamic_sampling_filter_path is not None else None
-    )
+    dynamic_filter = load_function(args.dynamic_sampling_filter_path)
 
     metric_gatherer = MetricGatherer()
 

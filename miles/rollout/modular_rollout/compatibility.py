@@ -71,6 +71,8 @@ class LegacyGenerateFnAdapter:
 
 def load_generate_function(path: str):
     fn = load_function(path)
+    if fn is None:
+        return None
 
     if inspect.isclass(fn):
         return fn()
