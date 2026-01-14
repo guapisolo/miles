@@ -77,6 +77,14 @@ class MockSGLangServer:
 
             return JSONResponse(content=response)
 
+        @self.app.get("/health")
+        async def health():
+            return JSONResponse(content={"status": "ok"})
+
+        @self.app.post("/abort_request")
+        async def abort_request(_request: Request):
+            return JSONResponse(content={"status": "ok"})
+
     def start(self):
         config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="info")
         self.server = uvicorn.Server(config)
