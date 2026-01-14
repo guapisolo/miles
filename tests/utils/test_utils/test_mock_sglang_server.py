@@ -19,8 +19,8 @@ def test_generate_endpoint_basic(mock_server):
     prompt = "What is 1+7?"
     input_ids = mock_server.tokenizer.encode(prompt, add_special_tokens=False)
     print(f"{input_ids=}")
-    # TODO: fill in after first run
-    assert input_ids == [0]
+    assert input_ids == [3838, 374, 220, 16, 10, 22, 30]
+
     response = requests.post(
         f"{mock_server.url}/generate",
         json={
