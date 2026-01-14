@@ -1,5 +1,3 @@
-import re
-
 import pytest
 import requests
 
@@ -43,7 +41,9 @@ def test_finish_reason_stop(mock_server):
         return ProcessResult(text="Complete response", finish_reason="stop")
 
     with with_mock_server(process_fn=process_fn) as server:
-        response = requests.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
+        response = requests.post(
+            f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0
+        )
         assert response.status_code == 200
         data = response.json()
 
@@ -56,7 +56,9 @@ def test_finish_reason_length(mock_server):
         return ProcessResult(text="Truncated", finish_reason="length")
 
     with with_mock_server(process_fn=process_fn) as server:
-        response = requests.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
+        response = requests.post(
+            f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0
+        )
         assert response.status_code == 200
         data = response.json()
 
@@ -69,7 +71,9 @@ def test_finish_reason_abort(mock_server):
         return ProcessResult(text="Aborted", finish_reason="abort")
 
     with with_mock_server(process_fn=process_fn) as server:
-        response = requests.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
+        response = requests.post(
+            f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0
+        )
         assert response.status_code == 200
         data = response.json()
 
@@ -119,7 +123,9 @@ def test_context_manager():
         return ProcessResult(text="Context test response", finish_reason="stop")
 
     with with_mock_server(process_fn=process_fn) as server:
-        response = requests.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
+        response = requests.post(
+            f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["text"] == "Context test response"

@@ -1,4 +1,5 @@
 import asyncio
+import random
 import re
 import socket
 import threading
@@ -7,7 +8,6 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
-import random
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -62,9 +62,7 @@ class MockSGLangServer:
 
             prompt_tokens = len(input_ids)
             completion_tokens = len(output_ids)
-            output_token_logprobs = [
-                (random.uniform(-10.0, -0.1), token_id) for token_id in output_ids
-            ]
+            output_token_logprobs = [(random.uniform(-10.0, -0.1), token_id) for token_id in output_ids]
 
             response = {
                 "text": process_result.text,
@@ -80,7 +78,7 @@ class MockSGLangServer:
             return JSONResponse(content=response)
 
     def start(self):
-        config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="error")
+        config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="info")
         self.server = uvicorn.Server(config)
 
         def run_server():
@@ -145,4 +143,3 @@ def with_mock_server(
         yield server
     finally:
         server.stop()
-
