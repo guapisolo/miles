@@ -58,7 +58,7 @@ async def abort(state: GenerateState, pendings: set, rollout_id: int) -> list[li
 
 
 def submit_generate_tasks(state: GenerateState, samples: list[list[Sample]]) -> None:
-    tasks = [
+    return [
         asyncio.create_task(
             # submit a group of samples as a single task.
             generate_and_rm_group(
@@ -70,8 +70,6 @@ def submit_generate_tasks(state: GenerateState, samples: list[list[Sample]]) -> 
         )
         for group in samples
     ]
-    state.remaining_batch_size += len(samples)
-    return tasks
 
 
 async def generate_rollout_async(
@@ -96,7 +94,7 @@ async def generate_rollout_async(
     do_print = True
     pbar = tqdm(total=target_data_size * args.n_samples_per_prompt, desc="Rollout generation")
     while len(data) < target_data_size:
-        while state.remaining_batch_size < target_data_size:
+        while len(data) + len(pendings) < target_data_size:
             # get samples from the buffer and submit the generation requests.
             samples = data_source(args.over_sampling_batch_size)
             pendings |= submit_generate_tasks(state, samples)
@@ -118,7 +116,6 @@ async def generate_rollout_async(
             dynamic_filter_output = call_dynamic_filter(dynamic_filter, args, group)
             if not dynamic_filter_output.keep:
                 metric_gatherer.on_dynamic_filter_drop(reason=dynamic_filter_output.reason)
-                state.remaining_batch_size -= 1
                 continue
 
             # add the samples to the data

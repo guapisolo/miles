@@ -61,7 +61,6 @@ class GenerateState:
             assert self.dp_counts[dp_rank] >= 0
 
     def reset(self) -> None:
-        self.remaining_batch_size = 0
         self.aborted = False
 
 
