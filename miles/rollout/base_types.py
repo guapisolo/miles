@@ -84,6 +84,8 @@ class GenerateFnInput:
 
 @dataclass(frozen=True)
 class GenerateFnOutput:
+    # One generate may lead to multiple samples, such as multi-agent, tree-like exploration,
+    # multi-turn with removing thinking tokens.
     samples: Sample | list[Sample]
 
 
