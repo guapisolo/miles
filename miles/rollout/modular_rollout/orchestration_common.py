@@ -77,30 +77,20 @@ async def generate_and_rm(
                 evaluation=evaluation,
             )
         )
-        sample = output.sample
+        del sample
+        samples = output.sample
 
     # for the rm that need the whole group, we will not do the rm here
     if args.group_rm:
-        return sample
-
-    # multi samples
-    if isinstance(sample, list):
-        samples = sample
-        if any([sample.status == Sample.Status.ABORTED for sample in samples]):
-            return samples
-
-        # for multi agent system, the reward of some sample is calculated during generation.
-        samples_need_reward = [sample for sample in samples if sample.reward is None]
-        await batched_async_rm(args, samples_need_reward, inplace_set_reward_field=True)
         return samples
-    else:
-        if sample.status == Sample.Status.ABORTED:
-            return sample
-        # for multi-turn environment, a reward could be assigned to the agent.
-        if sample.reward is None:
-            sample.reward = await async_rm(args, sample)
 
-    return sample
+    if any([sample.status == Sample.Status.ABORTED for sample in samples]):
+        return samples
+
+    # for multi agent system, the reward of some sample is calculated during generation.
+    samples_need_reward = [sample for sample in samples if sample.reward is None]
+    await batched_async_rm(args, samples_need_reward, inplace_set_reward_field=True)
+    return samples
 
 
 async def generate_and_rm_group(
