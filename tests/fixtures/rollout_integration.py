@@ -77,14 +77,16 @@ def _write_jsonl(path: str, rows: list[dict]) -> None:
 
 
 @pytest.fixture
-def rollout_integration_env(tmp_path):
+def rollout_integration_env(tmp_path, request):
+    extra_argv = getattr(request, "param", None) or []
+
     train_path = str(tmp_path / "train.jsonl")
     eval_path = str(tmp_path / "eval.jsonl")
     _write_jsonl(train_path, [{"input": "What is 1+7?", "label": "8"}])
     _write_jsonl(eval_path, [{"input": "What is 1+5?", "label": "6"}])
 
     router_port = find_available_port(20000)
-    args = _build_args(train_path=train_path, eval_path=eval_path, router_port=router_port)
+    args = _build_args(train_path=train_path, eval_path=eval_path, router_port=router_port, extra_argv=extra_argv)
 
     with with_mock_server(model_name=args.hf_checkpoint) as mock_server:
         with _with_miles_router(args) as router_server:

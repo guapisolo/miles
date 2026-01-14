@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from miles.rollout.base_types import RolloutFnConstructorInput, RolloutFnEvalInput, RolloutFnTrainInput
 from miles.rollout.modular_rollout.orchestration_eval import SimpleEvalRolloutFn
 from miles.rollout.modular_rollout.orchestration_train import SimpleTrainRolloutFn
@@ -36,6 +38,17 @@ def _expected_sample(
     )
 
 
+ROLLOUT_ARGV_VARIANTS = [
+    pytest.param([], id="old_rollout_old_generate"),
+    pytest.param(
+        ["--rollout-function-path", "modular_rollout", "--custom-generate-function-path", "sglang_rollout.generate"],
+        id="new_rollout_old_generate",
+    ),
+    pytest.param(["--rollout-function-path", "modular_rollout"], id="new_rollout_new_generate"),
+]
+
+
+@pytest.mark.parametrize("rollout_integration_env", ROLLOUT_ARGV_VARIANTS, indirect=True)
 def test_simple_train_rollout_fn_integration(rollout_integration_env):
     args, data_source = rollout_integration_env
     fn = SimpleTrainRolloutFn(RolloutFnConstructorInput(args=args, data_source=data_source))
@@ -53,6 +66,7 @@ def test_simple_train_rollout_fn_integration(rollout_integration_env):
     )
 
 
+@pytest.mark.parametrize("rollout_integration_env", ROLLOUT_ARGV_VARIANTS, indirect=True)
 def test_simple_eval_rollout_fn_integration(rollout_integration_env):
     args, data_source = rollout_integration_env
     fn = SimpleEvalRolloutFn(RolloutFnConstructorInput(args=args, data_source=data_source))
