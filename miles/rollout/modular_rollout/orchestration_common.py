@@ -33,10 +33,6 @@ class GenerateState:
             max_new_tokens=args.rollout_max_response_len,
         )
 
-        if getattr(args, "sglang_enable_deterministic_inference", False):
-            sampling_seed_base = args.rollout_seed
-            self.group_sampling_seeds = [sampling_seed_base + i for i in range(args.n_samples_per_prompt)]
-
         self.generate_function = load_generate_function(args.custom_generate_function_path) or generate
 
         self.reset()
@@ -106,7 +102,7 @@ async def generate_and_rm_group(
     for idx, sample in enumerate(group):
         current_sampling_params = sampling_params.copy()
         if getattr(args, "sglang_enable_deterministic_inference", False):
-            seed = state.group_sampling_seeds[idx]
+            seed = args.rollout_seed + idx
             current_sampling_params["sampling_seed"] = seed
         tasks.append(
             asyncio.create_task(generate_and_rm(state, sample, current_sampling_params, evaluation=evaluation))
