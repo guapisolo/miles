@@ -11,6 +11,8 @@ from miles.utils.types import Sample
 
 async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, Any]) -> Sample:
     """Generate using traditional SGLang router with token-based workflow"""
+    from miles.rollout.modular_rollout.orchestration import GenerateState
+
     if args.ci_test:
         assert isinstance(sample.prompt, str)
 

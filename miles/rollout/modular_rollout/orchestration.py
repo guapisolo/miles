@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 from miles.rollout.base_types import RolloutFnEvalOutput, RolloutFnTrainOutput
 from miles.rollout.filter_hub.base_types import MetricGatherer, call_dynamic_filter
+from miles.rollout.modular_rollout.api_call_wrapper import generate
 from miles.rollout.rm_hub import async_rm, batched_async_rm
 from miles.utils.async_utils import run
 from miles.utils.data import Dataset
