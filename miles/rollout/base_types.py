@@ -61,14 +61,3 @@ class RolloutFnProtocol(Protocol):
     def add_arguments(cls, parser: ArgumentParser): ...
 
     def __call__(self, input: RolloutFnInput) -> RolloutFnOutput: ...
-
-
-# TODO move / refactor
-def call_rollout_fn(fn, *args, evaluation: bool, **kwargs):
-    output = fn(*args, **kwargs, evaluation=evaluation)
-
-    # compatibility for legacy version
-    if not isinstance(output, (RolloutFnTrainOutput, RolloutFnEvalOutput)):
-        output = RolloutFnEvalOutput(data=output) if evaluation else RolloutFnTrainOutput(samples=output)
-
-    return output

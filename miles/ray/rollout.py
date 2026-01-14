@@ -13,7 +13,7 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from sglang.srt.constants import GPU_MEMORY_TYPE_CUDA_GRAPH, GPU_MEMORY_TYPE_KV_CACHE, GPU_MEMORY_TYPE_WEIGHTS
 
 from miles.backends.sglang_utils.sglang_engine import SGLangEngine
-from miles.rollout.base_types import call_rollout_fn
+from miles.rollout.base_types import call_rollout_fn, RolloutFnEvalInput, RolloutFnTrainInput
 from miles.utils import tracking_utils
 from miles.utils.health_monitor import RolloutHealthMonitor
 from miles.utils.http_utils import _wrap_ipv6, find_available_port, get_host_info, init_http_client
@@ -142,7 +142,7 @@ class RolloutManager:
             return
         self.health_monitoring_resume()
 
-        result = call_rollout_fn(self.eval_generate_rollout, self.args, rollout_id, self.data_source, evaluation=True)
+        result = self.eval_generate_rollout(RolloutFnEvalInput(rollout_id=rollout_id))
         data = result.data
         self._save_debug_rollout_data(data, rollout_id=rollout_id, evaluation=True)
         metrics = _log_eval_rollout_data(rollout_id, self.args, data, result.metrics)
@@ -224,7 +224,7 @@ class RolloutManager:
                 )
             metrics = None
         else:
-            data = call_rollout_fn(self.generate_rollout, self.args, rollout_id, self.data_source, evaluation=False)
+            data = self.generate_rollout(RolloutFnTrainInput(rollout_id=rollout_id))
             metrics = data.metrics
             data = data.samples
             # flatten the data if it is a list of lists
