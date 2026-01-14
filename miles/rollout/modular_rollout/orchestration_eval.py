@@ -6,8 +6,9 @@ from typing import Any
 
 from tqdm import tqdm
 
-from miles.rollout.base_types import RolloutFnEvalOutput
+from miles.rollout.base_types import RolloutFnEvalOutput, RolloutFnConstructorInput, RolloutFnEvalInput
 from miles.rollout.modular_rollout.orchestration_common import generate_and_rm
+from miles.utils.async_utils import run
 from miles.utils.data import Dataset
 from miles.utils.eval_config import EvalDatasetConfig
 from miles.utils.processing_utils import load_processor, load_tokenizer
@@ -130,3 +131,14 @@ async def eval_rollout_single_dataset(
             "samples": data,
         }
     }
+
+
+class SimpleEvalRolloutFn:
+    def __init__(self, input: RolloutFnConstructorInput):
+        self.args = input.args
+        self.data_source = input.data_source
+
+    def __call__(self, input: RolloutFnEvalInput) -> RolloutFnEvalOutput:
+        output, _ = run(eval_rollout(self.args, input.rollout_id))
+        return output
+
