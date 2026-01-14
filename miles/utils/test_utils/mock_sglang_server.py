@@ -34,17 +34,15 @@ def default_process_fn(prompt: str) -> ProcessResult:
 class MockSGLangServer:
     def __init__(
         self,
-        model_name: str = "Qwen/Qwen3-0.6B",
-        process_fn: Callable[[str], ProcessResult] | None = None,
-        host: str = "127.0.0.1",
-        port: int | None = None,
-        cached_tokens: int = 0,
+        model_name: str,
+        process_fn: Callable[[str], ProcessResult],
+        host: str,
+        port: int,
     ):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         self.process_fn = process_fn or default_process_fn
         self.host = host
         self.port = port or find_available_port(30000)
-        self.cached_tokens = cached_tokens
 
         self.requests: list[dict[str, Any]] = []
         self.app = FastAPI()
@@ -78,7 +76,7 @@ class MockSGLangServer:
                 "meta_info": {
                     "finish_reason": finish_reason_dict,
                     "prompt_tokens": prompt_tokens,
-                    "cached_tokens": min(self.cached_tokens, prompt_tokens),
+                    "cached_tokens": 0,
                     "completion_tokens": completion_tokens,
                 },
             }
@@ -131,7 +129,7 @@ class MockSGLangServer:
 
 
 @contextmanager
-def start_mock_server(
+def with_mock_server(
     model_name: str = "Qwen/Qwen3-0.6B",
     process_fn: Callable[[str], ProcessResult] | None = None,
     host: str = "127.0.0.1",
