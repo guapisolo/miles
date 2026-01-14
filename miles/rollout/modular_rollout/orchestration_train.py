@@ -57,7 +57,7 @@ async def abort(state: GenerateState, pendings: set, rollout_id: int) -> list[li
     return aborted_samples
 
 
-def submit_generate_tasks(state: GenerateState, samples: list[list[Sample]]) -> None:
+def submit_generate_tasks(state: GenerateState, samples: list[list[Sample]]):
     return [
         asyncio.create_task(
             # submit a group of samples as a single task.
