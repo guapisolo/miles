@@ -16,7 +16,9 @@ from miles.utils.test_utils.mock_sglang_server import with_mock_server
 from miles.utils.test_utils.uvicorn_thread_server import UvicornThreadServer
 
 
-def _build_args(*, train_path: str, eval_path: str, router_port: int) -> Namespace:
+def _build_args(
+    *, train_path: str, eval_path: str, router_port: int, extra_argv: list[str] | None = None
+) -> Namespace:
     argv = [
         "pytest",
         "--train-backend",
@@ -51,7 +53,7 @@ def _build_args(*, train_path: str, eval_path: str, router_port: int) -> Namespa
         str(router_port),
         "--rollout-max-response-len",
         "16",
-    ]
+    ] + (extra_argv or [])
     with patch("sys.argv", argv):
         args = parse_args()
     args.miles_router_middleware_paths = []
