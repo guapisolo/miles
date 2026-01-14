@@ -40,8 +40,7 @@ async def abort(state: GenerateState, pendings: set, rollout_id: int) -> list[li
         aborted_samples.append(group)
 
     if args.partial_rollout:
-        count = sum(len(x) for x in aborted_samples)
-        logger.info(f"Collected {count} partial samples into the data buffer")
+        logger.info(f"Collected {sum(len(x) for x in aborted_samples)} partial samples into the data buffer")
 
     return aborted_samples
 
