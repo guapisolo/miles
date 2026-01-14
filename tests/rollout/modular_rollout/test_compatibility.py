@@ -9,10 +9,7 @@ from miles.rollout.base_types import (
     RolloutFnTrainInput,
     RolloutFnTrainOutput,
 )
-from miles.rollout.modular_rollout.compatibility import (
-    LegacyRolloutFnAdapter,
-    load_rollout_function,
-)
+from miles.rollout.modular_rollout.compatibility import LegacyRolloutFnAdapter, load_rollout_function
 
 
 @pytest.fixture
