@@ -87,9 +87,7 @@ def test_simple_train_rollout_fn_integration(rollout_integration_env):
 @pytest.mark.parametrize("rollout_integration_env", _ROLLOUT_ARGV_VARIANTS, indirect=True)
 def test_simple_eval_rollout_fn_integration(rollout_integration_env):
     args, data_source = rollout_integration_env
-    fn = load_rollout_function(
-        RolloutFnConstructorInput(args=args, data_source=data_source), args.eval_function_path
-    )
+    fn = load_rollout_function(RolloutFnConstructorInput(args=args, data_source=data_source), args.eval_function_path)
     out = call_rollout_function(fn, RolloutFnEvalInput(rollout_id=0))
 
     assert "toy" in out.data

@@ -79,6 +79,7 @@ def _write_jsonl(path: str, rows: list[dict]) -> None:
 def _cleanup_legacy_singleton():
     SingletonMeta._instances.pop(GenerateState, None)
 
+
 @pytest.fixture
 def rollout_integration_env(tmp_path, request):
     extra_argv = request.param
