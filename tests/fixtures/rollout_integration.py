@@ -13,7 +13,7 @@ from miles.router.router import MilesRouter
 from miles.utils.arguments import parse_args
 from miles.utils.http_utils import find_available_port, init_http_client
 from miles.utils.test_utils.mock_sglang_server import with_mock_server
-from miles.utils.test_utils.thread_server import ThreadServer
+from miles.utils.test_utils.thread_server import UvicornThreadServer
 
 
 def _build_args(*, train_path: str, eval_path: str, router_port: int) -> Namespace:
@@ -60,9 +60,9 @@ def _build_args(*, train_path: str, eval_path: str, router_port: int) -> Namespa
 
 
 @contextmanager
-def _with_miles_router(args: Namespace) -> Iterator[ThreadServer]:
+def _with_miles_router(args: Namespace) -> Iterator[UvicornThreadServer]:
     router = MilesRouter(args, verbose=False)
-    server = ThreadServer(router.app, host=args.sglang_router_ip, port=args.sglang_router_port)
+    server = UvicornThreadServer(router.app, host=args.sglang_router_ip, port=args.sglang_router_port)
     try:
         server.start()
         yield server

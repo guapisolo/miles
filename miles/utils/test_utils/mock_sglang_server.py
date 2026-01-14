@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from transformers import AutoTokenizer
 
 from miles.utils.http_utils import find_available_port
-from miles.utils.test_utils.thread_server import ThreadServer
+from miles.utils.test_utils.thread_server import UvicornThreadServer
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,7 @@ class MockSGLangServer:
         self.port = port or find_available_port(30000)
 
         self.app = FastAPI()
-        self._server: ThreadServer | None = None
+        self._server: UvicornThreadServer | None = None
 
         self._setup_routes()
 
@@ -81,7 +81,7 @@ class MockSGLangServer:
             return JSONResponse(content={"status": "ok"})
 
     def start(self):
-        self._server = ThreadServer(self.app, host=self.host, port=self.port)
+        self._server = UvicornThreadServer(self.app, host=self.host, port=self.port)
         self._server.start()
 
     def stop(self):

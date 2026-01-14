@@ -6,7 +6,7 @@ import time
 import uvicorn
 
 
-class ThreadServer:
+class UvicornThreadServer:
     def __init__(self, app, host: str, port: int):
         self._app = app
         self.host = host
