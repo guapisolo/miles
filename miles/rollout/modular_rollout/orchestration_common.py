@@ -122,9 +122,11 @@ async def generate_and_rm_group(
         )
 
     group = await asyncio.gather(*tasks)
+    if state.aborted:
+        return group
 
     # for the rm that need the whole group, we will do the rm here
-    if not state.aborted and args.group_rm:
+    if args.group_rm:
         await batched_async_rm(args, group, inplace_set_reward_field=True)
 
     return group
