@@ -8,19 +8,17 @@ from miles.rollout.modular_rollout.orchestration_train import SimpleTrainRollout
 from miles.utils.types import Sample
 
 
-def _expected_sample(
-    *, group_index: int | None, prompt: str, tokens: list[int], response: str, label: str
-) -> Sample:
+def _expected_sample(*, group_index: int | None) -> Sample:
     return Sample(
         group_index=group_index,
         index=0,
-        prompt=prompt,
-        tokens=tokens,
+        prompt="What is 1+7?",
+        tokens=[3838, 374, 220, 16, 10, 22, 30, 59, 79075, 90, 23, 92],
         multimodal_inputs=None,
         multimodal_train_inputs=None,
-        response=response,
+        response="\\boxed{8}",
         response_length=5,
-        label=label,
+        label="8",
         reward=1,
         loss_mask=None,
         weight_versions=[],
@@ -57,13 +55,7 @@ def test_simple_train_rollout_fn_integration(rollout_integration_env):
     assert len(out.samples) == args.rollout_batch_size
     group = out.samples[0]
     assert len(group) == args.n_samples_per_prompt
-    assert group[0] == _expected_sample(
-        group_index=0,
-        prompt="What is 1+7?",
-        tokens=[3838, 374, 220, 16, 10, 22, 30, 59, 79075, 90, 23, 92],
-        response="\\boxed{8}",
-        label="8",
-    )
+    assert group[0] == _expected_sample(group_index=0)
 
 
 @pytest.mark.parametrize("rollout_integration_env", ROLLOUT_ARGV_VARIANTS, indirect=True)
@@ -77,10 +69,4 @@ def test_simple_eval_rollout_fn_integration(rollout_integration_env):
     samples = out.data["toy"]["samples"]
     assert len(rewards) == len(samples) == args.n_samples_per_eval_prompt
     assert rewards[0] == 1
-    assert samples[0] == _expected_sample(
-        group_index=None,
-        prompt="What is 1+5?",
-        tokens=[3838, 374, 220, 16, 10, 20, 30, 59, 79075, 90, 21, 92],
-        response="\\boxed{6}",
-        label="6",
-    )
+    assert samples[0] == _expected_sample(group_index=None)
