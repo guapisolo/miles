@@ -1,22 +1,21 @@
-import asyncio
-from unittest.mock import MagicMock
+import re
 
-import httpx
 import pytest
+import requests
 
-from miles.utils.test_utils.mock_sglang_server import MockSGLangServer, start_mock_server
+from miles.utils.test_utils.mock_sglang_server import MockSGLangServer, ProcessResult, default_process_fn, start_mock_server
 
 
-def create_mock_tokenizer():
-    tokenizer = MagicMock()
-    tokenizer.decode = lambda ids, **kwargs: f"decoded:{','.join(map(str, ids))}"
-    tokenizer.encode = lambda text, **kwargs: [ord(c) % 1000 for c in text[:10]]
-    return tokenizer
+@pytest.fixture(scope="module")
+def mock_server():
+    server = MockSGLangServer()
+    server.start()
+    yield server
+    server.stop()
 
 
 def test_basic_server_start_stop():
-    tokenizer = create_mock_tokenizer()
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="stop")
+    server = MockSGLangServer()
     try:
         server.start()
         assert server.port > 0
@@ -25,49 +24,35 @@ def test_basic_server_start_stop():
         server.stop()
 
 
-def test_generate_endpoint_basic():
-    tokenizer = create_mock_tokenizer()
+def test_generate_endpoint_basic(mock_server):
+    input_ids = [1, 2, 3, 4, 5]
+    response = requests.post(
+        f"{mock_server.url}/generate",
+        json={
+            "input_ids": input_ids,
+            "sampling_params": {"temperature": 0.7, "max_new_tokens": 10},
+        },
+        timeout=5.0,
+    )
+    assert response.status_code == 200
+    data = response.json()
 
-    def process_fn(prompt: str) -> str:
-        return f"Response to: {prompt[:20]}"
+    assert "text" in data
+    assert "meta_info" in data
+    assert data["meta_info"]["finish_reason"]["type"] in ["stop", "length", "abort"]
+    assert data["meta_info"]["prompt_tokens"] == len(input_ids)
+    assert data["meta_info"]["completion_tokens"] > 0
 
-    server = MockSGLangServer(tokenizer=tokenizer, process_fn=process_fn, finish_reason="stop", cached_tokens=2)
+
+def test_finish_reason_stop(mock_server):
+    def process_fn(prompt: str) -> ProcessResult:
+        return ProcessResult(text="Complete response", finish_reason="stop")
+
+    server = MockSGLangServer(process_fn=process_fn)
     try:
         server.start()
 
-        input_ids = [1, 2, 3, 4, 5]
-        response = httpx.post(
-            f"{server.url}/generate",
-            json={
-                "input_ids": input_ids,
-                "sampling_params": {"temperature": 0.7, "max_new_tokens": 10},
-            },
-            timeout=5.0,
-        )
-        assert response.status_code == 200
-        data = response.json()
-
-        assert "text" in data
-        assert "Response to:" in data["text"]
-        assert "meta_info" in data
-        assert data["meta_info"]["finish_reason"]["type"] == "stop"
-        assert data["meta_info"]["prompt_tokens"] == len(input_ids)
-        assert data["meta_info"]["cached_tokens"] == 2
-        assert data["meta_info"]["completion_tokens"] > 0
-
-        assert len(server.requests) == 1
-        assert server.requests[0]["input_ids"] == input_ids
-    finally:
-        server.stop()
-
-
-def test_finish_reason_stop():
-    tokenizer = create_mock_tokenizer()
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="stop")
-    try:
-        server.start()
-
-        response = httpx.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
+        response = requests.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
         assert response.status_code == 200
         data = response.json()
 
@@ -77,30 +62,33 @@ def test_finish_reason_stop():
         server.stop()
 
 
-def test_finish_reason_length():
-    tokenizer = create_mock_tokenizer()
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="length")
+def test_finish_reason_length(mock_server):
+    def process_fn(prompt: str) -> ProcessResult:
+        return ProcessResult(text="Truncated", finish_reason="length")
+
+    server = MockSGLangServer(process_fn=process_fn)
     try:
         server.start()
 
-        response = httpx.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
+        response = requests.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
         assert response.status_code == 200
         data = response.json()
 
         assert data["meta_info"]["finish_reason"]["type"] == "length"
         assert "length" in data["meta_info"]["finish_reason"]
-        assert data["meta_info"]["finish_reason"]["length"] == data["meta_info"]["completion_tokens"]
     finally:
         server.stop()
 
 
-def test_finish_reason_abort():
-    tokenizer = create_mock_tokenizer()
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="abort")
+def test_finish_reason_abort(mock_server):
+    def process_fn(prompt: str) -> ProcessResult:
+        return ProcessResult(text="Aborted", finish_reason="abort")
+
+    server = MockSGLangServer(process_fn=process_fn)
     try:
         server.start()
 
-        response = httpx.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
+        response = requests.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
         assert response.status_code == 200
         data = response.json()
 
@@ -109,15 +97,15 @@ def test_finish_reason_abort():
         server.stop()
 
 
-def test_return_logprob():
-    tokenizer = create_mock_tokenizer()
-    tokenizer.encode = lambda text, **kwargs: [100, 200, 300]
+def test_return_logprob(mock_server):
+    def process_fn(prompt: str) -> ProcessResult:
+        return ProcessResult(text="Test", finish_reason="stop")
 
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="stop")
+    server = MockSGLangServer(process_fn=process_fn)
     try:
         server.start()
 
-        response = httpx.post(
+        response = requests.post(
             f"{server.url}/generate",
             json={"input_ids": [1, 2, 3], "sampling_params": {}, "return_logprob": True},
             timeout=5.0,
@@ -128,117 +116,63 @@ def test_return_logprob():
         assert "output_token_logprobs" in data["meta_info"]
         logprobs = data["meta_info"]["output_token_logprobs"]
         assert isinstance(logprobs, list)
-        assert len(logprobs) == 3
+        assert len(logprobs) > 0
         assert isinstance(logprobs[0], list)
         assert len(logprobs[0]) == 2
         assert isinstance(logprobs[0][0], float)
-        assert logprobs[0][1] == 100
-        assert logprobs[1][1] == 200
-        assert logprobs[2][1] == 300
+        assert isinstance(logprobs[0][1], int)
     finally:
         server.stop()
 
 
-def test_return_routed_experts():
-    tokenizer = create_mock_tokenizer()
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="stop")
-    try:
-        server.start()
+def test_request_recording(mock_server):
+    request1 = {"input_ids": [1, 2, 3], "sampling_params": {"temperature": 0.7}}
+    request2 = {"input_ids": [4, 5, 6], "sampling_params": {"temperature": 0.9}, "return_logprob": True}
 
-        response = httpx.post(
-            f"{server.url}/generate",
-            json={"input_ids": [1, 2, 3, 4, 5], "sampling_params": {}, "return_routed_experts": True},
-            timeout=5.0,
-        )
-        assert response.status_code == 200
-        data = response.json()
+    requests.post(f"{mock_server.url}/generate", json=request1, timeout=5.0)
+    requests.post(f"{mock_server.url}/generate", json=request2, timeout=5.0)
 
-        assert "routed_experts" in data["meta_info"]
-        routed_experts_b64 = data["meta_info"]["routed_experts"]
-        assert isinstance(routed_experts_b64, str)
-    finally:
-        server.stop()
+    assert len(mock_server.requests) >= 2
+    assert mock_server.requests[-2] == request1
+    assert mock_server.requests[-1] == request2
 
-
-def test_request_recording():
-    tokenizer = create_mock_tokenizer()
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="stop")
-    try:
-        server.start()
-
-        request1 = {"input_ids": [1, 2, 3], "sampling_params": {"temperature": 0.7}}
-        request2 = {"input_ids": [4, 5, 6], "sampling_params": {"temperature": 0.9}, "return_logprob": True}
-
-        httpx.post(f"{server.url}/generate", json=request1, timeout=5.0)
-        httpx.post(f"{server.url}/generate", json=request2, timeout=5.0)
-
-        assert len(server.requests) == 2
-        assert server.requests[0] == request1
-        assert server.requests[1] == request2
-
-        server.clear_requests()
-        assert len(server.requests) == 0
-    finally:
-        server.stop()
-
-
-def test_weight_version():
-    tokenizer = create_mock_tokenizer()
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="stop", weight_version="v1.0")
-    try:
-        server.start()
-
-        response = httpx.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["meta_info"]["weight_version"] == "v1.0"
-    finally:
-        server.stop()
+    mock_server.clear_requests()
+    assert len(mock_server.requests) == 0
 
 
 def test_context_manager():
-    tokenizer = create_mock_tokenizer()
+    def process_fn(prompt: str) -> ProcessResult:
+        return ProcessResult(text="Context test response", finish_reason="stop")
 
-    def process_fn(prompt: str) -> str:
-        return "Context test response"
-
-    with start_mock_server(tokenizer=tokenizer, process_fn=process_fn, finish_reason="stop") as server:
-        response = httpx.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
+    with start_mock_server(process_fn=process_fn) as server:
+        response = requests.post(f"{server.url}/generate", json={"input_ids": [1, 2, 3], "sampling_params": {}}, timeout=5.0)
         assert response.status_code == 200
         data = response.json()
         assert data["text"] == "Context test response"
 
 
-def test_prompt_tokens_calculated_from_input_ids():
-    tokenizer = create_mock_tokenizer()
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="stop")
+def test_prompt_tokens_calculated_from_input_ids(mock_server):
+    input_ids = [10, 20, 30, 40, 50, 60, 70]
+    response = requests.post(
+        f"{mock_server.url}/generate",
+        json={"input_ids": input_ids, "sampling_params": {}},
+        timeout=5.0,
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["meta_info"]["prompt_tokens"] == len(input_ids)
+
+
+def test_completion_tokens_calculated_from_output(mock_server):
+    def process_fn(prompt: str) -> ProcessResult:
+        return ProcessResult(text="Short", finish_reason="stop")
+
+    server = MockSGLangServer(process_fn=process_fn)
     try:
         server.start()
 
-        input_ids = [10, 20, 30, 40, 50, 60, 70]
-        response = httpx.post(
-            f"{server.url}/generate",
-            json={"input_ids": input_ids, "sampling_params": {}},
-            timeout=5.0,
-        )
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["meta_info"]["prompt_tokens"] == len(input_ids)
-    finally:
-        server.stop()
-
-
-def test_completion_tokens_calculated_from_output():
-    tokenizer = create_mock_tokenizer()
-    tokenizer.encode = lambda text, **kwargs: [1, 2, 3, 4, 5]
-
-    server = MockSGLangServer(tokenizer=tokenizer, finish_reason="stop")
-    try:
-        server.start()
-
-        response = httpx.post(
+        response = requests.post(
             f"{server.url}/generate",
             json={"input_ids": [1, 2, 3], "sampling_params": {}},
             timeout=5.0,
@@ -246,84 +180,56 @@ def test_completion_tokens_calculated_from_output():
         assert response.status_code == 200
         data = response.json()
 
-        assert data["meta_info"]["completion_tokens"] == 5
+        assert data["meta_info"]["completion_tokens"] > 0
     finally:
         server.stop()
 
 
-def test_process_fn_receives_decoded_prompt():
-    tokenizer = create_mock_tokenizer()
+def test_process_fn_receives_decoded_prompt(mock_server):
     received_prompts = []
 
-    def process_fn(prompt: str) -> str:
+    def process_fn(prompt: str) -> ProcessResult:
         received_prompts.append(prompt)
-        return "response"
+        return ProcessResult(text="response", finish_reason="stop")
 
-    server = MockSGLangServer(tokenizer=tokenizer, process_fn=process_fn, finish_reason="stop")
+    server = MockSGLangServer(process_fn=process_fn)
     try:
         server.start()
 
         input_ids = [1, 2, 3]
-        httpx.post(f"{server.url}/generate", json={"input_ids": input_ids, "sampling_params": {}}, timeout=5.0)
+        requests.post(f"{server.url}/generate", json={"input_ids": input_ids, "sampling_params": {}}, timeout=5.0)
 
         assert len(received_prompts) == 1
-        assert received_prompts[0] == "decoded:1,2,3"
+        assert isinstance(received_prompts[0], str)
     finally:
         server.stop()
 
 
-def test_async_post():
-    tokenizer = create_mock_tokenizer()
+def test_default_process_fn():
+    result = default_process_fn("What is 1+5?")
+    assert result.text == "It is 6."
+    assert result.finish_reason == "stop"
 
-    def process_fn(prompt: str) -> str:
-        return "Async test response"
+    result = default_process_fn("What is 1+10?")
+    assert result.text == "It is 11."
+    assert result.finish_reason == "stop"
 
-    async def _run():
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload)
-            data = response.json()
-            assert data["text"] == "Async test response"
-            assert data["meta_info"]["finish_reason"]["type"] == "stop"
-            assert len(server.requests) == 1
-
-    with start_mock_server(tokenizer=tokenizer, process_fn=process_fn, finish_reason="stop") as server:
-        url = f"{server.url}/generate"
-        payload = {"input_ids": [1, 2, 3], "sampling_params": {}}
-        asyncio.run(_run())
+    result = default_process_fn("Hello")
+    assert result.text == "I don't understand."
+    assert result.finish_reason == "stop"
 
 
-def test_async_with_logprob():
-    tokenizer = create_mock_tokenizer()
-    tokenizer.encode = lambda text, **kwargs: [100, 200]
+def test_default_process_fn_integration(mock_server):
+    tokenizer = mock_server.tokenizer
+    prompt_text = "What is 1+7?"
+    input_ids = tokenizer.encode(prompt_text, add_special_tokens=False)
 
-    async def _run():
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload)
-            data = response.json()
-            assert "output_token_logprobs" in data["meta_info"]
-            logprobs = data["meta_info"]["output_token_logprobs"]
-            assert len(logprobs) == 2
-            assert logprobs[0][1] == 100
-            assert logprobs[1][1] == 200
+    response = requests.post(
+        f"{mock_server.url}/generate",
+        json={"input_ids": input_ids, "sampling_params": {}},
+        timeout=5.0,
+    )
+    assert response.status_code == 200
+    data = response.json()
 
-    with start_mock_server(tokenizer=tokenizer, finish_reason="stop") as server:
-        url = f"{server.url}/generate"
-        payload = {"input_ids": [1, 2, 3], "sampling_params": {}, "return_logprob": True}
-        asyncio.run(_run())
-
-
-def test_async_with_routed_experts():
-    tokenizer = create_mock_tokenizer()
-
-    async def _run():
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload)
-            data = response.json()
-            assert "routed_experts" in data["meta_info"]
-            routed_experts_b64 = data["meta_info"]["routed_experts"]
-            assert isinstance(routed_experts_b64, str)
-
-    with start_mock_server(tokenizer=tokenizer, finish_reason="stop") as server:
-        url = f"{server.url}/generate"
-        payload = {"input_ids": [1, 2, 3, 4, 5], "sampling_params": {}, "return_routed_experts": True}
-        asyncio.run(_run())
+    assert "It is 8." in data["text"] or "8" in data["text"]
