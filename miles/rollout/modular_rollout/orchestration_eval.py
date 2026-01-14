@@ -49,11 +49,6 @@ async def eval_rollout_single_dataset(
         top_p=dataset_cfg.top_p,
         top_k=dataset_cfg.top_k,
         max_new_tokens=dataset_cfg.max_response_len,
-        stop=args.rollout_stop,
-        stop_token_ids=args.rollout_stop_token_ids,
-        skip_special_tokens=args.rollout_skip_special_tokens,
-        no_stop_trim=True,
-        spaces_between_special_tokens=False,
     )
 
     tasks = []
