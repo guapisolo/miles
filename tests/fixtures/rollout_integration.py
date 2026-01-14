@@ -9,11 +9,11 @@ import pytest
 import requests
 import uvicorn
 
+from miles.rollout.data_source import RolloutDataSourceWithBuffer
 from miles.router.router import MilesRouter
 from miles.utils.arguments import parse_args
 from miles.utils.http_utils import find_available_port, init_http_client
 from miles.utils.test_utils.mock_sglang_server import ProcessResult, with_mock_server
-from miles.utils.types import Sample
 
 
 class _UvicornThreadServer:
@@ -125,57 +125,6 @@ def _write_jsonl(path: str, rows: list[dict]) -> None:
             f.write(__import__("json").dumps(row, ensure_ascii=False) + "\n")
 
 
-class _TinyDataSource:
-    def __init__(self, *, prompts: list[str], labels: list[str], n_samples_per_prompt: int):
-        self._prompts = list(prompts)
-        self._labels = list(labels)
-        self._n = n_samples_per_prompt
-        self._next_prompt_idx = 0
-        self._next_group_index = 0
-        self._next_sample_index = 0
-        self._buffer: list[list[Sample]] = []
-
-    def get_samples(self, num_samples: int) -> list[list[Sample]]:
-        out = []
-
-        if self._buffer:
-            n_take = min(num_samples, len(self._buffer))
-            out.extend(self._buffer[:n_take])
-            del self._buffer[:n_take]
-            num_samples -= n_take
-
-        for _ in range(num_samples):
-            prompt = self._prompts[self._next_prompt_idx % len(self._prompts)]
-            label = self._labels[self._next_prompt_idx % len(self._labels)]
-            self._next_prompt_idx += 1
-
-            group = []
-            for _ in range(self._n):
-                sample = Sample(
-                    group_index=self._next_group_index,
-                    index=self._next_sample_index,
-                    prompt=prompt,
-                    label=label,
-                )
-                self._next_sample_index += 1
-                group.append(sample)
-            self._next_group_index += 1
-            out.append(group)
-
-        return out
-
-    def add_samples(self, samples: list[list[Sample]]):
-        if not samples:
-            return
-        self._buffer.extend(samples)
-
-    def save(self, rollout_id):
-        return
-
-    def load(self, rollout_id=None):
-        return
-
-
 @pytest.fixture
 def rollout_integration_env(tmp_path, monkeypatch):
     train_path = str(tmp_path / "train.jsonl")
@@ -195,9 +144,5 @@ def rollout_integration_env(tmp_path, monkeypatch):
             )
             r.raise_for_status()
 
-            data_source = _TinyDataSource(
-                prompts=["What is 1+7?"],
-                labels=["8"],
-                n_samples_per_prompt=args.n_samples_per_prompt,
-            )
+            data_source = RolloutDataSourceWithBuffer(args)
             yield args, data_source
