@@ -122,7 +122,5 @@ class SimpleEvalRolloutFn:
         for dataset_cfg in getattr(self.state.args, "eval_datasets", []) or []:
             coros.append(eval_rollout_single_dataset(self.state, dataset_cfg, self.prompt_dataset_cache))
         results_list = await asyncio.gather(*coros)
-        results = {}
-        for r in results_list:
-            results.update(r)
+        results = {k: v for r in results_list for k, v in r.items()}
         return RolloutFnEvalOutput(data=results)
