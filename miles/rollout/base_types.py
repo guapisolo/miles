@@ -71,6 +71,7 @@ class GenerateFnInput:
     state: GenerateState
     sample: Sample
     sampling_params: dict[str, Any]
+    evaluation: bool
 
     @property
     def args(self) -> Namespace:

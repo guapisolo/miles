@@ -117,7 +117,7 @@ async def generate_and_rm(
             else:
                 fn = generate
             sample = await call_generate_function(
-                fn, GenerateFnInput(state=state, sample=sample, sampling_params=sampling_params)
+                fn, GenerateFnInput(state=state, sample=sample, sampling_params=sampling_params, evaluation=evaluation)
             )
 
     # for the rm that need the whole group, we will not do the rm here
