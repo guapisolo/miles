@@ -60,7 +60,10 @@ class MockSGLangServer:
 
             prompt_tokens = len(input_ids)
             completion_tokens = len(output_ids)
-            output_token_logprobs = [(random.uniform(-10.0, -0.1), token_id) for token_id in output_ids]
+            output_token_logprobs = [
+                (-1 / 128 * i, token_id)
+                for i, token_id in enumerate(output_ids)
+            ]
 
             response = {
                 "text": process_result.text,
