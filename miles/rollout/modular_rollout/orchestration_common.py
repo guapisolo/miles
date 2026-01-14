@@ -102,8 +102,7 @@ async def generate_and_rm_group(
     for idx, sample in enumerate(group):
         current_sampling_params = sampling_params.copy()
         if getattr(args, "sglang_enable_deterministic_inference", False):
-            seed = args.rollout_seed + idx
-            current_sampling_params["sampling_seed"] = seed
+            current_sampling_params["sampling_seed"] = args.rollout_seed + idx
         tasks.append(
             asyncio.create_task(generate_and_rm(state, sample, current_sampling_params, evaluation=evaluation))
         )
