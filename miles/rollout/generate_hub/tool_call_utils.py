@@ -18,7 +18,7 @@ def tokenize_tool_responses(
     tokens_with = tokenizer.apply_chat_template(messages_with, tokenize=True, add_generation_prompt=False)
     tokens_without = tokenizer.apply_chat_template(messages_without, tokenize=True, add_generation_prompt=False)
 
-    assert tokens_with[:len(tokens_without)] == tokens_without, (
+    assert tokens_with[: len(tokens_without)] == tokens_without, (
         f"Fail to tokenize_tool_responses caused by token prefix mismatch. "
         f"This can happen for thinking model or models with special chat template, "
         f"and this simple example does not support it yet, "
@@ -26,7 +26,7 @@ def tokenize_tool_responses(
         f"{tokens_with=} {tokens_without=} "
         f"{tokenizer.decode(tokens_with)=} {tokenizer.decode(tokens_without)=} "
     )
-    return tokens_with[len(tokens_without):]
+    return tokens_with[len(tokens_without) :]
 
 
 def _build_dummy_assistant(tool_responses: list[dict[str, Any]]) -> dict[str, Any]:
