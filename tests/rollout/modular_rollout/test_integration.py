@@ -232,19 +232,11 @@ def _filter_by_reward(args, samples, **kwargs):
 
 
 class TestDynamicFilterIntegration:
-    # Data with mixed correct/incorrect answers: 1+7=8(correct), 1+8=9(correct), 1+9=wrong(incorrect), 1+6=7(correct)
-    _DATA_ROWS = [
-        {"input": "What is 1+7?", "label": "8"},
-        {"input": "What is 1+8?", "label": "9"},
-        {"input": "What is 1+9?", "label": "wrong"},
-        {"input": "What is 1+6?", "label": "7"},
-    ]
-
     @pytest.mark.parametrize(
         "rollout_integration_env,use_filter,expect_all_correct",
         [
             pytest.param(
-                _config(["--rollout-batch-size", "4"], data_rows=_DATA_ROWS),
+                _config(["--rollout-batch-size", "4"], data_rows=_MIXED_DATA_ROWS),
                 False,
                 False,
                 id="no_filter",
@@ -252,7 +244,7 @@ class TestDynamicFilterIntegration:
             pytest.param(
                 _config(
                     ["--rollout-batch-size", "3", "--dynamic-sampling-filter-path", "test:filter_by_reward"],
-                    data_rows=_DATA_ROWS,
+                    data_rows=_MIXED_DATA_ROWS,
                 ),
                 True,
                 True,
@@ -293,7 +285,7 @@ class TestSampleFilterAndAllSamplesProcessIntegration:
                         "--rollout-all-samples-process-path",
                         "test:all_samples_process",
                     ],
-                    data_rows=_MULTI_DATA_ROWS,
+                    data_rows=_MIXED_DATA_ROWS,
                 ),
                 id="sample_filter_vs_all_samples",
             ),
