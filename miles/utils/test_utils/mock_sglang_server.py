@@ -2,7 +2,7 @@ import asyncio
 import re
 from collections.abc import Callable
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import pybase64
 from fastapi import FastAPI, Request
@@ -22,8 +22,6 @@ class ProcessResultMetaInfo:
     spec_verify_ct: int | None = None
 
     def to_dict(self) -> dict:
-        from dataclasses import asdict
-
         d = asdict(self)
         if d.get("routed_experts") is not None:
             d["routed_experts"] = pybase64.b64encode(d["routed_experts"]).decode("ascii")

@@ -15,7 +15,7 @@ from miles.utils.async_utils import run
 from miles.utils.http_utils import init_http_client
 from miles.utils.misc import SingletonMeta
 from miles.utils.processing_utils import encode_image_for_rollout_engine
-from miles.utils.test_utils.mock_sglang_server import ProcessResult, with_mock_server
+from miles.utils.test_utils.mock_sglang_server import ProcessResult, ProcessResultMetaInfo, with_mock_server
 from miles.utils.types import Sample
 
 # ------------------------------------ fixtures and consts ----------------------------------------
@@ -187,11 +187,13 @@ def env(request):
             text=x.get("response_text", RESPONSE_TEXT),
             finish_reason=x.get("finish_reason", "stop"),
             cached_tokens=x.get("cached_tokens", 0),
-            weight_version=x.get("weight_version"),
-            routed_experts=x.get("routed_experts"),
-            spec_accept_token_num=x.get("spec_accept_token_num"),
-            spec_draft_token_num=x.get("spec_draft_token_num"),
-            spec_verify_ct=x.get("spec_verify_ct"),
+            meta_info=ProcessResultMetaInfo(
+                weight_version=x.get("weight_version"),
+                routed_experts=x.get("routed_experts"),
+                spec_accept_token_num=x.get("spec_accept_token_num"),
+                spec_draft_token_num=x.get("spec_draft_token_num"),
+                spec_verify_ct=x.get("spec_verify_ct"),
+            ),
         )
 
     with with_mock_server(model_name=model_name, process_fn=process_fn) as mock_server:
