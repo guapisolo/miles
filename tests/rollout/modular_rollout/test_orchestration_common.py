@@ -8,31 +8,6 @@ from miles.utils.async_utils import run
 from miles.utils.types import Sample
 
 
-@pytest.fixture
-def mock_args():
-    args = MagicMock()
-    args.hf_checkpoint = "Qwen/Qwen3-0.6B"
-    args.sglang_server_concurrency = 2
-    args.rollout_num_gpus = 4
-    args.rollout_num_gpus_per_engine = 2
-    args.rollout_temperature = 0.7
-    args.rollout_top_p = 0.9
-    args.rollout_top_k = 50
-    args.rollout_max_response_len = 128
-    args.rollout_stop = None
-    args.rollout_stop_token_ids = None
-    args.rollout_skip_special_tokens = False
-    args.custom_generate_function_path = None
-    args.partial_rollout = False
-    args.mask_offpolicy_in_partial_rollout = False
-    args.group_rm = False
-    args.custom_rm_path = None
-    args.rm_type = "math"
-    args.sglang_enable_deterministic_inference = False
-    args.rollout_seed = 42
-    return args
-
-
 class TestSemaphoreInitialization:
     def test_semaphore_value_calculation(self, mock_args):
         with patch("miles.rollout.modular_rollout.orchestration_common.load_tokenizer"), patch(
