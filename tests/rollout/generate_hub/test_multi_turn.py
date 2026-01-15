@@ -42,14 +42,15 @@ class TestSGLangFunctionCallParser:
     @pytest.mark.parametrize(
         "model_output,expected",
         [
-            (
+            pytest.param(
                 'Let me check the weather for you.\n<tool_call>\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n</tool_call>',
                 (
                     "Let me check the weather for you.",
                     [ToolCallItem(tool_index=0, name="get_weather", parameters='{"city": "Paris"}')],
                 ),
+                id="single_tool_call",
             ),
-            (
+            pytest.param(
                 "I will search for weather and restaurants.\n"
                 '<tool_call>\n{"name": "get_weather", "arguments": {"city": "Shanghai"}}\n</tool_call>\n'
                 '<tool_call>\n{"name": "search", "arguments": {"query": "restaurants"}}\n</tool_call>',
@@ -60,13 +61,14 @@ class TestSGLangFunctionCallParser:
                         ToolCallItem(tool_index=1, name="search", parameters='{"query": "restaurants"}'),
                     ],
                 ),
+                id="multi_tool_calls",
             ),
-            (
+            pytest.param(
                 "The weather is sunny today.",
                 ("The weather is sunny today.", []),
+                id="no_tool_call",
             ),
         ],
-        ids=["single_tool_call", "multi_tool_calls", "no_tool_call"],
     )
     def test_parse_non_stream(self, model_output, expected):
         parser = FunctionCallParser(tools=SAMPLE_TOOLS, tool_call_parser="qwen25")
