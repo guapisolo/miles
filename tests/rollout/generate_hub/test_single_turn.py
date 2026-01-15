@@ -253,32 +253,22 @@ class TestBoundaryConditions:
 
 
 class TestFinishReason:
-    @pytest.mark.parametrize("env", [{"process_fn_kwargs": {"finish_reason": "stop"}}], indirect=True)
-    def test_finish_stop_sets_completed(self, variant, env):
+    @pytest.mark.parametrize(
+        "env,expected_status",
+        [
+            ({"process_fn_kwargs": {"finish_reason": "stop"}}, Sample.Status.COMPLETED),
+            ({"process_fn_kwargs": {"finish_reason": "length"}}, Sample.Status.TRUNCATED),
+            ({"process_fn_kwargs": {"finish_reason": "abort"}}, Sample.Status.ABORTED),
+        ],
+        indirect=["env"],
+    )
+    def test_finish_reason_sets_status(self, variant, env, expected_status):
         result = run_generate(variant, env)
         assert result.requests == [expected_request(variant)]
-        assert result.sample == expected_sample(status=Sample.Status.COMPLETED)
-
-    @pytest.mark.parametrize("env", [{"process_fn_kwargs": {"finish_reason": "length"}}], indirect=True)
-    def test_finish_length_sets_truncated(self, variant, env):
-        result = run_generate(variant, env)
-        assert result.requests == [expected_request(variant)]
-        assert result.sample == expected_sample(status=Sample.Status.TRUNCATED)
-
-    @pytest.mark.parametrize("env", [{"process_fn_kwargs": {"finish_reason": "abort"}}], indirect=True)
-    def test_finish_abort_sets_aborted(self, variant, env):
-        result = run_generate(variant, env)
-        assert result.requests == [expected_request(variant)]
-        assert result.sample == expected_sample(status=Sample.Status.ABORTED)
+        assert result.sample == expected_sample(status=expected_status)
 
 
 class TestRoutedExperts:
-    @pytest.mark.parametrize("env", [{"args_kwargs": {"use_rollout_routing_replay": False}}], indirect=True)
-    def test_routed_experts_disabled(self, variant, env):
-        result = run_generate(variant, env)
-        assert result.requests == [expected_request(variant, return_routed_experts=False)]
-        assert result.sample == expected_sample()
-
     @pytest.mark.parametrize(
         "env",
         [
