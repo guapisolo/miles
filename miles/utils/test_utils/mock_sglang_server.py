@@ -22,18 +22,12 @@ class ProcessResultMetaInfo:
     spec_verify_ct: int | None = None
 
     def to_dict(self) -> dict:
-        result = {}
-        if (x := self.weight_version) is not None:
-            result["weight_version"] = x
-        if (x := self.routed_experts) is not None:
-            result["routed_experts"] = pybase64.b64encode(x).decode("ascii")
-        if (x := self.spec_accept_token_num) is not None:
-            result["spec_accept_token_num"] = x
-        if (x := self.spec_draft_token_num) is not None:
-            result["spec_draft_token_num"] = x
-        if (x := self.spec_verify_ct) is not None:
-            result["spec_verify_ct"] = x
-        return result
+        from dataclasses import asdict
+
+        d = asdict(self)
+        if d.get("routed_experts") is not None:
+            d["routed_experts"] = pybase64.b64encode(d["routed_experts"]).decode("ascii")
+        return {k: v for k, v in d.items() if v is not None}
 
 
 @dataclass(frozen=True)
