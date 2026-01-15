@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,6 +20,7 @@ from miles.rollout.modular_rollout.compatibility import (
     load_rollout_function,
 )
 from miles.utils.async_utils import run
+from miles.utils.misc import function_registry
 
 
 @pytest.fixture
@@ -55,19 +56,19 @@ class TestSupportedRolloutFormats:
                 return {"metric": {"accuracy": 0.9}}
             return [[{"text": "sample"}]]
 
-        with patch("miles.rollout.modular_rollout.compatibility.load_function", return_value=legacy_rollout_fn):
-            fn = load_rollout_function(constructor_input, "path.to.fn")
+        with function_registry.temporary("test:legacy_rollout", legacy_rollout_fn):
+            fn = load_rollout_function(constructor_input, "test:legacy_rollout")
 
-        input_cls = RolloutFnEvalInput if evaluation else RolloutFnTrainInput
-        result = call_rollout_function(fn, input_cls(rollout_id=1))
+            input_cls = RolloutFnEvalInput if evaluation else RolloutFnTrainInput
+            result = call_rollout_function(fn, input_cls(rollout_id=1))
 
-        assert isinstance(fn, LegacyRolloutFnAdapter)
-        if evaluation:
-            assert isinstance(result, RolloutFnEvalOutput)
-            assert result.data == {"metric": {"accuracy": 0.9}}
-        else:
-            assert isinstance(result, RolloutFnTrainOutput)
-            assert result.samples == [[{"text": "sample"}]]
+            assert isinstance(fn, LegacyRolloutFnAdapter)
+            if evaluation:
+                assert isinstance(result, RolloutFnEvalOutput)
+                assert result.data == {"metric": {"accuracy": 0.9}}
+            else:
+                assert isinstance(result, RolloutFnTrainOutput)
+                assert result.samples == [[{"text": "sample"}]]
 
     @pytest.mark.parametrize("evaluation", [False, True])
     def test_format_2_legacy_function_typed_output(self, constructor_input, evaluation):
@@ -76,18 +77,18 @@ class TestSupportedRolloutFormats:
                 return RolloutFnEvalOutput(data={"ds": {"acc": 0.95}})
             return RolloutFnTrainOutput(samples=[[{"text": "typed"}]])
 
-        with patch("miles.rollout.modular_rollout.compatibility.load_function", return_value=legacy_rollout_fn):
-            fn = load_rollout_function(constructor_input, "path.to.fn")
+        with function_registry.temporary("test:legacy_typed", legacy_rollout_fn):
+            fn = load_rollout_function(constructor_input, "test:legacy_typed")
 
-        input_cls = RolloutFnEvalInput if evaluation else RolloutFnTrainInput
-        result = call_rollout_function(fn, input_cls(rollout_id=1))
+            input_cls = RolloutFnEvalInput if evaluation else RolloutFnTrainInput
+            result = call_rollout_function(fn, input_cls(rollout_id=1))
 
-        if evaluation:
-            assert isinstance(result, RolloutFnEvalOutput)
-            assert result.data == {"ds": {"acc": 0.95}}
-        else:
-            assert isinstance(result, RolloutFnTrainOutput)
-            assert result.samples == [[{"text": "typed"}]]
+            if evaluation:
+                assert isinstance(result, RolloutFnEvalOutput)
+                assert result.data == {"ds": {"acc": 0.95}}
+            else:
+                assert isinstance(result, RolloutFnTrainOutput)
+                assert result.samples == [[{"text": "typed"}]]
 
     @pytest.mark.parametrize("evaluation", [False, True])
     def test_format_3_sync_class(self, constructor_input, evaluation):
@@ -100,15 +101,15 @@ class TestSupportedRolloutFormats:
                     return RolloutFnEvalOutput(data={"test": {"score": 1}})
                 return RolloutFnTrainOutput(samples=[[{"text": "sync"}]])
 
-        with patch("miles.rollout.modular_rollout.compatibility.load_function", return_value=SyncRolloutFn):
-            fn = load_rollout_function(constructor_input, "path.to.SyncRolloutFn")
+        with function_registry.temporary("test:sync_class", SyncRolloutFn):
+            fn = load_rollout_function(constructor_input, "test:sync_class")
 
-        input_cls = RolloutFnEvalInput if evaluation else RolloutFnTrainInput
-        result = call_rollout_function(fn, input_cls(rollout_id=1))
+            input_cls = RolloutFnEvalInput if evaluation else RolloutFnTrainInput
+            result = call_rollout_function(fn, input_cls(rollout_id=1))
 
-        assert isinstance(fn, SyncRolloutFn)
-        expected_type = RolloutFnEvalOutput if evaluation else RolloutFnTrainOutput
-        assert isinstance(result, expected_type)
+            assert isinstance(fn, SyncRolloutFn)
+            expected_type = RolloutFnEvalOutput if evaluation else RolloutFnTrainOutput
+            assert isinstance(result, expected_type)
 
     @pytest.mark.parametrize("evaluation", [False, True])
     def test_format_4_async_class(self, constructor_input, evaluation):
@@ -122,15 +123,15 @@ class TestSupportedRolloutFormats:
                     return RolloutFnEvalOutput(data={"benchmark": {"accuracy": 0.98}})
                 return RolloutFnTrainOutput(samples=[[{"text": "async"}]])
 
-        with patch("miles.rollout.modular_rollout.compatibility.load_function", return_value=AsyncRolloutFn):
-            fn = load_rollout_function(constructor_input, "path.to.AsyncRolloutFn")
+        with function_registry.temporary("test:async_class", AsyncRolloutFn):
+            fn = load_rollout_function(constructor_input, "test:async_class")
 
-        input_cls = RolloutFnEvalInput if evaluation else RolloutFnTrainInput
-        result = call_rollout_function(fn, input_cls(rollout_id=1))
+            input_cls = RolloutFnEvalInput if evaluation else RolloutFnTrainInput
+            result = call_rollout_function(fn, input_cls(rollout_id=1))
 
-        assert isinstance(fn, AsyncRolloutFn)
-        expected_type = RolloutFnEvalOutput if evaluation else RolloutFnTrainOutput
-        assert isinstance(result, expected_type)
+            assert isinstance(fn, AsyncRolloutFn)
+            expected_type = RolloutFnEvalOutput if evaluation else RolloutFnTrainOutput
+            assert isinstance(result, expected_type)
 
 
 class TestSupportedGenerateFormats:
@@ -143,41 +144,41 @@ class TestSupportedGenerateFormats:
         async def legacy_generate_fn(args, sample, sampling_params, evaluation=False):
             return "my_sample"
 
-        with patch("miles.rollout.modular_rollout.compatibility.load_function", return_value=legacy_generate_fn):
-            fn = load_generate_function("path.to.fn")
+        with function_registry.temporary("test:legacy_gen_eval", legacy_generate_fn):
+            fn = load_generate_function("test:legacy_gen_eval")
 
-        result = run(fn(make_generate_fn_input(evaluation)))
+            result = run(fn(make_generate_fn_input(evaluation)))
 
-        assert isinstance(fn, LegacyGenerateFnAdapter)
-        assert isinstance(result, GenerateFnOutput)
-        assert result.samples == "my_sample"
+            assert isinstance(fn, LegacyGenerateFnAdapter)
+            assert isinstance(result, GenerateFnOutput)
+            assert result.samples == "my_sample"
 
     @pytest.mark.parametrize("evaluation", [False, True])
     def test_format_2_legacy_function_without_evaluation_param(self, make_generate_fn_input, evaluation):
         async def legacy_generate_fn(args, sample, sampling_params):
             return "my_sample"
 
-        with patch("miles.rollout.modular_rollout.compatibility.load_function", return_value=legacy_generate_fn):
-            fn = load_generate_function("path.to.fn")
+        with function_registry.temporary("test:legacy_gen", legacy_generate_fn):
+            fn = load_generate_function("test:legacy_gen")
 
-        result = run(fn(make_generate_fn_input(evaluation)))
+            result = run(fn(make_generate_fn_input(evaluation)))
 
-        assert isinstance(fn, LegacyGenerateFnAdapter)
-        assert isinstance(result, GenerateFnOutput)
-        assert result.samples == "my_sample"
+            assert isinstance(fn, LegacyGenerateFnAdapter)
+            assert isinstance(result, GenerateFnOutput)
+            assert result.samples == "my_sample"
 
     @pytest.mark.parametrize("evaluation", [False, True])
     def test_format_3_new_async_function_api(self, make_generate_fn_input, evaluation):
         async def generate(input: GenerateFnInput) -> GenerateFnOutput:
             return GenerateFnOutput(samples="my_sample")
 
-        with patch("miles.rollout.modular_rollout.compatibility.load_function", return_value=generate):
-            fn = load_generate_function("path.to.fn")
+        with function_registry.temporary("test:new_async", generate):
+            fn = load_generate_function("test:new_async")
 
-        result = run(fn(make_generate_fn_input(evaluation)))
+            result = run(fn(make_generate_fn_input(evaluation)))
 
-        assert isinstance(result, GenerateFnOutput)
-        assert result.samples == "my_sample"
+            assert isinstance(result, GenerateFnOutput)
+            assert result.samples == "my_sample"
 
     @pytest.mark.parametrize("evaluation", [False, True])
     def test_format_4_new_class_api(self, make_generate_fn_input, evaluation):
@@ -185,11 +186,11 @@ class TestSupportedGenerateFormats:
             async def __call__(self, input: GenerateFnInput) -> GenerateFnOutput:
                 return GenerateFnOutput(samples="my_sample")
 
-        with patch("miles.rollout.modular_rollout.compatibility.load_function", return_value=MyGenerateFn):
-            fn = load_generate_function("path.to.fn")
+        with function_registry.temporary("test:new_class", MyGenerateFn):
+            fn = load_generate_function("test:new_class")
 
-        result = run(fn(make_generate_fn_input(evaluation)))
+            result = run(fn(make_generate_fn_input(evaluation)))
 
-        assert isinstance(fn, MyGenerateFn)
-        assert isinstance(result, GenerateFnOutput)
-        assert result.samples == "my_sample"
+            assert isinstance(fn, MyGenerateFn)
+            assert isinstance(result, GenerateFnOutput)
+            assert result.samples == "my_sample"
