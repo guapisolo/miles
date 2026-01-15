@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 import requests
 
-from miles.rollout.data_source import RolloutDataSourceWithBuffer
+from miles.rollout.data_source import RolloutDataSourceWithBuffer, DataSource
 from miles.rollout.modular_rollout.orchestration_common import GenerateState
 from miles.router.router import MilesRouter
 from miles.utils.arguments import parse_args
@@ -29,7 +29,7 @@ class IntegrationEnvConfig:
 @dataclass(frozen=True)
 class IntegrationEnv:
     args: Namespace
-    data_source: "RolloutDataSourceWithBuffer"
+    data_source: DataSource
     mock_server: MockSGLangServer
 
 
