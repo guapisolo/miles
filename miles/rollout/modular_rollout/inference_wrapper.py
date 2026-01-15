@@ -70,8 +70,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     output = await post(url, payload)
 
     await _fill_sample_with_response(args, sample, output)
-    sample.rollout_routed_experts = _get_rollout_routed_experts_from_response(args, sample, output)
-    sample.update_from_meta_info(args, output["meta_info"])
 
     return GenerateFnOutput(samples=sample)
 
@@ -96,6 +94,9 @@ async def _fill_sample_with_response(args, sample, output):
         if sample.rollout_log_probs is None:
             sample.rollout_log_probs = []
         sample.rollout_log_probs += new_response_log_probs
+
+    sample.rollout_routed_experts = _get_rollout_routed_experts_from_response(args, sample, output)
+    sample.update_from_meta_info(args, output["meta_info"])
 
 
 def _get_rollout_routed_experts_from_response(args, sample, output):
