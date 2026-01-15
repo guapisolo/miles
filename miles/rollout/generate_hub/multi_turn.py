@@ -4,15 +4,17 @@ Simple multi-turn generation with tool calling.
 
 from typing import Any
 
-from miles.rollout.sglang_rollout import GenerateState
+from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
 from miles.utils.http_utils import post
 from miles.utils.types import Sample
 
 
-async def generate(args, sample: Sample, sampling_params) -> Sample:
+async def generate(input: GenerateFnInput) -> GenerateFnOutput:
+    args = input.args
+    sample = input.sample
+
     assert not args.partial_rollout, "Partial rollout is not supported for " "this function at the moment."
 
-    state = GenerateState(args)
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
     # Set up the initial prompt with system prompt and tools (outside the loop)
