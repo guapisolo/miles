@@ -18,7 +18,7 @@ class FunctionRegistry:
         self._registry[name] = fn
 
     def unregister(self, name: str) -> None:
-        assert name not in self._registry
+        assert name in self._registry
         self._registry.pop(name)
 
     def get(self, name: str) -> object | None:
