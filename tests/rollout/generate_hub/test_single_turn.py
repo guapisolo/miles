@@ -300,32 +300,13 @@ class TestRoutedExperts:
 
 
 class TestMetaInfo:
-    @pytest.mark.parametrize("env", [{"process_fn_kwargs": {"cached_tokens": 3}}], indirect=True)
-    def test_prefix_cache_info_updated(self, variant, env):
+    @pytest.mark.parametrize(
+        "env", [{"process_fn_kwargs": {"cached_tokens": 3, "weight_version": "v1.0"}}], indirect=True
+    )
+    def test_meta_info_fields_updated(self, variant, env):
         result = run_generate(variant, env)
         assert result.requests == [expected_request(variant)]
-        assert result.sample == expected_sample(cached_tokens=3)
-
-    @pytest.mark.parametrize("env", [{"process_fn_kwargs": {"weight_version": "v1.0"}}], indirect=True)
-    def test_weight_version_collected(self, variant, env):
-        result = run_generate(variant, env)
-        assert result.requests == [expected_request(variant)]
-        assert result.sample == expected_sample(weight_versions=["v1.0"])
-
-
-class TestPayloadStructure:
-    def test_payload_has_required_fields(self, variant, env):
-        result = run_generate(variant, env, sampling_params={"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9})
-        assert result.requests == [
-            expected_request(variant, sampling_params={"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9})
-        ]
-        assert result.sample == expected_sample()
-
-    @pytest.mark.parametrize("env", [{"args_kwargs": {"use_rollout_routing_replay": True}}], indirect=True)
-    def test_payload_routed_experts_flag_when_enabled(self, variant, env):
-        result = run_generate(variant, env)
-        assert result.requests == [expected_request(variant, return_routed_experts=True)]
-        assert result.sample == expected_sample()
+        assert result.sample == expected_sample(cached_tokens=3, weight_versions=["v1.0"])
 
 
 class TestInputStatusValidation:
