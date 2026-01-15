@@ -1,7 +1,11 @@
 import pytest
 from pydantic import TypeAdapter
 
-from miles.rollout.generate_hub.tool_call_utils import tokenize_tool_response
+from miles.rollout.generate_hub.tool_call_utils import (
+    DUMMY_ASSISTANT,
+    DUMMY_USER,
+    tokenize_tool_response,
+)
 from sglang.srt.entrypoints.openai.protocol import Tool
 from sglang.srt.function_call.core_types import ToolCallItem
 from sglang.srt.function_call.function_call_parser import FunctionCallParser
@@ -177,23 +181,6 @@ DOUBLE_TOOL_RESPONSES = [
         "name": "dummy_func",
     },
 ]
-
-
-DUMMY_USER = {"role": "user", "content": "dummy"}
-DUMMY_ASSISTANT = {
-    "role": "assistant",
-    "content": None,
-    "tool_calls": [
-        {
-            "id": "call_dummy",
-            "type": "function",
-            "function": {
-                "name": "dummy_func",
-                "arguments": "{}",
-            },
-        }
-    ],
-}
 
 
 def _get_test_params():
