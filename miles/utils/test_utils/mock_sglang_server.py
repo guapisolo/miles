@@ -20,6 +20,9 @@ class ProcessResult:
     cached_tokens: int = 0
     weight_version: str | None = None
     routed_experts: bytes | None = None
+    spec_accept_token_num: int | None = None
+    spec_draft_token_num: int | None = None
+    spec_verify_ct: int | None = None
 
 
 ProcessFn = Callable[[str], ProcessResult]
@@ -93,6 +96,12 @@ class MockSGLangServer:
                     meta_info["weight_version"] = process_result.weight_version
                 if process_result.routed_experts is not None:
                     meta_info["routed_experts"] = pybase64.b64encode(process_result.routed_experts).decode("ascii")
+                if process_result.spec_accept_token_num is not None:
+                    meta_info["spec_accept_token_num"] = process_result.spec_accept_token_num
+                if process_result.spec_draft_token_num is not None:
+                    meta_info["spec_draft_token_num"] = process_result.spec_draft_token_num
+                if process_result.spec_verify_ct is not None:
+                    meta_info["spec_verify_ct"] = process_result.spec_verify_ct
 
                 response = {
                     "text": process_result.text,

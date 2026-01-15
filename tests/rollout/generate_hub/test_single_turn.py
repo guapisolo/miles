@@ -197,14 +197,6 @@ class TestBasicGeneration:
         assert result.requests == [expected_request(variant)]
         assert result.sample == expected_sample()
 
-    @pytest.mark.parametrize("env", [{"process_fn_kwargs": {"response_text": ""}}], indirect=True)
-    def test_empty_response(self, variant, env):
-        result = run_generate(variant, env)
-        assert result.requests == [expected_request(variant)]
-        assert result.sample == expected_sample(
-            response="", response_length=0, tokens=PROMPT_TOKENS, rollout_log_probs=[]
-        )
-
 
 class TestResumedSingleTurn:
     def test_two_consecutive_calls_on_same_sample(self, variant, env):
@@ -337,6 +329,14 @@ class TestPayloadStructure:
 
 
 class TestEdgeCases:
+    @pytest.mark.parametrize("env", [{"process_fn_kwargs": {"response_text": ""}}], indirect=True)
+    def test_empty_response(self, variant, env):
+        result = run_generate(variant, env)
+        assert result.requests == [expected_request(variant)]
+        assert result.sample == expected_sample(
+            response="", response_length=0, tokens=PROMPT_TOKENS, rollout_log_probs=[]
+        )
+
     def test_existing_tokens_not_overwritten_when_response_empty(self, variant, env):
         pre_existing_tokens = [100, 200, 300]
         sample = make_sample(tokens=pre_existing_tokens, response="", response_length=0)
