@@ -8,6 +8,7 @@ import ray
 from miles.utils.http_utils import is_port_available
 
 
+# Mainly used for test purpose where `load_function` needs to load many in-flight generated functions
 class FunctionRegistry:
     def __init__(self):
         self._registry: dict[str, object] = {}
