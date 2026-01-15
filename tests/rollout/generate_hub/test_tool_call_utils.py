@@ -32,7 +32,7 @@ TOOL_CALL_MODELS = [
     # step3: Step-3
     "stepfun-ai/step3",
     # minimax-m2: MiniMax-M2
-    # "MiniMaxAI/MiniMax-M2",  # TODO: find correct HF repo
+    "MiniMaxAI/MiniMax-M2",
     # interns1: InternLM
     "internlm/internlm3-8b-instruct",
 ]
