@@ -40,6 +40,7 @@ from miles.rollout.generate_hub.tool_call_utils import _DUMMY_USER, _build_dummy
 TOOL_CALL_MODELS = [
     "Qwen/Qwen2.5-0.5B-Instruct",
     "Qwen/Qwen3-0.6B",
+    "Qwen/Qwen3-4B-Instruct-2507",
     "THUDM/glm-4-9b-chat",
     "moonshotai/Kimi-K2-Instruct",
     "XiaomiMiMo/MiMo-7B-RL",
