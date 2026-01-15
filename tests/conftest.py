@@ -1,3 +1,4 @@
-from tests.fixtures.rollout_integration import rollout_integration_env
+from tests.fixtures.rollout_integration import rollout_integration_env, rollout_integration_env_with_server
 
 _ = rollout_integration_env
+_ = rollout_integration_env_with_server

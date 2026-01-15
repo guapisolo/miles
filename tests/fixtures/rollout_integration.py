@@ -106,3 +106,31 @@ def rollout_integration_env(tmp_path, request):
             yield args, data_source
 
     _cleanup_legacy_singleton()
+
+
+@pytest.fixture
+def rollout_integration_env_with_server(tmp_path, request):
+    extra_argv, data_rows, latency = request.param
+    assert isinstance(extra_argv, list)
+
+    data_path = str(tmp_path / "data.jsonl")
+    _write_jsonl(data_path, data_rows)
+
+    router_port = find_available_port(20000)
+    args = _build_args(data_path=data_path, router_port=router_port, extra_argv=extra_argv)
+
+    _cleanup_legacy_singleton()
+
+    with with_mock_server(model_name=args.hf_checkpoint, latency=latency) as mock_server:
+        with _with_miles_router(args) as router_server:
+            r = requests.post(
+                f"{router_server.url}/add_worker",
+                params={"url": mock_server.url},
+                timeout=5.0,
+            )
+            r.raise_for_status()
+
+            data_source = RolloutDataSourceWithBuffer(args)
+            yield args, data_source, mock_server
+
+    _cleanup_legacy_singleton()
