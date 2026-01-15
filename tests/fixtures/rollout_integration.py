@@ -10,7 +10,6 @@ import pytest
 import requests
 
 from miles.rollout.data_source import DataSource, RolloutDataSourceWithBuffer
-from miles.rollout.modular_rollout.orchestration_common import GenerateState
 from miles.router.router import MilesRouter
 from miles.utils.arguments import parse_args
 from miles.utils.http_utils import find_available_port, init_http_client
@@ -92,7 +91,7 @@ def _write_jsonl(path: str, rows: list[dict]) -> None:
 
 
 def _cleanup_legacy_singleton():
-    SingletonMeta._instances.pop(GenerateState, None)
+    SingletonMeta.clear_instances(SingletonMeta)
 
 
 DEFAULT_DATA_ROWS = [{"input": "What is 1+7?", "label": "8"}]

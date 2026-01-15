@@ -8,15 +8,15 @@ import pytest
 from miles.rollout.base_types import GenerateFnInput
 from miles.rollout.modular_rollout.orchestration_common import GenerateState
 from miles.utils.async_utils import run
-from miles.utils.http_utils import find_available_port, init_http_client
+from miles.utils.http_utils import init_http_client
 from miles.utils.misc import SingletonMeta
 from miles.utils.test_utils.mock_sglang_server import ProcessResult, with_mock_server
 from miles.utils.types import Sample
 
 
 GENERATE_VARIANTS = [
-    pytest.param("old", id="old"),
-    pytest.param("new", id="new"),
+    pytest.param("sglang_rollout", id="sglang_rollout"),
+    pytest.param("modular_rollout", id="modular_rollout"),
 ]
 
 
@@ -96,20 +96,15 @@ def make_sample(
 
 
 def cleanup_singleton():
-    SingletonMeta._instances.pop(
-        type("GenerateState", (), {"__module__": "miles.rollout.sglang_rollout"}).__class__, None
-    )
-    for key in list(SingletonMeta._instances.keys()):
-        if "GenerateState" in str(key):
-            SingletonMeta._instances.pop(key, None)
+    SingletonMeta.clear_instances(SingletonMeta)
 
 
 async def call_generate(variant: str, args: Namespace, sample: Sample, sampling_params: dict[str, Any]) -> Sample:
-    if variant == "old":
-        from miles.rollout.sglang_rollout import generate as old_generate
-        return await old_generate(args, sample, sampling_params.copy())
+    if variant == "sglang_rollout":
+        from miles.rollout.sglang_rollout import generate
+        return await generate(args, sample, sampling_params.copy())
     else:
-        from miles.rollout.generate_hub.single_turn import generate as new_generate
+        from miles.rollout.generate_hub.single_turn import generate
         state = GenerateState(args)
         input_obj = GenerateFnInput(
             state=state,
@@ -117,7 +112,7 @@ async def call_generate(variant: str, args: Namespace, sample: Sample, sampling_
             sampling_params=sampling_params.copy(),
             evaluation=False,
         )
-        output = await new_generate(input_obj)
+        output = await generate(input_obj)
         return output.samples
 
 
@@ -125,15 +120,13 @@ async def call_generate(variant: str, args: Namespace, sample: Sample, sampling_
 def generate_env(args_kwargs: dict | None = None, process_fn_kwargs: dict | None = None):
     cleanup_singleton()
     try:
-        port = find_available_port(30000)
         process_fn = make_process_fn(**(process_fn_kwargs or {}))
 
         with with_mock_server(
             model_name="Qwen/Qwen3-0.6B",
             process_fn=process_fn,
-            port=port,
         ) as mock_server:
-            args = make_args(router_port=port, **(args_kwargs or {}))
+            args = make_args(router_port=mock_server.port, **(args_kwargs or {}))
             yield args, mock_server
     finally:
         cleanup_singleton()
