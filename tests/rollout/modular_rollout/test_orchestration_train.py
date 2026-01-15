@@ -9,23 +9,6 @@ from miles.utils.types import Sample
 
 
 @pytest.fixture
-def mock_args():
-    args = MagicMock()
-    args.rollout_global_dataset = True
-    args.rollout_batch_size = 2
-    args.n_samples_per_prompt = 1
-    args.over_sampling_batch_size = 2
-    args.dynamic_sampling_filter_path = None
-    args.rollout_sample_filter_path = None
-    args.rollout_all_samples_process_path = None
-    args.partial_rollout = False
-    args.use_miles_router = True
-    args.sglang_router_ip = "127.0.0.1"
-    args.sglang_router_port = 30000
-    return args
-
-
-@pytest.fixture
 def mock_state(mock_args):
     state = MagicMock()
     state.args = mock_args
