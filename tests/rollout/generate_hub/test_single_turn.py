@@ -14,6 +14,10 @@ from miles.utils.misc import SingletonMeta
 from miles.utils.test_utils.mock_sglang_server import ProcessResult, with_mock_server
 from miles.utils.types import Sample
 
+
+# ------------------------------------ fixtures and consts ----------------------------------------
+
+
 MODEL_NAME = "Qwen/Qwen3-0.6B"
 PROMPT = "What is 1+7?"
 PROMPT_TOKENS = [3838, 374, 220, 16, 10, 22, 30]
@@ -198,6 +202,9 @@ def generate_env(request):
 
 def run_generate(variant: str, env: GenerateEnv, sample: Sample | None = None, sampling_params: dict | None = None):
     return run(call_generate(variant, env.args, sample or make_sample(), sampling_params or DEFAULT_SAMPLING_PARAMS))
+
+
+# ------------------------------------ tests ----------------------------------------
 
 
 class TestBasicGeneration:
