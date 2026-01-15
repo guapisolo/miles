@@ -99,7 +99,7 @@ DEFAULT_DATA_ROWS = [{"input": "What is 1+7?", "label": "8"}]
 
 
 @pytest.fixture
-def rollout_integration_env(tmp_path, request) -> Iterator[IntegrationEnv]:
+def rollout_integration_env(tmp_path, request) -> IntegrationEnv:
     config = request.param
     assert isinstance(config, IntegrationEnvConfig)
 
