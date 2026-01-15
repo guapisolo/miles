@@ -192,7 +192,8 @@ def env(request):
         )
 
     with with_mock_server(model_name=model_name, process_fn=process_fn) as mock_server:
-        args = make_args(router_port=mock_server.port, model_name=model_name, **params.get("args_kwargs", {}))
+        other_args_kwargs = {k: v for k, v in args_kwargs.items() if k != "model_name"}
+        args = make_args(router_port=mock_server.port, model_name=model_name, **other_args_kwargs)
         yield GenerateEnv(args=args, mock_server=mock_server)
 
     SingletonMeta.clear_all_instances()
@@ -259,7 +260,7 @@ class TestResumedSingleTurn:
             response_length=2 + 3,
             tokens=tokens_after_turn1 + remaining_tokens,
             rollout_log_probs=partial_log_probs + remaining_log_probs,
-            prompt_tokens=len(tokens_after_turn1),
+            prompt_tokens=len(PROMPT_TOKENS) + len(tokens_after_turn1),
             status=Sample.Status.COMPLETED,
         )
 
@@ -388,7 +389,6 @@ class TestEmptyResponse:
 
 
 VLM_MODEL_NAME = "Qwen/Qwen2-VL-2B-Instruct"
-VLM_PROMPT_TOKENS = [151644, 8948, 198, 2610, 525, 264, 10950, 17847, 13, 151645, 198, 151644, 872, 198, 151652, 151655, 151653, 198, 3838, 374, 220, 16, 10, 22, 30, 151645, 198, 151644, 77091, 198]
 
 
 class TestMultimodal:
@@ -415,15 +415,15 @@ class TestMultimodal:
         assert result.requests == [
             expected_request(
                 variant,
-                input_ids=VLM_PROMPT_TOKENS,
+                input_ids=PROMPT_TOKENS,
                 image_data=[encode_image_for_rollout_engine(test_image)],
             )
         ]
         assert result.sample.multimodal_train_inputs is not None
+        assert "pixel_values" in result.sample.multimodal_train_inputs
         assert "image_grid_thw" in result.sample.multimodal_train_inputs
         assert result.sample == expected_sample(
-            tokens=VLM_PROMPT_TOKENS + RESPONSE_TOKENS,
-            prompt_tokens=len(VLM_PROMPT_TOKENS),
+            tokens=PROMPT_TOKENS + RESPONSE_TOKENS,
             multimodal_inputs=multimodal_inputs,
             multimodal_train_inputs=result.sample.multimodal_train_inputs,
         )
