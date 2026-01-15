@@ -14,12 +14,12 @@ class FunctionRegistry:
         self._registry: dict[str, object] = {}
 
     def register(self, name: str, fn: object) -> None:
-        if name in self._registry:
-            raise ValueError(f"Function '{name}' is already registered")
+        assert name not in self._registry
         self._registry[name] = fn
 
     def unregister(self, name: str) -> None:
-        self._registry.pop(name, None)
+        assert name not in self._registry
+        self._registry.pop(name)
 
     def get(self, name: str) -> object | None:
         return self._registry.get(name)
