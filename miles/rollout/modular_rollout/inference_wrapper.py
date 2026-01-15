@@ -52,7 +52,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         "return_routed_experts": args.use_rollout_routing_replay,
     }
 
-    if sample.multimodal_inputs and (image_data := sample.multimodal_inputs["images"]):
+    if image_data := (sample.multimodal_inputs or {}).get("images"):
         payload["image_data"] = [encode_image_for_rollout_engine(image) for image in image_data]
 
     # Initialize sample.tokens for the first turn
