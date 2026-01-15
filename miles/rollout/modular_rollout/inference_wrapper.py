@@ -78,9 +78,9 @@ async def _fill_sample_with_response(args, sample, output):
 
         await postprocess_sample_with_radix_tree(args, sample, output)
     else:
-        if "output_token_logprobs" in output["meta_info"]:
-            new_response_tokens = [item[1] for item in output["meta_info"]["output_token_logprobs"]]
-            new_response_log_probs = [item[0] for item in output["meta_info"]["output_token_logprobs"]]
+        if logprobs := output["meta_info"].get("output_token_logprobs"):
+            new_response_tokens = [item[1] for item in logprobs]
+            new_response_log_probs = [item[0] for item in logprobs]
         else:
             new_response_tokens, new_response_log_probs = [], []
 
