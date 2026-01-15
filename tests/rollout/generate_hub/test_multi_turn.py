@@ -38,6 +38,12 @@ SAMPLE_TOOLS = [
 
 
 class TestApplyChatTemplateWithTools:
+    EXPECTED_PROMPT_WITHOUT_TOOLS = (
+        "<|im_start|>user\n"
+        "What's the weather in Paris?<|im_end|>\n"
+        "<|im_start|>assistant\n"
+    )
+
     EXPECTED_PROMPT_WITH_TOOLS = (
         "<|im_start|>system\n"
         "# Tools\n\n"
@@ -56,18 +62,24 @@ class TestApplyChatTemplateWithTools:
         "<|im_start|>assistant\n"
     )
 
-    def test_apply_chat_template_includes_tools(self):
+    @pytest.mark.parametrize(
+        "tools,expected",
+        [
+            pytest.param(None, EXPECTED_PROMPT_WITHOUT_TOOLS, id="without_tools"),
+            pytest.param(SAMPLE_TOOLS, EXPECTED_PROMPT_WITH_TOOLS, id="with_tools"),
+        ],
+    )
+    def test_apply_chat_template(self, tools, expected):
         from transformers import AutoTokenizer
 
         tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
-
         messages = [{"role": "user", "content": "What's the weather in Paris?"}]
 
-        prompt_with_tools = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True, tools=SAMPLE_TOOLS
+        prompt = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, tools=tools
         )
 
-        assert prompt_with_tools == self.EXPECTED_PROMPT_WITH_TOOLS
+        assert prompt == expected
 
 
 class TestSGLangFunctionCallParser:
