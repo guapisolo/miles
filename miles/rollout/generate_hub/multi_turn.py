@@ -12,37 +12,7 @@ TOOL_TEMPLATE = "..."
 def format_conversation_with_tools(
         prompt: str, tools: list[dict[str, Any]] = None, system_prompt: str = None, messages: list[dict[str, Any]] = None
 ) -> str:
-    """Format conversation using Jinja2 template with tool support"""
-    template = Template(TOOL_TEMPLATE)
-
-    # Prepare messages
-    messages_to_render = []
-
-    # Always add system message - use provided one or default
-    if system_prompt:
-        system_content = system_prompt
-    else:
-        system_content = (
-            "You are a helpful assistant that can use Python "
-            "tools to solve mathematical problems. When you need "
-            "to perform calculations, use the code_interpreter "
-            "tool to execute code and get results."
-        )
-
-    messages_to_render.append({"role": "system", "content": system_content})
-
-    # Add user message if provided
-    if prompt:
-        messages_to_render.append({"role": "user", "content": prompt})
-
-    # Add assistant responses from previous turns if provided
-    if messages:
-        messages_to_render.extend(messages)
-
-    # Render template
-    formatted_text = template.render(messages=messages_to_render, tools=tools or [])
-
-    return formatted_text
+    return TODO
 
 
 def postprocess_predictions(prediction: str):
