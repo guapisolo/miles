@@ -26,6 +26,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     if state.processor:
         processor_output = state.processor(text=sample.prompt, **sample.multimodal_inputs)
         prompt_ids = processor_output["input_ids"][0]
+        # TODO shall we put it here?
         sample.multimodal_train_inputs = {
             k: v for k, v in processor_output.items() if k not in ["input_ids", "attention_mask"]
         } or None
