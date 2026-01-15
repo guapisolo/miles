@@ -98,6 +98,38 @@ def test_process_result_meta_info_to_dict():
     }
 
 
+def test_generate_endpoint_with_meta_info():
+    def process_fn(_: str) -> ProcessResult:
+        return ProcessResult(
+            text="ok",
+            finish_reason="stop",
+            cached_tokens=5,
+            meta_info=ProcessResultMetaInfo(
+                weight_version="v2.0",
+                routed_experts="encoded_data",
+                spec_accept_token_num=10,
+                spec_draft_token_num=15,
+                spec_verify_ct=3,
+            ),
+        )
+
+    with with_mock_server(process_fn=process_fn) as server:
+        response = requests.post(
+            f"{server.url}/generate",
+            json={"input_ids": [1, 2, 3], "sampling_params": {}, "return_logprob": True},
+            timeout=5.0,
+        )
+        data = response.json()
+
+    assert data["text"] == "ok"
+    assert data["meta_info"]["cached_tokens"] == 5
+    assert data["meta_info"]["weight_version"] == "v2.0"
+    assert data["meta_info"]["routed_experts"] == "encoded_data"
+    assert data["meta_info"]["spec_accept_token_num"] == 10
+    assert data["meta_info"]["spec_draft_token_num"] == 15
+    assert data["meta_info"]["spec_verify_ct"] == 3
+
+
 def test_request_log_and_reset_stats(mock_server):
     mock_server.reset_stats()
     assert len(mock_server.request_log) == 0
