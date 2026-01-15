@@ -92,8 +92,9 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
     return GenerateFnOutput(samples=sample)
 
+
 def _get_rollout_routed_experts_from_output(args, sample, output):
-    if not "routed_experts" in output["meta_info"]:
+    if "routed_experts" not in output["meta_info"]:
         return None
 
     return np.frombuffer(
