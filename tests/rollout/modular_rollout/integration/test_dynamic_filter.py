@@ -1,0 +1,42 @@
+import pytest
+
+from miles.utils.misc import function_registry
+
+from .conftest import MIXED_DATA_ROWS, config, filter_by_reward, load_and_call_train
+
+
+@pytest.mark.parametrize(
+    "rollout_integration_env,use_filter,expect_all_correct",
+    [
+        pytest.param(
+            config(["--rollout-batch-size", "4"], data_rows=MIXED_DATA_ROWS),
+            False,
+            False,
+            id="no_filter",
+        ),
+        pytest.param(
+            config(
+                ["--rollout-batch-size", "3", "--dynamic-sampling-filter-path", "test:filter_by_reward"],
+                data_rows=MIXED_DATA_ROWS,
+            ),
+            True,
+            True,
+            id="with_filter",
+        ),
+    ],
+    indirect=["rollout_integration_env"],
+)
+def test_filter_effect(rollout_integration_env, use_filter, expect_all_correct):
+    env = rollout_integration_env
+
+    if use_filter:
+        with function_registry.temporary("test:filter_by_reward", filter_by_reward):
+            out = load_and_call_train(env.args, env.data_source)
+    else:
+        out = load_and_call_train(env.args, env.data_source)
+
+    rewards = {group[0].reward for group in out.samples}
+    if expect_all_correct:
+        assert rewards == {1}, "Filter should keep only correct samples"
+    else:
+        assert 0 in rewards, "Without filter, incorrect samples should be present"
