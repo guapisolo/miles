@@ -160,16 +160,7 @@ class TestSGLangFunctionCallParser:
         assert parser.parse_non_stream(model_output) == expected
 
 
-SINGLE_TOOL_RESPONSES = [
-    {
-        "role": "tool",
-        "tool_call_id": "call_0",
-        "content": '{"temperature": 25}',
-        "name": "get_weather",
-    },
-]
-
-DOUBLE_TOOL_RESPONSES = [
+_SAMPLE_TOOL_RESPONSES = [
     {
         "role": "tool",
         "tool_call_id": "call_0",
@@ -186,8 +177,6 @@ DOUBLE_TOOL_RESPONSES = [
 
 
 class TestTokenizeToolResponses:
-    """Test tokenize_tool_responses across different models and tool call counts."""
-
     @pytest.mark.parametrize("num_tools", [1, 2])
     @pytest.mark.parametrize("model_name", TOOL_CALL_MODELS)
     def test_tokenize_tool_responses(self, model_name, num_tools):
@@ -195,7 +184,8 @@ class TestTokenizeToolResponses:
 
         tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
-        tool_responses = SINGLE_TOOL_RESPONSES if num_tools == 1 else DOUBLE_TOOL_RESPONSES
+        tool_responses = _SAMPLE_TOOL_RESPONSES[:num_tools]
+        assert len(tool_responses) == num_tools
 
         token_ids = tokenize_tool_responses(tool_responses, tokenizer)
         decoded_str = tokenizer.decode(token_ids)
@@ -205,11 +195,7 @@ class TestTokenizeToolResponses:
 
         expected_str = _compute_chat_template_diff(base_messages, tool_responses, tokenizer)
 
-        assert decoded_str == expected_str, (
-            f"Mismatch for {model_name}:\n"
-            f"  decoded  = {repr(decoded_str)}\n"
-            f"  expected = {repr(expected_str)}"
-        )
+        assert decoded_str == expected_str, f"{model_name=}"
 
 
 def _compute_chat_template_diff(base_messages, extra_messages, tokenizer) -> str:
