@@ -21,10 +21,7 @@ def tokenize_tool_responses(
         messages_without, tokenize=True, add_generation_prompt=False
     )
 
-    assert tokens_with[: len(tokens_without)] == tokens_without, (
-        "Token prefix mismatch: the tokens without tool should be a prefix of tokens with tool"
-    )
-
+    assert tokens_with.startswith(tokens_without), f"{tokens_with=} {tokens_without=}"
     return tokens_with[len(tokens_without) :]
 
 
