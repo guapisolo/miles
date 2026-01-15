@@ -1,9 +1,36 @@
 import pytest
 from pydantic import TypeAdapter
 
+from miles.rollout.generate_hub.tool_call_utils import tokenize_tool_response
 from sglang.srt.entrypoints.openai.protocol import Tool
 from sglang.srt.function_call.core_types import ToolCallItem
 from sglang.srt.function_call.function_call_parser import FunctionCallParser
+
+
+# Models that support tool calling, mapped from sglang tool call parsers:
+# - deepseekv3/v31/v32: DeepSeek-V3 family
+# - glm/glm45/glm47: GLM-4 family
+# - kimi_k2: Kimi-K2
+# - llama3: Llama-3.2 family
+# - mistral: Mistral family
+# - qwen/qwen25: Qwen2.5 family
+# - qwen3_coder: Qwen3 family
+# - mimo: MiMo
+# - step3: Step-3
+# - minimax-m2: MiniMax-M2
+# - interns1: InternLM
+# TODO: Add more models as they become available:
+# - gpt-oss, pythonic formats
+# - Newer model versions
+TOOL_CALL_MODELS = [
+    "Qwen/Qwen2.5-0.5B-Instruct",
+    "Qwen/Qwen3-0.6B",
+    "meta-llama/Llama-3.2-1B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    # "deepseek-ai/DeepSeek-V3",  # Large model, skip for CI
+    # "THUDM/glm-4-9b-chat",  # Requires specific setup
+    # "moonshotai/Kimi-K2-Instruct",  # Not publicly available
+]
 
 
 SAMPLE_TOOLS = [
@@ -120,3 +147,79 @@ class TestSGLangFunctionCallParser:
         tools = TypeAdapter(list[Tool]).validate_python(SAMPLE_TOOLS)
         parser = FunctionCallParser(tools=tools, tool_call_parser="qwen25")
         assert parser.parse_non_stream(model_output) == expected
+
+
+class TestTokenizeToolResponse:
+    """Test tokenize_tool_response across different models and tool call counts."""
+
+    @pytest.fixture
+    def single_tool_response(self):
+        return {
+            "role": "tool",
+            "tool_call_id": "call_001",
+            "content": '{"temperature": 25, "condition": "sunny"}',
+            "name": "get_weather",
+        }
+
+    @pytest.fixture
+    def double_tool_responses(self):
+        return [
+            {
+                "role": "tool",
+                "tool_call_id": "call_001",
+                "content": '{"temperature": 25}',
+                "name": "get_weather",
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_002",
+                "content": '{"results": ["restaurant A", "restaurant B"]}',
+                "name": "search",
+            },
+        ]
+
+    @pytest.mark.parametrize("model_name", TOOL_CALL_MODELS)
+    def test_single_tool_response(self, model_name, single_tool_response):
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+
+        token_ids = tokenize_tool_response(single_tool_response, tokenizer)
+
+        assert isinstance(token_ids, list)
+        assert len(token_ids) > 0
+        assert all(isinstance(t, int) for t in token_ids)
+
+        decoded = tokenizer.decode(token_ids)
+        assert single_tool_response["content"] in decoded or "temperature" in decoded
+
+    @pytest.mark.parametrize("model_name", TOOL_CALL_MODELS)
+    def test_double_tool_responses(self, model_name, double_tool_responses):
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+
+        all_token_ids = []
+        for tool_response in double_tool_responses:
+            token_ids = tokenize_tool_response(tool_response, tokenizer)
+
+            assert isinstance(token_ids, list)
+            assert len(token_ids) > 0
+            assert all(isinstance(t, int) for t in token_ids)
+
+            all_token_ids.append(token_ids)
+
+        assert len(all_token_ids) == 2
+        assert all_token_ids[0] != all_token_ids[1]
+
+    @pytest.mark.parametrize("model_name", TOOL_CALL_MODELS)
+    def test_token_consistency(self, model_name, single_tool_response):
+        """Verify that tokenizing the same message twice gives consistent results."""
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+
+        token_ids_1 = tokenize_tool_response(single_tool_response, tokenizer)
+        token_ids_2 = tokenize_tool_response(single_tool_response, tokenizer)
+
+        assert token_ids_1 == token_ids_2
