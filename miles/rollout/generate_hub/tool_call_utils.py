@@ -33,6 +33,7 @@ def _build_dummy_assistant(tool_responses: list[dict[str, Any]]) -> dict[str, An
     return {
         "role": "assistant",
         "content": None,
+        "reasoning_content": " ",
         "tool_calls": [
             {
                 "id": resp.get("tool_call_id", f"call_dummy_{i}"),
