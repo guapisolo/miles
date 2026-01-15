@@ -66,27 +66,6 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
             "return_logprob": True,  # Request log probabilities for training
         }
 
-        # Log payload to wandb for debugging
-        try:
-            import wandb
-
-            if wandb.run is not None:
-                # Count available tools (from tool_specs)
-                available_tools = len(tool_specs)
-                # Count tools used in the current response
-                tools_used = response.count("<interpreter>")
-
-                wandb.log(
-                    {
-                        "debug/payload_length": len(prompt + response),
-                        "debug/available_tools": available_tools,
-                        "debug/tools_used": tools_used,
-                        "debug/turn": turn,
-                    }
-                )
-        except ImportError:
-            pass  # wandb not available
-
         output = await post(url, payload)
 
         # Handle abort
@@ -147,14 +126,6 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
     sample.response_length = len(response_token_ids)
     sample.response = response
     sample.loss_mask = loss_masks
-
-    # Store payload information for wandb logging
-    sample.payload_text = prompt + response
-    sample.payload_has_system = "<|im_start|>system" in prompt + response
-    sample.payload_has_tools = "# Tools" in prompt + response
-
-    # Store tool call count for reward calculation
-    sample.tool_call_count = tool_call_count
 
     # Set status
     match output["meta_info"]["finish_reason"]["type"]:
