@@ -66,10 +66,10 @@ class TestAsyncRm:
         assert reward in [0, 1]
 
     def test_boxed_prefix_preprocessing(self, mock_args):
-        mock_args.rm_type = "boxed_math"
-        sample = Sample(prompt="", response=r"Final answer is \boxed{42}", label="42")
+        mock_args.rm_type = "boxed_f1"
+        sample = Sample(prompt="", response=r"Final answer is \boxed{hello world}", label="hello world")
         reward = run(async_rm(mock_args, sample))
-        assert reward == 1
+        assert reward == 1.0
 
     def test_rm_type_from_metadata(self, mock_args):
         mock_args.rm_type = None

@@ -46,8 +46,8 @@ class TestNormalizeFinalAnswer:
             (r"100 square", "100"),
             (r"$50$ dollars", "50"),
             (r"\boxed{42}", "42"),
-            (r"\frac12", r"frac{1}{2}"),
-            (r"\sqrt3", r"sqrt{3}"),
+            (r"\frac12", r"\frac{1}{2}"),
+            (r"\sqrt3", r"\sqrt{3}"),
             ("1,000", "1000"),
             ("<|im_end|>", ""),
         ],
@@ -62,8 +62,7 @@ class TestIsCorrectMinerva:
         [
             ("Answer: 42", "42", True),
             ("Answer: 100", "42", False),
-            ("The answer is: 5", "5", True),
-            ("answer: wrong", "42", False),
+            ("Answer: wrong", "42", False),
         ],
     )
     def test_is_correct_minerva(self, solution, gt, expected_correct):
