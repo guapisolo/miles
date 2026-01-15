@@ -130,7 +130,7 @@ _MULTI_DATA_ROWS = [
 def _config(extra_argv: list[str], data_rows: list[dict] | None = None, latency: float = 0.0):
     return IntegrationEnvConfig(
         extra_argv=_MODULAR_ROLLOUT_BASE_ARGV + extra_argv,
-        data_rows=data_rows or DEFAULT_DATA_ROWS,
+        data_rows=data_rows,
         latency=latency,
     )
 
