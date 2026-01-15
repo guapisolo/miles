@@ -136,16 +136,18 @@ def _config(extra_argv: list[str], data_rows: list[dict] | None = None, latency:
 
 
 class TestSemaphoreIntegration:
+    _DATA_ROWS = [{"input": f"What is 1+{i}?", "label": str(1 + i)} for i in range(10)]
+
     @pytest.mark.parametrize(
         "rollout_integration_env",
         [
             pytest.param(
                 _config(
                     ["--sglang-server-concurrency", "1", "--rollout-batch-size", "4", "--n-samples-per-prompt", "2"],
-                    data_rows=[{"input": f"What is 1+{i}?", "label": str(1 + i)} for i in range(10)],
+                    data_rows=_DATA_ROWS,
                     latency=0.05,
                 ),
-                id="semaphore_limit_1",
+                id="limit_1",
             ),
         ],
         indirect=True,
@@ -154,6 +156,25 @@ class TestSemaphoreIntegration:
         env = rollout_integration_env
         _load_and_call_train(env.args, env.data_source)
         assert env.mock_server.max_concurrent <= env.args.sglang_server_concurrency
+
+    @pytest.mark.parametrize(
+        "rollout_integration_env",
+        [
+            pytest.param(
+                _config(
+                    ["--sglang-server-concurrency", "999", "--rollout-batch-size", "4", "--n-samples-per-prompt", "2"],
+                    data_rows=_DATA_ROWS,
+                    latency=0.05,
+                ),
+                id="no_limit",
+            ),
+        ],
+        indirect=True,
+    )
+    def test_max_concurrent_exceeds_one_without_limit(self, rollout_integration_env):
+        env = rollout_integration_env
+        _load_and_call_train(env.args, env.data_source)
+        assert env.mock_server.max_concurrent > 1
 
 
 class TestDeterministicInferenceIntegration:
