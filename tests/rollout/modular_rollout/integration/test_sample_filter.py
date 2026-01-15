@@ -19,6 +19,8 @@ from miles.utils.misc import function_registry
                 [
                     "--rollout-batch-size",
                     "2",
+                    "--over-sampling-batch-size",
+                    "4",
                     "--dynamic-sampling-filter-path",
                     "test:filter_by_reward",
                     "--rollout-sample-filter-path",
