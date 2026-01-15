@@ -13,7 +13,7 @@ from sglang.srt.function_call.function_call_parser import FunctionCallParser
 
 # TODO add more models
 # Typical models that support tool calling, mapped from sglang tool call parsers.
-TOOL_CALL_MODELS = [
+TYPICAL_MODELS = [
     # qwen/qwen25
     "Qwen/Qwen2.5-0.5B-Instruct",
     "Qwen/Qwen3-0.6B",
@@ -178,7 +178,7 @@ _SAMPLE_TOOL_RESPONSES = [
 
 class TestTokenizeToolResponses:
     @pytest.mark.parametrize("num_tools", [1, 2])
-    @pytest.mark.parametrize("model_name", TOOL_CALL_MODELS)
+    @pytest.mark.parametrize("model_name", TYPICAL_MODELS)
     def test_tokenize_tool_responses(self, model_name, num_tools):
         from transformers import AutoTokenizer
 
