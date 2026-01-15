@@ -318,8 +318,9 @@ class TestRoutedExperts:
     @pytest.mark.parametrize("generate_env", [{"args_kwargs": {"use_rollout_routing_replay": False}}], indirect=True)
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_routed_experts_disabled(self, variant, generate_env):
-        assert run_generate(variant, generate_env) == expected_sample()
-        assert generate_env.mock_server.request_log == [expected_request(variant, return_routed_experts=False)]
+        result = run_generate(variant, generate_env)
+        assert result.requests == [expected_request(variant, return_routed_experts=False)]
+        assert result.sample == expected_sample()
 
     @pytest.mark.parametrize(
         "generate_env",
@@ -344,34 +345,72 @@ class TestRoutedExperts:
         generate_env.mock_server.process_fn = make_process_fn(routed_experts=routed_experts_array.tobytes())
 
         result = run_generate(variant, generate_env)
-
-        assert result.rollout_routed_experts is not None
-        assert result.rollout_routed_experts.shape == (num_tokens - 1, num_layers, moe_router_topk)
-        np.testing.assert_array_equal(result.rollout_routed_experts, routed_experts_array)
+        assert result.requests == [expected_request(variant, return_routed_experts=True)]
+        assert result.sample.rollout_routed_experts is not None
+        assert result.sample.rollout_routed_experts.shape == (num_tokens - 1, num_layers, moe_router_topk)
+        np.testing.assert_array_equal(result.sample.rollout_routed_experts, routed_experts_array)
 
 
 class TestMetaInfo:
     @pytest.mark.parametrize("generate_env", [{"process_fn_kwargs": {"cached_tokens": 3}}], indirect=True)
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_prefix_cache_info_updated(self, variant, generate_env):
-        assert run_generate(variant, generate_env) == expected_sample(cached_tokens=3)
+        result = run_generate(variant, generate_env)
+        assert result.requests == [expected_request(variant)]
+        assert result.sample == expected_sample(cached_tokens=3)
 
     @pytest.mark.parametrize("generate_env", [{"process_fn_kwargs": {"weight_version": "v1.0"}}], indirect=True)
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_weight_version_collected(self, variant, generate_env):
-        assert run_generate(variant, generate_env) == expected_sample(weight_versions=["v1.0"])
+        result = run_generate(variant, generate_env)
+        assert result.requests == [expected_request(variant)]
+        assert result.sample == expected_sample(weight_versions=["v1.0"])
 
 
 class TestPayloadStructure:
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_payload_has_required_fields(self, variant, generate_env):
-        run_generate(variant, generate_env, sampling_params={"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9})
-        assert generate_env.mock_server.request_log == [
+        result = run_generate(variant, generate_env, sampling_params={"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9})
+        assert result.requests == [
             expected_request(variant, sampling_params={"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9})
         ]
+        assert result.sample == expected_sample()
 
     @pytest.mark.parametrize("generate_env", [{"args_kwargs": {"use_rollout_routing_replay": True}}], indirect=True)
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_payload_routed_experts_flag_when_enabled(self, variant, generate_env):
-        run_generate(variant, generate_env)
-        assert generate_env.mock_server.request_log == [expected_request(variant, return_routed_experts=True)]
+        result = run_generate(variant, generate_env)
+        assert result.requests == [expected_request(variant, return_routed_experts=True)]
+        assert result.sample == expected_sample()
+
+
+class TestInputStatusValidation:
+    @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
+    def test_pending_status_allowed(self, variant, generate_env):
+        sample = make_sample()
+        sample.status = Sample.Status.PENDING
+        result = run_generate(variant, generate_env, sample)
+        assert result.requests == [expected_request(variant)]
+        assert result.sample.status == Sample.Status.COMPLETED
+
+    @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
+    def test_aborted_status_allowed(self, variant, generate_env):
+        sample = make_sample()
+        sample.status = Sample.Status.ABORTED
+        result = run_generate(variant, generate_env, sample)
+        assert result.requests == [expected_request(variant)]
+        assert result.sample.status == Sample.Status.COMPLETED
+
+    @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
+    def test_completed_status_rejected(self, variant, generate_env):
+        sample = make_sample()
+        sample.status = Sample.Status.COMPLETED
+        with pytest.raises(AssertionError):
+            run_generate(variant, generate_env, sample)
+
+    @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
+    def test_truncated_status_rejected(self, variant, generate_env):
+        sample = make_sample()
+        sample.status = Sample.Status.TRUNCATED
+        with pytest.raises(AssertionError):
+            run_generate(variant, generate_env, sample)
