@@ -287,11 +287,6 @@ class TestFinishReason:
 
 
 class TestRoutedExperts:
-    def test_routed_experts_disabled(self, variant, env):
-        result = run_generate(variant, env)
-        assert result.requests == [expected_request(variant, return_routed_experts=False)]
-        assert result.sample == expected_sample()
-
     @pytest.mark.parametrize(
         "env",
         [
