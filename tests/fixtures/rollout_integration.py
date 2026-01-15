@@ -19,14 +19,21 @@ from miles.utils.test_utils.mock_sglang_server import MockSGLangServer, with_moc
 from miles.utils.test_utils.uvicorn_thread_server import UvicornThreadServer
 
 
-@dataclass
+@dataclass(frozen=True)
 class IntegrationEnvConfig:
-    extra_argv: list[str] | None = None
-    data_rows: list[dict] | None = None
+    extra_argv: tuple[str, ...] = ()
+    data_rows: tuple[dict, ...] | None = None
     latency: float = 0.0
 
 
-def _build_args(*, data_path: str, router_port: int, extra_argv: list[str] | None = None) -> Namespace:
+@dataclass(frozen=True)
+class IntegrationEnv:
+    args: Namespace
+    data_source: "RolloutDataSourceWithBuffer"
+    mock_server: MockSGLangServer
+
+
+def _build_args(*, data_path: str, router_port: int, extra_argv: tuple[str, ...] = ()) -> Namespace:
     argv = [
         "pytest",
         "--train-backend",
@@ -61,7 +68,7 @@ def _build_args(*, data_path: str, router_port: int, extra_argv: list[str] | Non
         str(router_port),
         "--rollout-max-response-len",
         "16",
-    ] + (extra_argv or [])
+    ] + list(extra_argv)
     with patch("sys.argv", argv):
         args = parse_args()
     args.miles_router_middleware_paths = []
