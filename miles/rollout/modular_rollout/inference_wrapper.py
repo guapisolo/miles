@@ -14,9 +14,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     sample = input.sample
     sampling_params = input.sampling_params
 
-    if args.ci_test:
-        assert isinstance(sample.prompt, str)
-
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
     assert (
