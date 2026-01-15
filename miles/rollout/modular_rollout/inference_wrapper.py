@@ -12,31 +12,15 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     state = input.state
     args = input.args
     sample = input.sample
-    sampling_params = input.sampling_params
 
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
     assert sample.status in {Sample.Status.PENDING, Sample.Status.ABORTED}, f"{sample.status=}"
 
     prompt_ids = await _compute_prompt_ids(sample, state)
+    payload = await _compute_request_payload(args, prompt_ids, sample, input.sampling_params)
 
-    if len(sample.response) > 0:
-        sampling_params["max_new_tokens"] -= len(sample.tokens) - len(prompt_ids)
-
-    # Prepare payload for sglang server
-    payload = {
-        # Use existing tokens for multi-turn or tokenize the new prompt
-        "input_ids": sample.tokens if len(sample.response) > 0 else prompt_ids,
-        "sampling_params": sampling_params,
-        "return_logprob": True,
-        "return_routed_experts": args.use_rollout_routing_replay,
-    }
-
-    if image_data := (sample.multimodal_inputs or {}).get("images"):
-        payload["image_data"] = [encode_image_for_rollout_engine(image) for image in image_data]
-
-    assert sampling_params["max_new_tokens"] >= 0
-    if sampling_params["max_new_tokens"] == 0:
+    if payload["sampling_params"]["max_new_tokens"] == 0:
         sample.status = Sample.Status.TRUNCATED
         return GenerateFnOutput(samples=sample)
 
@@ -49,6 +33,26 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     await _fill_sample_by_response(args, sample, output)
 
     return GenerateFnOutput(samples=sample)
+
+
+async def _compute_request_payload(args, prompt_ids, sample, sampling_params):
+    if len(sample.response) > 0:
+        sampling_params["max_new_tokens"] -= len(sample.tokens) - len(prompt_ids)
+
+    # Prepare payload for sglang server
+    payload = {
+        # Use existing tokens for multi-turn or tokenize the new prompt
+        "input_ids": sample.tokens if len(sample.response) > 0 else prompt_ids,
+        "sampling_params": sampling_params,
+        "return_logprob": True,
+        "return_routed_experts": args.use_rollout_routing_replay,
+    }
+    if image_data := (sample.multimodal_inputs or {}).get("images"):
+        payload["image_data"] = [encode_image_for_rollout_engine(image) for image in image_data]
+
+    assert payload["sampling_params"]["max_new_tokens"] >= 0
+
+    return payload
 
 
 async def _compute_prompt_ids(sample, state):
