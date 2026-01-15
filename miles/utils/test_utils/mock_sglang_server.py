@@ -14,17 +14,14 @@ from miles.utils.test_utils.uvicorn_thread_server import UvicornThreadServer
 
 
 @dataclass(frozen=True)
-class ProcessResult:
-    text: str
-    finish_reason: str
-    cached_tokens: int = 0
+class ProcessResultMetaInfo:
     weight_version: str | None = None
     routed_experts: bytes | None = None
     spec_accept_token_num: int | None = None
     spec_draft_token_num: int | None = None
     spec_verify_ct: int | None = None
 
-    def extra_meta_info(self) -> dict:
+    def to_dict(self) -> dict:
         result = {}
         if (x := self.weight_version) is not None:
             result["weight_version"] = x
@@ -37,6 +34,14 @@ class ProcessResult:
         if (x := self.spec_verify_ct) is not None:
             result["spec_verify_ct"] = x
         return result
+
+
+@dataclass(frozen=True)
+class ProcessResult:
+    text: str
+    finish_reason: str
+    cached_tokens: int = 0
+    meta_info: ProcessResultMetaInfo = ProcessResultMetaInfo()
 
 
 ProcessFn = Callable[[str], ProcessResult]
@@ -105,7 +110,7 @@ class MockSGLangServer:
                     "cached_tokens": process_result.cached_tokens,
                     "completion_tokens": completion_tokens,
                     "output_token_logprobs": output_token_logprobs,
-                    **process_result.extra_meta_info(),
+                    **process_result.meta_info.to_dict(),
                 }
 
                 response = {
