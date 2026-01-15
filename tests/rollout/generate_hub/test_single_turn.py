@@ -21,6 +21,23 @@ GENERATE_VARIANTS = [
 ]
 
 
+def expected_request(
+    variant: str,
+    *,
+    input_ids: list[int] | None = None,
+    sampling_params: dict | None = None,
+    return_routed_experts: bool = False,
+) -> dict:
+    result = {
+        "input_ids": input_ids if input_ids is not None else [3838, 374, 220, 16, 10, 22, 30],
+        "sampling_params": sampling_params if sampling_params is not None else {"max_new_tokens": 16, "temperature": 0.7},
+        "return_logprob": True,
+    }
+    if variant == "modular_rollout" or return_routed_experts:
+        result["return_routed_experts"] = return_routed_experts
+    return result
+
+
 def expected_sample(
     *,
     response: str = "\\boxed{8}",
@@ -46,7 +63,9 @@ def expected_sample(
         reward=None,
         loss_mask=None,
         weight_versions=weight_versions or [],
-        rollout_log_probs=rollout_log_probs if rollout_log_probs is not None else [-0.0, -0.0078125, -0.015625, -0.0234375, -0.03125],
+        rollout_log_probs=(
+            rollout_log_probs if rollout_log_probs is not None else [-0.0, -0.0078125, -0.015625, -0.0234375, -0.03125]
+        ),
         rollout_routed_experts=rollout_routed_experts,
         remove_sample=False,
         status=status,
@@ -88,25 +107,40 @@ def make_args(
 ) -> Namespace:
     argv = [
         "pytest",
-        "--train-backend", "fsdp",
-        "--rollout-batch-size", "1",
-        "--n-samples-per-prompt", "1",
-        "--num-rollout", "1",
-        "--rollout-num-gpus", "1",
-        "--rollout-num-gpus-per-engine", "1",
-        "--hf-checkpoint", "Qwen/Qwen3-0.6B",
-        "--prompt-data", "/dev/null",
-        "--input-key", "input",
-        "--label-key", "label",
-        "--rm-type", "math",
-        "--sglang-router-ip", "127.0.0.1",
-        "--sglang-router-port", str(router_port),
-        "--rollout-max-response-len", "16",
+        "--train-backend",
+        "fsdp",
+        "--rollout-batch-size",
+        "1",
+        "--n-samples-per-prompt",
+        "1",
+        "--num-rollout",
+        "1",
+        "--rollout-num-gpus",
+        "1",
+        "--rollout-num-gpus-per-engine",
+        "1",
+        "--hf-checkpoint",
+        "Qwen/Qwen3-0.6B",
+        "--prompt-data",
+        "/dev/null",
+        "--input-key",
+        "input",
+        "--label-key",
+        "label",
+        "--rm-type",
+        "math",
+        "--sglang-router-ip",
+        "127.0.0.1",
+        "--sglang-router-port",
+        str(router_port),
+        "--rollout-max-response-len",
+        "16",
     ]
     if use_rollout_routing_replay:
         argv.append("--use-rollout-routing-replay")
 
     from miles.utils.arguments import parse_args
+
     with patch("sys.argv", argv):
         args = parse_args()
 
@@ -138,9 +172,11 @@ def make_sample(
 async def call_generate(variant: str, args: Namespace, sample: Sample, sampling_params: dict[str, Any]) -> Sample:
     if variant == "sglang_rollout":
         from miles.rollout.sglang_rollout import generate
+
         return await generate(args, sample, sampling_params.copy())
     else:
         from miles.rollout.generate_hub.single_turn import generate
+
         state = GenerateState(args)
         input_obj = GenerateFnInput(
             state=state,
@@ -211,12 +247,7 @@ class TestPromptProcessingPath:
         result = run(call_generate(variant, generate_env.args, sample, sampling_params))
 
         assert len(generate_env.mock_server.request_log) == 1
-        assert generate_env.mock_server.request_log[0] == {
-            "input_ids": [3838, 374, 220, 16, 10, 22, 30],
-            "sampling_params": {"max_new_tokens": 16, "temperature": 0.7},
-            "return_logprob": True,
-            "return_routed_experts": False,
-        }
+        assert generate_env.mock_server.request_log[0] == expected_request(variant)
 
 
 class TestMultiTurn:
@@ -259,12 +290,11 @@ class TestMultiTurn:
 
         run(call_generate(variant, generate_env.args, sample, sampling_params))
 
-        assert generate_env.mock_server.request_log[0] == {
-            "input_ids": existing_tokens,
-            "sampling_params": {"max_new_tokens": 7, "temperature": 0.7},
-            "return_logprob": True,
-            "return_routed_experts": False,
-        }
+        assert generate_env.mock_server.request_log[0] == expected_request(
+            variant,
+            input_ids=existing_tokens,
+            sampling_params={"max_new_tokens": 7, "temperature": 0.7},
+        )
 
 
 class TestBoundaryConditions:
@@ -326,12 +356,7 @@ class TestRoutedExperts:
         result = run(call_generate(variant, generate_env.args, sample, sampling_params))
 
         assert result == expected_sample(rollout_routed_experts=None)
-        assert generate_env.mock_server.request_log[0] == {
-            "input_ids": [3838, 374, 220, 16, 10, 22, 30],
-            "sampling_params": {"max_new_tokens": 16, "temperature": 0.7},
-            "return_logprob": True,
-            "return_routed_experts": False,
-        }
+        assert generate_env.mock_server.request_log[0] == expected_request(variant, return_routed_experts=False)
 
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_routed_experts_enabled_and_parsed(self, variant):
@@ -339,9 +364,9 @@ class TestRoutedExperts:
         num_layers = 2
         moe_router_topk = 4
         num_tokens = 7 + 5  # prompt + response
-        routed_experts_array = np.arange(
-            (num_tokens - 1) * num_layers * moe_router_topk, dtype=np.int32
-        ).reshape(num_tokens - 1, num_layers, moe_router_topk)
+        routed_experts_array = np.arange((num_tokens - 1) * num_layers * moe_router_topk, dtype=np.int32).reshape(
+            num_tokens - 1, num_layers, moe_router_topk
+        )
         routed_experts_bytes = routed_experts_array.tobytes()
 
         process_fn = make_process_fn(routed_experts=routed_experts_bytes)
@@ -391,12 +416,10 @@ class TestPayloadStructure:
 
         run(call_generate(variant, generate_env.args, sample, sampling_params))
 
-        assert generate_env.mock_server.request_log[0] == {
-            "input_ids": [3838, 374, 220, 16, 10, 22, 30],
-            "sampling_params": {"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9},
-            "return_logprob": True,
-            "return_routed_experts": False,
-        }
+        assert generate_env.mock_server.request_log[0] == expected_request(
+            variant,
+            sampling_params={"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9},
+        )
 
     @pytest.mark.parametrize("generate_env", [{"args_kwargs": {"use_rollout_routing_replay": True}}], indirect=True)
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
@@ -406,9 +429,4 @@ class TestPayloadStructure:
 
         run(call_generate(variant, generate_env.args, sample, sampling_params))
 
-        assert generate_env.mock_server.request_log[0] == {
-            "input_ids": [3838, 374, 220, 16, 10, 22, 30],
-            "sampling_params": {"max_new_tokens": 16, "temperature": 0.7},
-            "return_logprob": True,
-            "return_routed_experts": True,
-        }
+        assert generate_env.mock_server.request_log[0] == expected_request(variant, return_routed_experts=True)
