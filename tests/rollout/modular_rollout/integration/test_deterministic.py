@@ -1,6 +1,6 @@
 import pytest
 
-from .conftest import config, load_and_call_train
+from tests.rollout.modular_rollout.integration.utils import config, load_and_call_train
 
 
 @pytest.mark.parametrize(

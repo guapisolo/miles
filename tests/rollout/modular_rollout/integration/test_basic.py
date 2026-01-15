@@ -4,7 +4,11 @@ from tests.fixtures.rollout_integration import IntegrationEnvConfig
 from miles.rollout.base_types import RolloutFnConstructorInput, RolloutFnEvalInput
 from miles.rollout.modular_rollout.compatibility import call_rollout_function, load_rollout_function
 
-from .conftest import MODULAR_ROLLOUT_BASE_ARGV, expected_sample, load_and_call_train
+from tests.rollout.modular_rollout.integration.utils import (
+    MODULAR_ROLLOUT_BASE_ARGV,
+    expected_sample,
+    load_and_call_train,
+)
 
 _VARIANTS = [
     pytest.param(
