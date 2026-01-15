@@ -10,7 +10,7 @@ from miles.utils.types import Sample
 
 
 # Make this an isolated function because users may want to compute their own
-async def compute_prompt_ids(state, sample):
+async def compute_prompt_ids_from_sample(state, sample):
     if state.processor:
         processor_output = state.processor(text=sample.prompt, **sample.multimodal_inputs)
         prompt_ids = processor_output["input_ids"][0]

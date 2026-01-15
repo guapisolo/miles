@@ -1,6 +1,6 @@
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
 from miles.rollout.generate_hub.generate_endpoint_wrapper import (
-    compute_prompt_ids,
+    compute_prompt_ids_from_sample,
     compute_request_payload,
     update_sample_from_response,
 )
@@ -14,7 +14,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
-    prompt_ids = await compute_prompt_ids(input.state, sample)
+    prompt_ids = await compute_prompt_ids_from_sample(input.state, sample)
     payload, halt_status = await compute_request_payload(input.state, sample, prompt_ids, input.sampling_params)
 
     if payload is None:
