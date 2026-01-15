@@ -86,25 +86,6 @@ def expected_sample(
     )
 
 
-def make_process_fn(
-    response_text: str = RESPONSE_TEXT,
-    finish_reason: str = "stop",
-    cached_tokens: int = 0,
-    weight_version: str | None = None,
-    routed_experts: bytes | None = None,
-):
-    def process_fn(prompt: str) -> ProcessResult:
-        return ProcessResult(
-            text=response_text,
-            finish_reason=finish_reason,
-            cached_tokens=cached_tokens,
-            weight_version=weight_version,
-            routed_experts=routed_experts,
-        )
-
-    return process_fn
-
-
 def make_args(*, router_port: int, use_rollout_routing_replay: bool = False) -> Namespace:
     argv = [
         "pytest",
@@ -163,7 +144,14 @@ class GenerateResult:
 def generate_env(request):
     SingletonMeta.clear_all_instances()
     params = getattr(request, "param", {})
-    process_fn = make_process_fn(**params.get("process_fn_kwargs", {}))
+    pfk = params.get("process_fn_kwargs", {})
+    process_fn = lambda _: ProcessResult(
+        text=pfk.get("response_text", RESPONSE_TEXT),
+        finish_reason=pfk.get("finish_reason", "stop"),
+        cached_tokens=pfk.get("cached_tokens", 0),
+        weight_version=pfk.get("weight_version"),
+        routed_experts=pfk.get("routed_experts"),
+    )
 
     with with_mock_server(model_name=MODEL_NAME, process_fn=process_fn) as mock_server:
         args = make_args(router_port=mock_server.port, **params.get("args_kwargs", {}))
@@ -312,7 +300,9 @@ class TestRoutedExperts:
 
         generate_env.args.num_layers = num_layers
         generate_env.args.moe_router_topk = moe_router_topk
-        generate_env.mock_server.process_fn = make_process_fn(routed_experts=routed_experts_array.tobytes())
+        generate_env.mock_server.process_fn = lambda _: ProcessResult(
+            text=RESPONSE_TEXT, finish_reason="stop", routed_experts=routed_experts_array.tobytes()
+        )
 
         result = run_generate(variant, generate_env)
         assert result.requests == [expected_request(variant, return_routed_experts=True)]
