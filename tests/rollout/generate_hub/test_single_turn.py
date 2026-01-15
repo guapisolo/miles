@@ -368,4 +368,3 @@ class TestEmptyResponse:
         assert result.sample == expected_sample(
             response="", response_length=0, tokens=PROMPT_TOKENS, rollout_log_probs=[]
         )
-

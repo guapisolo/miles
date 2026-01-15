@@ -1,6 +1,9 @@
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
-from miles.rollout.generate_hub.generate_endpoint_wrapper import compute_request_payload, update_sample_from_response, \
-    compute_prompt_ids
+from miles.rollout.generate_hub.generate_endpoint_wrapper import (
+    compute_prompt_ids,
+    compute_request_payload,
+    update_sample_from_response,
+)
 from miles.utils.http_utils import post
 
 
