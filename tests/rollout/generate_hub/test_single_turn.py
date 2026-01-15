@@ -3,7 +3,6 @@ from contextlib import contextmanager
 from typing import Any
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 
 from miles.rollout.base_types import GenerateFnInput
@@ -292,6 +291,32 @@ class TestRoutedExperts:
             assert result.rollout_routed_experts is None
             payload = mock_server.request_log[0]
             assert payload.get("return_routed_experts", False) is False
+
+    @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
+    def test_routed_experts_enabled_and_parsed(self, variant):
+        import numpy as np
+        num_layers = 2
+        moe_router_topk = 4
+        num_tokens = 7 + 5  # prompt + response
+        routed_experts_array = np.arange(
+            (num_tokens - 1) * num_layers * moe_router_topk, dtype=np.int32
+        ).reshape(num_tokens - 1, num_layers, moe_router_topk)
+        routed_experts_bytes = routed_experts_array.tobytes()
+
+        with generate_env(
+            args_kwargs={"use_rollout_routing_replay": True},
+            process_fn_kwargs={"routed_experts": routed_experts_bytes}
+        ) as (args, mock_server):
+            args.num_layers = num_layers
+            args.moe_router_topk = moe_router_topk
+            sample = make_sample()
+            sampling_params = {"max_new_tokens": 16, "temperature": 0.7}
+
+            result = run(call_generate(variant, args, sample, sampling_params))
+
+            assert result.rollout_routed_experts is not None
+            assert result.rollout_routed_experts.shape == (num_tokens - 1, num_layers, moe_router_topk)
+            np.testing.assert_array_equal(result.rollout_routed_experts, routed_experts_array)
 
 
 class TestMetaInfo:
