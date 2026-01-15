@@ -62,10 +62,3 @@ class TestAddArgumentsSupport:
                 parser = argparse.ArgumentParser()
                 add_miles_arguments = get_miles_extra_args_provider()
                 add_miles_arguments(parser)
-
-    def test_skips_none_path(self):
-        with patch.object(sys, "argv", ["test"]):
-            import argparse
-            parser = argparse.ArgumentParser()
-            add_miles_arguments = get_miles_extra_args_provider()
-            add_miles_arguments(parser)
