@@ -187,6 +187,12 @@ class GenerateEnv:
     mock_server: Any
 
 
+@dataclass
+class GenerateResult:
+    sample: Sample
+    requests: list[dict]
+
+
 @pytest.fixture
 def generate_env(request):
     SingletonMeta.clear_all_instances()
@@ -201,7 +207,9 @@ def generate_env(request):
 
 
 def run_generate(variant: str, env: GenerateEnv, sample: Sample | None = None, sampling_params: dict | None = None):
-    return run(call_generate(variant, env.args, sample or make_sample(), sampling_params or DEFAULT_SAMPLING_PARAMS))
+    env.mock_server.request_log.clear()
+    result_sample = run(call_generate(variant, env.args, sample or make_sample(), sampling_params or DEFAULT_SAMPLING_PARAMS))
+    return GenerateResult(sample=result_sample, requests=list(env.mock_server.request_log))
 
 
 # ------------------------------------ tests ----------------------------------------
@@ -210,12 +218,16 @@ def run_generate(variant: str, env: GenerateEnv, sample: Sample | None = None, s
 class TestBasicGeneration:
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_basic_generation(self, variant, generate_env):
-        assert run_generate(variant, generate_env) == expected_sample()
+        result = run_generate(variant, generate_env)
+        assert result.requests == [expected_request(variant)]
+        assert result.sample == expected_sample()
 
     @pytest.mark.parametrize("generate_env", [{"process_fn_kwargs": {"response_text": ""}}], indirect=True)
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_empty_response(self, variant, generate_env):
-        assert run_generate(variant, generate_env) == expected_sample(
+        result = run_generate(variant, generate_env)
+        assert result.requests == [expected_request(variant)]
+        assert result.sample == expected_sample(
             response="", response_length=0, tokens=PROMPT_TOKENS, rollout_log_probs=[]
         )
 
@@ -223,8 +235,9 @@ class TestBasicGeneration:
 class TestPromptProcessingPath:
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_tokenizer_path(self, variant, generate_env):
-        run_generate(variant, generate_env)
-        assert generate_env.mock_server.request_log == [expected_request(variant)]
+        result = run_generate(variant, generate_env)
+        assert result.requests == [expected_request(variant)]
+        assert result.sample == expected_sample()
 
 
 class TestMultiTurn:
