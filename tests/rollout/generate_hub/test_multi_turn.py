@@ -41,15 +41,6 @@ def to_pydantic_tools(tools: list[dict]) -> list[Tool]:
 
 
 class TestApplyChatTemplateWithTools:
-    """
-    Demonstrates how to use apply_chat_template with tools parameter.
-
-    When generating prompts for tool-calling models:
-    1. Pass tools to apply_chat_template() so the model knows available tools
-    2. Model generates output with tool calls in a specific format
-    3. Use FunctionCallParser to parse the generated tool calls
-    """
-
     def test_apply_chat_template_includes_tools(self):
         """Verify that apply_chat_template with tools produces a prompt containing tool info."""
         from transformers import AutoTokenizer
