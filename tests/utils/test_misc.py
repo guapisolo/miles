@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from miles.utils.misc import FunctionRegistry, function_registry, load_function
@@ -53,3 +55,4 @@ class TestLoadFunction:
     def test_registry_takes_precedence(self):
         with function_registry.temporary("os.path.join", _fn_b):
             assert load_function("os.path.join") is _fn_b
+        assert load_function("os.path.join") is os.path.join
