@@ -1,3 +1,7 @@
+"""
+Simple multi-turn generation with tool calling.
+"""
+
 from typing import Any
 
 from miles.rollout.sglang_rollout import GenerateState
