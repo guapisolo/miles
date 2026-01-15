@@ -109,13 +109,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     sample.loss_mask = loss_masks
 
     # Set status
-    match output["meta_info"]["finish_reason"]["type"]:
-        case "length":
-            sample.status = Sample.Status.TRUNCATED
-        case "abort":
-            sample.status = Sample.Status.ABORTED
-        case "stop":
-            sample.status = Sample.Status.COMPLETED
+    sample.update_from_meta_info(args, output["meta_info"])
 
     return GenerateFnOutput(samples=sample)
 
