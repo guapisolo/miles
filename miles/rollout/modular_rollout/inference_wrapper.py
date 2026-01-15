@@ -57,10 +57,11 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         payload["image_data"] = [encode_image_for_rollout_engine(image) for image in image_data]
 
     # Use existing tokens for multi-turn or tokenize the new prompt
-    if len(sample.response) > 0:
-        payload["input_ids"] = sample.tokens
-    else:
-        payload["input_ids"] = prompt_ids
+    payload["input_ids"] = (
+        sample.tokens
+        if len(sample.response) > 0
+        else prompt_ids
+    )
 
     # Initialize sample.tokens for the first turn
     if (len(sample.response) == 0) and (not sample.tokens):
