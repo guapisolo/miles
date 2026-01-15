@@ -269,6 +269,11 @@ class TestFinishReason:
 
 
 class TestRoutedExperts:
+    def test_routed_experts_disabled(self, variant, env):
+        result = run_generate(variant, env)
+        assert result.requests == [expected_request(variant, return_routed_experts=False)]
+        assert result.sample == expected_sample()
+
     @pytest.mark.parametrize(
         "env",
         [
@@ -320,3 +325,24 @@ class TestInputStatusValidation:
     def test_rejected_statuses(self, variant, env, status):
         with pytest.raises(AssertionError):
             run_generate(variant, env, make_sample(status=status))
+
+
+class TestPayloadStructure:
+    def test_sampling_params_passed_through(self, variant, env):
+        result = run_generate(variant, env, sampling_params={"max_new_tokens": 16, "temperature": 0.5, "top_p": 0.9})
+        assert result.requests == [
+            expected_request(variant, sampling_params={"max_new_tokens": 16, "temperature": 0.5, "top_p": 0.9})
+        ]
+        assert result.sample == expected_sample()
+
+
+class TestEdgeCases:
+    def test_existing_tokens_not_overwritten_when_response_empty(self, variant, env):
+        pre_existing_tokens = [100, 200, 300]
+        sample = make_sample(tokens=pre_existing_tokens, response="", response_length=0)
+        result = run_generate(variant, env, sample)
+        assert result.requests == [expected_request(variant, input_ids=pre_existing_tokens)]
+        assert result.sample == expected_sample(
+            tokens=pre_existing_tokens + RESPONSE_TOKENS,
+            prompt_tokens=len(pre_existing_tokens),
+        )
