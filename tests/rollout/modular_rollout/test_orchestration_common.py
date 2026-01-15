@@ -111,7 +111,7 @@ class TestNonGroupRM:
             new_callable=AsyncMock,
         ) as mock_batched_rm:
             sample = Sample(prompt="test", response="", label="8", status=Sample.Status.PENDING)
-            result = run(generate_and_rm(mock_state, sample, {"temperature": 0.7}, evaluation=False))
+            run(generate_and_rm(mock_state, sample, {"temperature": 0.7}, evaluation=False))
             mock_batched_rm.assert_called_once()
 
 
@@ -159,7 +159,7 @@ class TestGroupRM:
             "miles.rollout.modular_rollout.orchestration_common.batched_async_rm",
             new_callable=AsyncMock,
         ) as mock_batched_rm:
-            result = run(generate_and_rm_group(mock_state, group, {"temperature": 0.7}, evaluation=False))
+            run(generate_and_rm_group(mock_state, group, {"temperature": 0.7}, evaluation=False))
             mock_async_rm.assert_not_called()
             mock_batched_rm.assert_called_once()
             call_args = mock_batched_rm.call_args

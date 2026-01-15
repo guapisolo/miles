@@ -21,30 +21,6 @@ class ProcessResult:
 ProcessFn = Callable[[str], ProcessResult]
 
 
-class ConcurrencyCounter:
-    def __init__(self):
-        self._current = 0
-        self._max = 0
-        self._lock = asyncio.Lock()
-
-    @property
-    def max_value(self) -> int:
-        return self._max
-
-    def reset(self):
-        self._current = 0
-        self._max = 0
-
-    async def increment(self):
-        async with self._lock:
-            self._current += 1
-            self._max = max(self._max, self._current)
-
-    async def decrement(self):
-        async with self._lock:
-            self._current -= 1
-
-
 class MockSGLangServer:
     def __init__(
         self,
@@ -64,7 +40,7 @@ class MockSGLangServer:
         self._server: UvicornThreadServer | None = None
 
         self.request_log: list[dict] = []
-        self._concurrency = ConcurrencyCounter()
+        self._concurrency = Counter()
 
         self._setup_routes()
 
@@ -137,6 +113,30 @@ class MockSGLangServer:
     @property
     def url(self) -> str:
         return f"http://{self.host}:{self.port}"
+
+
+class Counter:
+    def __init__(self):
+        self._current = 0
+        self._max = 0
+        self._lock = asyncio.Lock()
+
+    @property
+    def max_value(self) -> int:
+        return self._max
+
+    def reset(self):
+        self._current = 0
+        self._max = 0
+
+    async def increment(self):
+        async with self._lock:
+            self._current += 1
+            self._max = max(self._max, self._current)
+
+    async def decrement(self):
+        async with self._lock:
+            self._current -= 1
 
 
 def default_process_fn(prompt: str) -> ProcessResult:
