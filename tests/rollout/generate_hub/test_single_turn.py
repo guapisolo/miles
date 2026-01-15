@@ -108,34 +108,14 @@ def make_process_fn(
 def make_args(*, router_port: int, use_rollout_routing_replay: bool = False) -> Namespace:
     argv = [
         "pytest",
-        "--train-backend",
-        "fsdp",
-        "--rollout-batch-size",
-        "1",
-        "--n-samples-per-prompt",
-        "1",
-        "--num-rollout",
-        "1",
-        "--rollout-num-gpus",
-        "1",
-        "--rollout-num-gpus-per-engine",
-        "1",
-        "--hf-checkpoint",
-        MODEL_NAME,
-        "--prompt-data",
-        "/dev/null",
-        "--input-key",
-        "input",
-        "--label-key",
-        "label",
-        "--rm-type",
-        "math",
-        "--sglang-router-ip",
-        "127.0.0.1",
-        "--sglang-router-port",
-        str(router_port),
-        "--rollout-max-response-len",
-        "16",
+        "--train-backend", "fsdp",
+        "--rollout-batch-size", "1",
+        "--hf-checkpoint", MODEL_NAME,
+        "--prompt-data", "/dev/null",
+        "--rm-type", "math",
+        "--sglang-router-ip", "127.0.0.1",
+        "--sglang-router-port", str(router_port),
+        "--rollout-max-response-len", "16",
     ]
     if use_rollout_routing_replay:
         argv.append("--use-rollout-routing-replay")
@@ -150,20 +130,6 @@ def make_args(*, router_port: int, use_rollout_routing_replay: bool = False) -> 
     args.ci_test = False
     init_http_client(args)
     return args
-
-
-def make_sample(
-    tokens: list[int] | None = None,
-    response: str = "",
-    response_length: int = 0,
-) -> Sample:
-    return Sample(
-        prompt=PROMPT,
-        tokens=tokens or [],
-        response=response,
-        response_length=response_length,
-        status=Sample.Status.PENDING,
-    )
 
 
 async def call_generate(variant: str, args: Namespace, sample: Sample, sampling_params: dict[str, Any]) -> Sample:
@@ -208,7 +174,9 @@ def generate_env(request):
 
 def run_generate(variant: str, env: GenerateEnv, sample: Sample | None = None, sampling_params: dict | None = None):
     env.mock_server.request_log.clear()
-    result_sample = run(call_generate(variant, env.args, sample or make_sample(), sampling_params or DEFAULT_SAMPLING_PARAMS))
+    if sample is None:
+        sample = Sample(prompt=PROMPT, tokens=[], response="", response_length=0, status=Sample.Status.PENDING)
+    result_sample = run(call_generate(variant, env.args, sample, sampling_params or DEFAULT_SAMPLING_PARAMS))
     return GenerateResult(sample=result_sample, requests=list(env.mock_server.request_log))
 
 
