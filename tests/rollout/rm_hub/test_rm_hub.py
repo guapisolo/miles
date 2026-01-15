@@ -23,6 +23,7 @@ class TestAsyncRm:
             ("math", r"\boxed{42}", "42", 1),
             ("math", r"\boxed{wrong}", "42", 0),
             ("f1", "hello world", "hello world", 1.0),
+            ("dapo", "Answer: 42", "42", {"score": 1.0}),
             ("deepscaler", r"</think>\boxed{42}", "42", 1),
             ("gpqa", "Answer: A", "A", 1.0),
             ("boxed_f1", r"Final answer is \boxed{hello world}", "hello world", 1.0),
@@ -32,19 +33,17 @@ class TestAsyncRm:
         mock_args.rm_type = rm_type
         sample = Sample(prompt="", response=response, label=label)
         reward = run(async_rm(mock_args, sample))
-        assert reward == expected
+        if isinstance(expected, dict):
+            for k, v in expected.items():
+                assert reward[k] == v
+        else:
+            assert reward == expected
 
     def test_f1_rm_partial(self, mock_args):
         mock_args.rm_type = "f1"
         sample = Sample(prompt="", response="hello", label="hello world")
         reward = run(async_rm(mock_args, sample))
         assert 0 < reward < 1
-
-    def test_dapo_rm(self, mock_args):
-        mock_args.rm_type = "dapo"
-        sample = Sample(prompt="", response="Answer: 42", label="42")
-        result = run(async_rm(mock_args, sample))
-        assert result["score"] == 1.0
 
     def test_random_rm(self, mock_args):
         mock_args.rm_type = "random"
