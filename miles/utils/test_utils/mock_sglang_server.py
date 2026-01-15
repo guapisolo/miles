@@ -116,7 +116,6 @@ class Counter:
     def __init__(self):
         self._current = 0
         self._max = 0
-        self._lock = asyncio.Lock()
 
     @property
     def max_value(self) -> int:
@@ -128,14 +127,12 @@ class Counter:
 
     @asynccontextmanager
     async def track(self):
-        async with self._lock:
-            self._current += 1
-            self._max = max(self._max, self._current)
+        self._current += 1
+        self._max = max(self._max, self._current)
         try:
             yield
         finally:
-            async with self._lock:
-                self._current -= 1
+            self._current -= 1
 
 
 def default_process_fn(prompt: str) -> ProcessResult:
