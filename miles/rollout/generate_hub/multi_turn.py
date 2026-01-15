@@ -21,39 +21,7 @@ def postprocess_predictions(prediction: str):
 
 
 def postprocess_responses(resp: str) -> str:
-    """Post-process response to ensure tag completeness"""
-    # Handle <tool_call> tags (new format from Jinja2 template)
-    if "<tool_call>" in resp:
-        # Find the last occurrence of <tool_call>...</tool_call>
-        tool_call_pattern = r"<tool_call>\s*\{.*?\}\s*</tool_call>"
-        matches = list(re.finditer(tool_call_pattern, resp, re.DOTALL))
-        if matches:
-            last_match = matches[-1]
-            return resp[: last_match.end()]
-
-    # Handle <code> tags
-    if "</code>" in resp:
-        return resp.split("</code>")[0] + "</code>"
-
-    # Handle ```python code blocks
-    if "```python" in resp:
-        # Find the last occurrence of ```python...```
-        python_pattern = r"```python\s*.*?```"
-        matches = list(re.finditer(python_pattern, resp, re.DOTALL))
-        if matches:
-            last_match = matches[-1]
-            return resp[: last_match.end()]
-
-    # Handle Answer: \boxed{...} format (only format we need for math_dapo)
-    if "Answer:" in resp and "\\boxed{" in resp:
-        # Find the last occurrence of Answer: \boxed{...} with nested braces support
-        answer_pattern = r"Answer:\s*\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}"
-        matches = list(re.finditer(answer_pattern, resp, re.DOTALL))
-        if matches:
-            last_match = matches[-1]
-            return resp[: last_match.end()]
-
-    return resp
+    return TODO
 
 
 async def execute_predictions(prediction: str) -> str:
