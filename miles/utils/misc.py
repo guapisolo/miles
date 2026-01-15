@@ -13,25 +13,24 @@ class FunctionRegistry:
     def __init__(self):
         self._registry: dict[str, object] = {}
 
-    def register(self, name: str, fn: object) -> None:
-        assert name not in self._registry
-        self._registry[name] = fn
-
-    def unregister(self, name: str) -> None:
-        assert name in self._registry
-        self._registry.pop(name)
+    @contextmanager
+    def temporary(self, name: str, fn: object):
+        self._register(name, fn)
+        try:
+            yield
+        finally:
+            self._unregister(name)
 
     def get(self, name: str) -> object | None:
         return self._registry.get(name)
 
-    @contextmanager
-    def temporary(self, name: str, fn: object):
-        self.register(name, fn)
-        try:
-            yield
-        finally:
-            self.unregister(name)
+    def _register(self, name: str, fn: object) -> None:
+        assert name not in self._registry
+        self._registry[name] = fn
 
+    def _unregister(self, name: str) -> None:
+        assert name in self._registry
+        self._registry.pop(name)
 
 function_registry = FunctionRegistry()
 
