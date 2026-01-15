@@ -2,7 +2,7 @@ import asyncio
 import re
 from collections.abc import Callable
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -13,9 +13,23 @@ from miles.utils.test_utils.uvicorn_thread_server import UvicornThreadServer
 
 
 @dataclass(frozen=True)
+class ProcessResultMetaInfo:
+    weight_version: str | None = None
+    routed_experts: str | None = None
+    spec_accept_token_num: int | None = None
+    spec_draft_token_num: int | None = None
+    spec_verify_ct: int | None = None
+
+    def to_dict(self) -> dict:
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+@dataclass(frozen=True)
 class ProcessResult:
     text: str
     finish_reason: str
+    cached_tokens: int = 0
+    meta_info: ProcessResultMetaInfo = ProcessResultMetaInfo()
 
 
 ProcessFn = Callable[[str], ProcessResult]
@@ -78,15 +92,18 @@ class MockSGLangServer:
 
                 output_token_logprobs = [(-1 / 128 * i, token_id) for i, token_id in enumerate(output_ids)]
 
+                meta_info = {
+                    "finish_reason": finish_reason_dict,
+                    "prompt_tokens": prompt_tokens,
+                    "cached_tokens": process_result.cached_tokens,
+                    "completion_tokens": completion_tokens,
+                    "output_token_logprobs": output_token_logprobs,
+                    **process_result.meta_info.to_dict(),
+                }
+
                 response = {
                     "text": process_result.text,
-                    "meta_info": {
-                        "finish_reason": finish_reason_dict,
-                        "prompt_tokens": prompt_tokens,
-                        "cached_tokens": 0,
-                        "completion_tokens": completion_tokens,
-                        "output_token_logprobs": output_token_logprobs,
-                    },
+                    "meta_info": meta_info,
                 }
 
                 return JSONResponse(content=response)
