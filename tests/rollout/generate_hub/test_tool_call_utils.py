@@ -183,19 +183,11 @@ DOUBLE_TOOL_RESPONSES = [
 ]
 
 
-def _get_test_params():
-    """Generate pytest parameters: cartesian product of models × (1 tool, 2 tools)."""
-    params = []
-    for model_name in TOOL_CALL_MODELS:
-        params.append(pytest.param(model_name, 1, id=f"{model_name.split('/')[-1]}-1tool"))
-        params.append(pytest.param(model_name, 2, id=f"{model_name.split('/')[-1]}-2tools"))
-    return params
-
-
 class TestTokenizeToolResponse:
     """Test tokenize_tool_response across different models and tool call counts."""
 
-    @pytest.mark.parametrize("model_name,num_tools", _get_test_params())
+    @pytest.mark.parametrize("num_tools", [1, 2])
+    @pytest.mark.parametrize("model_name", TOOL_CALL_MODELS)
     def test_tokenize_tool_response(self, model_name, num_tools):
         from transformers import AutoTokenizer
 
