@@ -38,6 +38,24 @@ SAMPLE_TOOLS = [
 
 
 class TestApplyChatTemplateWithTools:
+    EXPECTED_PROMPT_WITH_TOOLS = (
+        "<|im_start|>system\n"
+        "# Tools\n\n"
+        "You may call one or more functions to assist with the user query.\n\n"
+        "You are provided with function signatures within <tools></tools> XML tags:\n"
+        "<tools>\n"
+        '{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a city", "parameters": {"type": "object", "properties": {"city": {"type": "string"}, "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}}, "required": ["city"]}}}\n'
+        '{"type": "function", "function": {"name": "search", "description": "Search for information", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}\n'
+        "</tools>\n\n"
+        "For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n"
+        "<tool_call>\n"
+        '{"name": <function-name>, "arguments": <args-json-object>}\n'
+        "</tool_call><|im_end|>\n"
+        "<|im_start|>user\n"
+        "What's the weather in Paris?<|im_end|>\n"
+        "<|im_start|>assistant\n"
+    )
+
     def test_apply_chat_template_includes_tools(self):
         from transformers import AutoTokenizer
 
@@ -45,16 +63,11 @@ class TestApplyChatTemplateWithTools:
 
         messages = [{"role": "user", "content": "What's the weather in Paris?"}]
 
-        prompt_without_tools = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
         prompt_with_tools = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True, tools=SAMPLE_TOOLS
         )
 
-        assert "get_weather" not in prompt_without_tools
-        assert "get_weather" in prompt_with_tools
-        assert "city" in prompt_with_tools
+        assert prompt_with_tools == self.EXPECTED_PROMPT_WITH_TOOLS
 
 
 class TestSGLangFunctionCallParser:
