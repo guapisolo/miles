@@ -89,14 +89,22 @@ def expected_sample(
 def make_args(*, router_port: int, use_rollout_routing_replay: bool = False) -> Namespace:
     argv = [
         "pytest",
-        "--train-backend", "fsdp",
-        "--rollout-batch-size", "1",
-        "--hf-checkpoint", MODEL_NAME,
-        "--prompt-data", "/dev/null",
-        "--rm-type", "math",
-        "--sglang-router-ip", "127.0.0.1",
-        "--sglang-router-port", str(router_port),
-        "--rollout-max-response-len", "16",
+        "--train-backend",
+        "fsdp",
+        "--rollout-batch-size",
+        "1",
+        "--hf-checkpoint",
+        MODEL_NAME,
+        "--prompt-data",
+        "/dev/null",
+        "--rm-type",
+        "math",
+        "--sglang-router-ip",
+        "127.0.0.1",
+        "--sglang-router-port",
+        str(router_port),
+        "--rollout-max-response-len",
+        "16",
     ]
     if use_rollout_routing_replay:
         argv.append("--use-rollout-routing-replay")
@@ -161,12 +169,16 @@ def generate_env(request):
 
 
 def make_sample(tokens=None, response="", response_length=0, status=Sample.Status.PENDING):
-    return Sample(prompt=PROMPT, tokens=tokens or [], response=response, response_length=response_length, status=status)
+    return Sample(
+        prompt=PROMPT, tokens=tokens or [], response=response, response_length=response_length, status=status
+    )
 
 
 def run_generate(variant: str, env: GenerateEnv, sample: Sample | None = None, sampling_params: dict | None = None):
     env.mock_server.request_log.clear()
-    result_sample = run(call_generate(variant, env.args, sample or make_sample(), sampling_params or DEFAULT_SAMPLING_PARAMS))
+    result_sample = run(
+        call_generate(variant, env.args, sample or make_sample(), sampling_params or DEFAULT_SAMPLING_PARAMS)
+    )
     return GenerateResult(sample=result_sample, requests=list(env.mock_server.request_log))
 
 
@@ -330,7 +342,9 @@ class TestMetaInfo:
 class TestPayloadStructure:
     @pytest.mark.parametrize("variant", GENERATE_VARIANTS)
     def test_payload_has_required_fields(self, variant, generate_env):
-        result = run_generate(variant, generate_env, sampling_params={"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9})
+        result = run_generate(
+            variant, generate_env, sampling_params={"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9}
+        )
         assert result.requests == [
             expected_request(variant, sampling_params={"max_new_tokens": 16, "temperature": 0.7, "top_p": 0.9})
         ]

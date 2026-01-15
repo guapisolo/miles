@@ -1,10 +1,10 @@
 import asyncio
-import pybase64
 import re
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+import pybase64
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from transformers import AutoTokenizer
