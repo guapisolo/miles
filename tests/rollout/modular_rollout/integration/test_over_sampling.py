@@ -10,44 +10,25 @@ from tests.rollout.modular_rollout.integration.utils import (
 
 from miles.utils.misc import function_registry
 
+_BASE_ARGV = [
+    "--over-sampling-batch-size",
+    "6",
+    "--dynamic-sampling-filter-path",
+    "test:filter_by_reward",
+    "--rollout-all-samples-process-path",
+    "test:all_samples_process",
+]
+
+
+def _over_sampling_config(rollout_batch_size: int):
+    return config(["--rollout-batch-size", str(rollout_batch_size)] + _BASE_ARGV, data_rows=MIXED_DATA_ROWS)
+
 
 @pytest.mark.parametrize(
     "rollout_integration_env,expected_all_samples",
     [
-        pytest.param(
-            config(
-                [
-                    "--rollout-batch-size",
-                    "2",
-                    "--over-sampling-batch-size",
-                    "6",
-                    "--dynamic-sampling-filter-path",
-                    "test:filter_by_reward",
-                    "--rollout-all-samples-process-path",
-                    "test:all_samples_process",
-                ],
-                data_rows=MIXED_DATA_ROWS,
-            ),
-            6,
-            id="one_round",
-        ),
-        pytest.param(
-            config(
-                [
-                    "--rollout-batch-size",
-                    "3",
-                    "--over-sampling-batch-size",
-                    "6",
-                    "--dynamic-sampling-filter-path",
-                    "test:filter_by_reward",
-                    "--rollout-all-samples-process-path",
-                    "test:all_samples_process",
-                ],
-                data_rows=MIXED_DATA_ROWS,
-            ),
-            12,
-            id="two_rounds",
-        ),
+        pytest.param(_over_sampling_config(2), 6, id="one_round"),
+        pytest.param(_over_sampling_config(3), 12, id="two_rounds"),
     ],
     indirect=["rollout_integration_env"],
 )
