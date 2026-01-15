@@ -95,25 +95,27 @@ def _load_and_call_train(args, data_source):
 
 @pytest.mark.parametrize("rollout_integration_env", _ROLLOUT_ARGV_VARIANTS, indirect=True)
 def test_simple_train_rollout_fn_integration(rollout_integration_env):
-    args, data_source, _ = rollout_integration_env
-    out = _load_and_call_train(args, data_source)
+    env = rollout_integration_env
+    out = _load_and_call_train(env.args, env.data_source)
 
-    assert len(out.samples) == args.rollout_batch_size
+    assert len(out.samples) == env.args.rollout_batch_size
     group = out.samples[0]
-    assert len(group) == args.n_samples_per_prompt
+    assert len(group) == env.args.n_samples_per_prompt
     assert group[0] == _expected_sample(group_index=0)
 
 
 @pytest.mark.parametrize("rollout_integration_env", _ROLLOUT_ARGV_VARIANTS, indirect=True)
 def test_simple_eval_rollout_fn_integration(rollout_integration_env):
-    args, data_source, _ = rollout_integration_env
-    fn = load_rollout_function(RolloutFnConstructorInput(args=args, data_source=data_source), args.eval_function_path)
+    env = rollout_integration_env
+    fn = load_rollout_function(
+        RolloutFnConstructorInput(args=env.args, data_source=env.data_source), env.args.eval_function_path
+    )
     out = call_rollout_function(fn, RolloutFnEvalInput(rollout_id=0))
 
     assert "toy" in out.data
     rewards = out.data["toy"]["rewards"]
     samples = out.data["toy"]["samples"]
-    assert len(rewards) == len(samples) == args.n_samples_per_eval_prompt
+    assert len(rewards) == len(samples) == env.args.n_samples_per_eval_prompt
     assert rewards[0] == 1
     assert samples[0] == _expected_sample(group_index=None)
 
@@ -161,9 +163,9 @@ class TestSemaphoreIntegration:
         indirect=True,
     )
     def test_max_concurrent_respects_semaphore(self, rollout_integration_env):
-        args, data_source, mock_server = rollout_integration_env
-        _load_and_call_train(args, data_source)
-        assert mock_server.max_concurrent <= args.sglang_server_concurrency
+        env = rollout_integration_env
+        _load_and_call_train(env.args, env.data_source)
+        assert env.mock_server.max_concurrent <= env.args.sglang_server_concurrency
 
 
 class TestDeterministicInferenceIntegration:
@@ -188,10 +190,10 @@ class TestDeterministicInferenceIntegration:
         indirect=True,
     )
     def test_sampling_seeds_set_correctly(self, rollout_integration_env):
-        args, data_source, mock_server = rollout_integration_env
-        _load_and_call_train(args, data_source)
+        env = rollout_integration_env
+        _load_and_call_train(env.args, env.data_source)
 
-        seeds = [req.get("sampling_params", {}).get("sampling_seed") for req in mock_server.request_log]
+        seeds = [req.get("sampling_params", {}).get("sampling_seed") for req in env.mock_server.request_log]
         assert set(seeds) == {42, 43, 44}
 
     @pytest.mark.parametrize(
@@ -205,10 +207,10 @@ class TestDeterministicInferenceIntegration:
         indirect=True,
     )
     def test_no_sampling_seeds_when_disabled(self, rollout_integration_env):
-        args, data_source, mock_server = rollout_integration_env
-        _load_and_call_train(args, data_source)
+        env = rollout_integration_env
+        _load_and_call_train(env.args, env.data_source)
 
-        seeds = [req.get("sampling_params", {}).get("sampling_seed") for req in mock_server.request_log]
+        seeds = [req.get("sampling_params", {}).get("sampling_seed") for req in env.mock_server.request_log]
         assert all(seed is None for seed in seeds)
 
 
@@ -224,10 +226,10 @@ class TestGroupRMIntegration:
         indirect=True,
     )
     def test_group_rm_rewards_set(self, rollout_integration_env):
-        args, data_source, _ = rollout_integration_env
-        out = _load_and_call_train(args, data_source)
+        env = rollout_integration_env
+        out = _load_and_call_train(env.args, env.data_source)
 
-        assert len(out.samples) == args.rollout_batch_size
+        assert len(out.samples) == env.args.rollout_batch_size
         for group in out.samples:
             for sample in group:
                 assert sample.reward is not None
@@ -266,11 +268,11 @@ class TestOverSamplingIntegration:
         indirect=True,
     )
     def test_over_sampling_with_dynamic_filter(self, rollout_integration_env):
+        env = rollout_integration_env
         with function_registry.temporary("test:filter_by_reward", _filter_by_reward):
-            args, data_source, _ = rollout_integration_env
-            out = _load_and_call_train(args, data_source)
+            out = _load_and_call_train(env.args, env.data_source)
 
-            assert len(out.samples) == args.rollout_batch_size
+            assert len(out.samples) == env.args.rollout_batch_size
             for group in out.samples:
                 assert group[0].reward == 1
 
@@ -295,11 +297,11 @@ class TestDynamicFilterIntegration:
         indirect=True,
     )
     def test_dynamic_filter_only_keeps_correct(self, rollout_integration_env):
+        env = rollout_integration_env
         with function_registry.temporary("test:filter_by_reward", _filter_by_reward):
-            args, data_source, _ = rollout_integration_env
-            out = _load_and_call_train(args, data_source)
+            out = _load_and_call_train(env.args, env.data_source)
 
-            assert len(out.samples) == args.rollout_batch_size
+            assert len(out.samples) == env.args.rollout_batch_size
             for group in out.samples:
                 assert group[0].reward == 1
 
@@ -328,6 +330,7 @@ class TestSampleFilterAndAllSamplesProcessIntegration:
         indirect=True,
     )
     def test_sample_filter_only_sees_unfiltered(self, rollout_integration_env):
+        env = rollout_integration_env
         sample_filter_log = {"called": False, "data_len": None, "rewards": None}
         all_samples_log = {"called": False, "all_samples_len": None, "has_data_source": False}
 
@@ -346,15 +349,14 @@ class TestSampleFilterAndAllSamplesProcessIntegration:
             function_registry.temporary("test:sample_filter", sample_filter),
             function_registry.temporary("test:all_samples_process", all_samples_process),
         ):
-            args, data_source, _ = rollout_integration_env
-            _load_and_call_train(args, data_source)
+            _load_and_call_train(env.args, env.data_source)
 
             assert sample_filter_log["called"]
-            assert sample_filter_log["data_len"] == args.rollout_batch_size
+            assert sample_filter_log["data_len"] == env.args.rollout_batch_size
             assert all(r == 1 for r in sample_filter_log["rewards"])
 
             assert all_samples_log["called"]
-            assert all_samples_log["all_samples_len"] >= args.rollout_batch_size
+            assert all_samples_log["all_samples_len"] >= env.args.rollout_batch_size
             assert all_samples_log["has_data_source"]
 
 
@@ -404,11 +406,11 @@ class TestMultiSampleOutputIntegration:
         indirect=True,
     )
     def test_multi_sample_output_preserves_existing_reward(self, rollout_integration_env):
+        env = rollout_integration_env
         with function_registry.temporary("test:multi_sample_generate", _multi_sample_generate):
-            args, data_source, _ = rollout_integration_env
-            out = _load_and_call_train(args, data_source)
+            out = _load_and_call_train(env.args, env.data_source)
 
-            assert len(out.samples) == args.rollout_batch_size
+            assert len(out.samples) == env.args.rollout_batch_size
             group = out.samples[0]
             assert isinstance(group[0], list)
             samples = group[0]

@@ -32,9 +32,6 @@ class IntegrationEnv:
     data_source: "RolloutDataSourceWithBuffer"
     mock_server: MockSGLangServer
 
-    def __iter__(self):
-        return iter((self.args, self.data_source, self.mock_server))
-
 
 def _build_args(*, data_path: str, router_port: int, extra_argv: list[str] | None = None) -> Namespace:
     argv = [
