@@ -199,9 +199,14 @@ def env(request):
     SingletonMeta.clear_all_instances()
 
 
-def make_sample(tokens=None, response="", response_length=0, status=Sample.Status.PENDING):
+def make_sample(tokens=None, response="", response_length=0, status=Sample.Status.PENDING, multimodal_inputs=None):
     return Sample(
-        prompt=PROMPT, tokens=tokens or [], response=response, response_length=response_length, status=status
+        prompt=PROMPT,
+        tokens=tokens or [],
+        response=response,
+        response_length=response_length,
+        status=status,
+        multimodal_inputs=multimodal_inputs,
     )
 
 
@@ -409,16 +414,7 @@ class TestMultimodal:
             if k not in ["input_ids", "attention_mask"]
         }
 
-        sample = Sample(
-            prompt=PROMPT,
-            tokens=[],
-            response="",
-            response_length=0,
-            status=Sample.Status.PENDING,
-            multimodal_inputs=multimodal_inputs,
-        )
-
-        result = run_generate(variant, env, sample)
+        result = run_generate(variant, env, make_sample(multimodal_inputs=multimodal_inputs))
 
         assert result.requests == [
             expected_request(
