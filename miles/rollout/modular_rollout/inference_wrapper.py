@@ -16,9 +16,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
-    assert (
-        sample.status == Sample.Status.PENDING or sample.status == Sample.Status.ABORTED
-    ), f"Sample status is {sample.status}"
+    assert sample.status in {Sample.Status.PENDING, Sample.Status.ABORTED}, f"{sample.status=}"
 
     if state.processor:
         processor_output = state.processor(text=sample.prompt, **sample.multimodal_inputs)
