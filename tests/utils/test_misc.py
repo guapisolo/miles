@@ -43,6 +43,7 @@ class TestFunctionRegistry:
 class TestLoadFunction:
     def test_load_from_module(self):
         import os.path
+
         assert load_function("os.path.join") is os.path.join
 
     def test_load_none_returns_none(self):

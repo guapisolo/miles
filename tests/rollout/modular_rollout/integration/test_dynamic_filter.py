@@ -1,15 +1,14 @@
 from contextlib import nullcontext
 
 import pytest
-
-from miles.utils.misc import function_registry
-
 from tests.rollout.modular_rollout.integration.utils import (
     MIXED_DATA_ROWS,
     config,
     filter_by_reward,
     load_and_call_train,
 )
+
+from miles.utils.misc import function_registry
 
 
 @pytest.mark.parametrize(

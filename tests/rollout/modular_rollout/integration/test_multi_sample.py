@@ -1,11 +1,10 @@
 import pytest
 from tests.fixtures.rollout_integration import DEFAULT_DATA_ROWS, IntegrationEnvConfig
+from tests.rollout.modular_rollout.integration.utils import MODULAR_ROLLOUT_BASE_ARGV, load_and_call_train
 
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
 from miles.utils.misc import function_registry
 from miles.utils.types import Sample
-
-from tests.rollout.modular_rollout.integration.utils import MODULAR_ROLLOUT_BASE_ARGV, load_and_call_train
 
 
 async def _multi_sample_generate(input: GenerateFnInput) -> GenerateFnOutput:

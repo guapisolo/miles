@@ -1,4 +1,3 @@
-import pytest
 from tests.fixtures.rollout_integration import IntegrationEnvConfig
 
 from miles.rollout.base_types import RolloutFnConstructorInput, RolloutFnTrainInput
