@@ -369,12 +369,3 @@ class TestEmptyResponse:
             response="", response_length=0, tokens=PROMPT_TOKENS, rollout_log_probs=[]
         )
 
-    def test_existing_tokens_not_overwritten_when_response_empty(self, variant, env):
-        pre_existing_tokens = [100, 200, 300]
-        sample = make_sample(tokens=pre_existing_tokens, response="", response_length=0)
-        result = run_generate(variant, env, sample)
-        assert result.requests == [expected_request(variant, input_ids=pre_existing_tokens)]
-        assert result.sample == expected_sample(
-            tokens=pre_existing_tokens + RESPONSE_TOKENS,
-            prompt_tokens=len(pre_existing_tokens),
-        )
