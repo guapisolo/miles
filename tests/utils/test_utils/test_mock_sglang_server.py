@@ -97,6 +97,7 @@ def test_latency():
 
 def test_max_concurrent_with_latency():
     with with_mock_server(latency=0.1) as server:
+
         def send_request():
             requests.post(f"{server.url}/generate", json={"input_ids": [1], "sampling_params": {}}, timeout=5.0)
 
