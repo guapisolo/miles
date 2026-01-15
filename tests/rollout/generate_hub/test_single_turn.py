@@ -404,7 +404,9 @@ class TestMultimodal:
         multimodal_inputs = {"images": [test_image]}
         processor = AutoProcessor.from_pretrained(VLM_MODEL_NAME, trust_remote_code=True)
         expected_mti = {
-            k: v for k, v in processor(text=PROMPT, **multimodal_inputs).items() if k not in ["input_ids", "attention_mask"]
+            k: v
+            for k, v in processor(text=PROMPT, **multimodal_inputs).items()
+            if k not in ["input_ids", "attention_mask"]
         }
 
         sample = Sample(
