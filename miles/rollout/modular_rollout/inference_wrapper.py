@@ -94,11 +94,12 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
 
 def _get_rollout_routed_experts_from_output(args, sample, output):
-    if "routed_experts" not in output["meta_info"]:
+    info = output["meta_info"].get("routed_experts")
+    if info is None:
         return None
 
     return np.frombuffer(
-        pybase64.b64decode(output["meta_info"]["routed_experts"].encode("ascii")),
+        pybase64.b64decode(info.encode("ascii")),
         dtype=np.int32,
     ).reshape(
         len(sample.tokens) - 1,
