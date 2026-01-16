@@ -40,6 +40,15 @@ MULTI_TURN_EXTRA_ARGV = [
     "miles.utils.test_utils.mock_tools:mock_execute_tool_function",
 ]
 
+VARIANT_TO_GENERATE_FN_PATH = {
+    "multi_turn_single_sample": "miles.rollout.generate_hub.multi_turn_single_sample:generate",
+}
+
+
+@pytest.fixture(params=["multi_turn_single_sample"])
+def variant(request):
+    return request.param
+
 
 @dataclass(frozen=True)
 class SampleParsedChunk:
@@ -103,11 +112,8 @@ def verify_sample(
     assert actual_partial == expected_partial_sample
 
 
-MULTI_TURN_GENERATE_FN_PATH = "miles.rollout.generate_hub.multi_turn_single_sample:generate"
-
-
-def _run_generate(env: GenerateEnv, sample: Sample, sampling_params: dict | None = None):
-    return run_generate(env, sample, sampling_params, generate_fn_path=MULTI_TURN_GENERATE_FN_PATH)
+def _run_generate(variant: str, env: GenerateEnv, sample: Sample, sampling_params: dict | None = None):
+    return run_generate(env, sample, sampling_params, generate_fn_path=VARIANT_TO_GENERATE_FN_PATH[variant])
 
 
 SINGLE_TURN_PROMPT = [{"role": "user", "content": "What is 1+1?"}]
