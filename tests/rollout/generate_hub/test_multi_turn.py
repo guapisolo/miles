@@ -29,18 +29,25 @@ TOKENIZER = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 FIRST_PROMPT_TOKEN_IDS = TOKENIZER(MULTI_TURN_FIRST_PROMPT, add_special_tokens=False)["input_ids"]
 SECOND_PROMPT_TOKEN_IDS = TOKENIZER(MULTI_TURN_SECOND_PROMPT, add_special_tokens=False)["input_ids"]
 
+
 def _make_extra_argv(
     generate_max_turns: int = 4,
     generate_max_tool_calls: int = 4,
     rollout_max_context_len: int = 4096,
 ) -> list[str]:
     return [
-        "--generate-max-turns", str(generate_max_turns),
-        "--generate-max-tool-calls", str(generate_max_tool_calls),
-        "--generate-tool-specs-path", "miles.utils.test_utils.mock_tools.SAMPLE_TOOLS",
-        "--generate-tool-call-parser", "qwen25",
-        "--generate-execute-tool-function-path", "miles.utils.test_utils.mock_tools.execute_tool_call",
-        "--rollout-max-context-len", str(rollout_max_context_len),
+        "--generate-max-turns",
+        str(generate_max_turns),
+        "--generate-max-tool-calls",
+        str(generate_max_tool_calls),
+        "--generate-tool-specs-path",
+        "miles.utils.test_utils.mock_tools.SAMPLE_TOOLS",
+        "--generate-tool-call-parser",
+        "qwen25",
+        "--generate-execute-tool-function-path",
+        "miles.utils.test_utils.mock_tools.execute_tool_call",
+        "--rollout-max-context-len",
+        str(rollout_max_context_len),
     ]
 
 

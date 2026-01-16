@@ -29,12 +29,18 @@ VARIANT_TO_GENERATE_FN_PATH = {
 }
 
 MULTI_TURN_DEFAULT_EXTRA_ARGV = [
-    "--generate-max-turns", "16",
-    "--generate-max-tool-calls", "16",
-    "--generate-tool-specs-path", "miles.utils.test_utils.mock_tools.SAMPLE_TOOLS",
-    "--generate-tool-call-parser", "qwen25",
-    "--generate-execute-tool-function-path", "miles.utils.test_utils.mock_tools.execute_tool_call",
-    "--rollout-max-context-len", "4096",
+    "--generate-max-turns",
+    "16",
+    "--generate-max-tool-calls",
+    "16",
+    "--generate-tool-specs-path",
+    "miles.utils.test_utils.mock_tools.SAMPLE_TOOLS",
+    "--generate-tool-call-parser",
+    "qwen25",
+    "--generate-execute-tool-function-path",
+    "miles.utils.test_utils.mock_tools.execute_tool_call",
+    "--rollout-max-context-len",
+    "4096",
 ]
 
 

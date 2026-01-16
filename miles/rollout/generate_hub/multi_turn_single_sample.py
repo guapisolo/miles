@@ -39,7 +39,9 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     if isinstance(sample.prompt, str):
         prompt_tokens_ids = tokenizer(sample.prompt, add_special_tokens=False)["input_ids"]
     else:
-        prompt = tokenizer.apply_chat_template(sample.prompt, tokenize=False, add_generation_prompt=True, tools=tool_specs)
+        prompt = tokenizer.apply_chat_template(
+            sample.prompt, tokenize=False, add_generation_prompt=True, tools=tool_specs
+        )
         prompt_tokens_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
     response = ""
     response_token_ids = []
