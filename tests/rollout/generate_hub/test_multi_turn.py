@@ -15,7 +15,7 @@ from miles.utils.test_utils.mock_tools import (
 from miles.utils.types import Sample
 from tests.fixtures.generation_fixtures import GenerateEnv, generation_env
 
-_ = generation_env, SAMPLE_TOOLS, mock_execute_tool_function
+_ = generation_env, SAMPLE_TOOLS, mock_execute_tool_function, multi_turn_tool_call_process_fn
 
 MODEL_NAME = "Qwen/Qwen3-0.6B"
 DEFAULT_SAMPLING_PARAMS = {"max_new_tokens": 64, "temperature": 0.7}
@@ -77,3 +77,18 @@ class TestBasicMultiTurn:
         assert len(result.requests) == 1
         assert result.sample.status == Sample.Status.COMPLETED
         assert "The answer is 2." in result.sample.response
+
+    @pytest.mark.parametrize(
+        "generation_env",
+        [{"args_kwargs": {"extra_argv": MULTI_TURN_EXTRA_ARGV}}],
+        indirect=True,
+    )
+    def test_two_turns_with_tool_call(self, generation_env):
+        generation_env.mock_server.process_fn = multi_turn_tool_call_process_fn
+
+        sample = make_sample(prompt=[{"role": "user", "content": MULTI_TURN_FIRST_PROMPT}])
+        result = run_generate(generation_env, sample)
+
+        assert len(result.requests) == 2
+        assert result.sample.status == Sample.Status.COMPLETED
+        assert "2008" in result.sample.response
