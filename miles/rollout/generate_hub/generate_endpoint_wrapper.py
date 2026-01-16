@@ -25,7 +25,6 @@ async def compute_prompt_ids_from_sample(state, sample):
 
 
 async def compute_request_payload(state, sample, input_ids: list[int], sampling_params: dict) -> dict[str, Any]:
-
     payload = {
         "input_ids": input_ids,
         "sampling_params": sampling_params,
