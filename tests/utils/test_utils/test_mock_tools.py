@@ -3,11 +3,8 @@ from pydantic import TypeAdapter
 from sglang.srt.entrypoints.openai.protocol import Tool
 from sglang.srt.function_call.core_types import ToolCallItem
 from sglang.srt.function_call.function_call_parser import FunctionCallParser
-from miles.utils.test_utils.mock_tools import SAMPLE_TOOLS
 
-from miles.rollout.generate_hub.tool_call_utils import _DUMMY_USER, _build_dummy_assistant, tokenize_tool_responses
-
-from miles.utils.test_utils.mock_tools import MULTI_TURN_FIRST_RESPONSE, execute_tool_call
+from miles.utils.test_utils.mock_tools import MULTI_TURN_FIRST_RESPONSE, SAMPLE_TOOLS, execute_tool_call
 
 
 class TestExecuteToolCall:
@@ -70,8 +67,8 @@ class TestSGLangFunctionCallParser:
             pytest.param(
                 'Let me check for you.\n<tool_call>\n{"name": "get_year", "arguments": {}}\n</tool_call>',
                 (
-                        "Let me check for you.",
-                        [ToolCallItem(tool_index=0, name="get_year", parameters="{}")],
+                    "Let me check for you.",
+                    [ToolCallItem(tool_index=0, name="get_year", parameters="{}")],
                 ),
                 id="single_tool_call",
             ),
@@ -80,11 +77,11 @@ class TestSGLangFunctionCallParser:
                 '<tool_call>\n{"name": "get_year", "arguments": {}}\n</tool_call>\n'
                 '<tool_call>\n{"name": "get_temperature", "arguments": {"location": "Shanghai"}}\n</tool_call>',
                 (
-                        "I will get year and temperature.",
-                        [
-                            ToolCallItem(tool_index=0, name="get_year", parameters="{}"),
-                            ToolCallItem(tool_index=1, name="get_temperature", parameters='{"location": "Shanghai"}'),
-                        ],
+                    "I will get year and temperature.",
+                    [
+                        ToolCallItem(tool_index=0, name="get_year", parameters="{}"),
+                        ToolCallItem(tool_index=1, name="get_temperature", parameters='{"location": "Shanghai"}'),
+                    ],
                 ),
                 id="multi_tool_calls",
             ),

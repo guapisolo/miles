@@ -1,11 +1,6 @@
 import pytest
-from pydantic import TypeAdapter
-from sglang.srt.entrypoints.openai.protocol import Tool
-from sglang.srt.function_call.core_types import ToolCallItem
-from sglang.srt.function_call.function_call_parser import FunctionCallParser
 
 from miles.rollout.generate_hub.tool_call_utils import _DUMMY_USER, _build_dummy_assistant, tokenize_tool_responses
-from miles.utils.test_utils.mock_tools import SAMPLE_TOOLS, multi_turn_tool_call_process_fn
 
 TOOL_CALL_TEST_MODELS = [
     "Qwen/Qwen2.5-0.5B-Instruct",
@@ -65,7 +60,6 @@ class TestTokenizeToolResponses:
         expected_str = self._compute_chat_template_diff(base_messages, tool_responses, tokenizer)
 
         assert actual_str == expected_str, f"{model_name=}"
-
 
     @staticmethod
     def _compute_chat_template_diff(base_messages, extra_messages, tokenizer) -> str:

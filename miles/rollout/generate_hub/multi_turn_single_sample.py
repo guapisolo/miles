@@ -1,8 +1,8 @@
 """
 Simple multi-turn generation with tool calling.
 """
+
 import argparse
-from typing import Any
 
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
 from miles.utils.http_utils import post
