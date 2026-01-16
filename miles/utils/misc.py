@@ -36,6 +36,7 @@ class FunctionRegistry:
 function_registry = FunctionRegistry()
 
 
+# TODO may rename to `load_object` since it can be used to load things like tool_specs
 def load_function(path):
     """
     Load a function from registry or module.
