@@ -42,10 +42,10 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         prompt = tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True, tools=tool_specs)
     prompt_tokens_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
 
+    assert sample.response == ""
     assert sample.loss_masks is None
     sample.loss_masks = []
 
-    response = ""
     response_token_ids = []
 
     for turn in range(args.generate_max_turns):
@@ -77,7 +77,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
             sample.rollout_log_probs = []
         sample.rollout_log_probs += cur_log_probs
 
-        response += cur_response
+        sample.response += cur_response
         response_token_ids += cur_response_token_ids
         sample.loss_masks += [1] * len(cur_response_token_ids)
 
@@ -93,7 +93,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
         next_obs_tokens_ids: list[int] = tokenize_tool_responses(tool_messages, tokenizer=tokenizer)
         # TODO is this ok?
-        response += tokenizer.decode(next_obs_tokens_ids)
+        sample.response += tokenizer.decode(next_obs_tokens_ids)
         response_token_ids += next_obs_tokens_ids
         sample.loss_masks += [0] * len(next_obs_tokens_ids)
 
@@ -109,7 +109,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     # Set sample attributes
     sample.tokens = prompt_tokens_ids + response_token_ids
     sample.response_length = len(response_token_ids)
-    sample.response = response
 
     sample.rollout_routed_experts = _get_rollout_routed_experts_from_response(args, sample, output)
 
