@@ -88,7 +88,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         out = await execute_tool_function(parsed_tool_call)
         tool_messages: list[dict[str, Any]] = out["tool_messages"]
 
-        next_obs_tokens_ids = tokenize_tool_responses(tool_messages, tokenizer=tokenizer)
+        next_obs_tokens_ids: list[int] = tokenize_tool_responses(tool_messages, tokenizer=tokenizer)
         response += TODO
         response_token_ids += next_obs_tokens_ids
         loss_masks += [0] * len(next_obs_tokens_ids)
