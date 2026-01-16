@@ -84,7 +84,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         if output["meta_info"]["finish_reason"]["type"] == "length":
             break
 
-        _normal_text, parsed_tool_calls = tool_call_parser.parse_non_stream(cur_response)
+        _, parsed_tool_calls = tool_call_parser.parse_non_stream(cur_response)
         if len(parsed_tool_calls) == 0:
             break
 
