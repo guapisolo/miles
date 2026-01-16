@@ -11,12 +11,11 @@ from miles.utils.test_utils.mock_tools import (
     MULTI_TURN_FIRST_RESPONSE,
     MULTI_TURN_SECOND_RESPONSE,
     SAMPLE_TOOLS,
-    mock_execute_tool_function,
     multi_turn_tool_call_process_fn,
 )
 from miles.utils.types import Sample
 
-_ = generation_env, SAMPLE_TOOLS, mock_execute_tool_function, multi_turn_tool_call_process_fn
+_ = generation_env, SAMPLE_TOOLS, multi_turn_tool_call_process_fn
 
 
 # ------------------------------------ fixtures and consts ----------------------------------------
