@@ -11,6 +11,7 @@ from sglang.srt.entrypoints.openai.protocol import Tool
 from sglang.srt.function_call.function_call_parser import FunctionCallParser
 
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
+from miles.rollout.generate_hub.generate_endpoint_wrapper import _get_rollout_routed_experts_from_response
 from miles.rollout.generate_hub.tool_call_utils import tokenize_tool_responses
 from miles.utils.http_utils import post
 from miles.utils.misc import load_function
@@ -62,6 +63,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
             "input_ids": current_token_ids,
             "sampling_params": input.sampling_params,
             "return_logprob": True,  # Request log probabilities for training
+            "return_routed_experts": args.use_rollout_routing_replay,
         }
 
         output = await post(url, payload)
@@ -107,6 +109,8 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     sample.response_length = len(response_token_ids)
     sample.response = response
     sample.loss_mask = loss_masks
+
+    sample.rollout_routed_experts = _get_rollout_routed_experts_from_response(args, sample, output)
 
     # Set status
     sample.update_from_meta_info(args, output["meta_info"])
