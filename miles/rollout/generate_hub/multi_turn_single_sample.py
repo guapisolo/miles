@@ -48,6 +48,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     sample.tokens = prompt_tokens_ids.copy()
 
     for turn in range(args.generate_max_turns):
+        # TODO handle separately
         # Check if total length exceeds max context length
         total_length = len(sample.tokens)
         if args.rollout_max_context_len is not None:
