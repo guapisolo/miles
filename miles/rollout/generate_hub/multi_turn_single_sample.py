@@ -24,7 +24,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     # Set up the initial prompt with system prompt and tools (outside the loop)
     tool_specs = load_function(args.generate_tool_specs_path)
     assert isinstance(tool_specs, list)
-    prompt = tokenizer.apply_chat_template(initial_messages, tokenize=False, add_generation_prompt=True, tools=tool_specs)
+    prompt = tokenizer.apply_chat_template(sample.prompt, tokenize=False, add_generation_prompt=True, tools=tool_specs)
 
     prompt_tokens_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
     response = ""
