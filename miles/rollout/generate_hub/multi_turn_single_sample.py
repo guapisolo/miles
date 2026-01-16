@@ -64,6 +64,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
             "input_ids": sample.tokens,
             "sampling_params": input.sampling_params,
             "return_logprob": True,
+            # TODO: rollout routing replay
         }
 
         output = await post(url, payload)
