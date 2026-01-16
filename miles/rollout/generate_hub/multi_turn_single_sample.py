@@ -44,14 +44,14 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
     assert sample.tokens == []
     assert sample.response == ""
+    assert sample.response_length == 0
     assert sample.loss_masks is None
     sample.loss_masks = []
-
-    response_token_ids = []
+    sample.tokens = prompt_tokens_ids.copy()
 
     for turn in range(args.generate_max_turns):
         # Check if total length exceeds max context length
-        total_length = len(prompt_tokens_ids) + len(response_token_ids)
+        total_length = len(sample.tokens)
         if args.rollout_max_context_len is not None:
             max_context_length = args.rollout_max_context_len
         else:
@@ -61,9 +61,8 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
             break
 
         # Use token IDs instead of text
-        current_token_ids = prompt_tokens_ids + response_token_ids
         payload = {
-            "input_ids": current_token_ids,
+            "input_ids": sample.tokens,
             "sampling_params": input.sampling_params,
             "return_logprob": True,  # Request log probabilities for training
             "return_routed_experts": args.use_rollout_routing_replay,
@@ -79,7 +78,8 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         sample.rollout_log_probs += cur_log_probs
 
         sample.response += cur_response
-        response_token_ids += cur_response_token_ids
+        sample.response_length += len(cur_response_token_ids)
+        sample.tokens += cur_response_token_ids
         sample.loss_masks += [1] * len(cur_response_token_ids)
 
         finish_reason_type = output["meta_info"]["finish_reason"]["type"]
@@ -95,17 +95,14 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         next_obs_tokens_ids: list[int] = tokenize_tool_responses(tool_messages, tokenizer=tokenizer)
         # TODO is this ok?
         sample.response += tokenizer.decode(next_obs_tokens_ids)
-        response_token_ids += next_obs_tokens_ids
+        sample.response_length += len(next_obs_tokens_ids)
+        sample.tokens += next_obs_tokens_ids
         sample.loss_masks += [0] * len(next_obs_tokens_ids)
 
         sample.rollout_log_probs += [0.0] * len(next_obs_tokens_ids)
 
         if turn >= args.generate_max_tool_calls:
             break
-
-    # Set sample attributes
-    sample.tokens = prompt_tokens_ids + response_token_ids
-    sample.response_length = len(response_token_ids)
 
     sample.rollout_routed_experts = _get_rollout_routed_experts_from_response(args, sample, output)
 
