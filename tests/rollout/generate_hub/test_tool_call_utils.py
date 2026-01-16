@@ -64,7 +64,7 @@ class TestTokenizeToolResponses:
     @staticmethod
     def _compute_chat_template_diff(base_messages, extra_messages, tokenizer) -> str:
         text_with = tokenizer.apply_chat_template(
-            base_messages + extra_messages, tokenize=False, add_generation_prompt=False
+            base_messages + extra_messages, tokenize=False, add_generation_prompt=True
         )
         text_without = tokenizer.apply_chat_template(base_messages, tokenize=False, add_generation_prompt=False)
         return text_with[len(text_without) :]

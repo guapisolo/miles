@@ -133,6 +133,7 @@ TWO_TURN_TOOL_RESPONSE = (
     "<tool_response>\n"
     '{"temperature": -60}\n'
     "</tool_response><|im_end|>\n"
+    "<|im_start|>assistant\n"
 )
 
 

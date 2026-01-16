@@ -113,6 +113,7 @@ MULTI_TURN_SECOND_PROMPT = (
     "<tool_response>\n"
     '{"temperature": -60}\n'
     "</tool_response><|im_end|>\n"
+    "<|im_start|>assistant\n"
 )
 MULTI_TURN_SECOND_RESPONSE = "The answer is: 42 + 2026 + -60 = 2008."
 

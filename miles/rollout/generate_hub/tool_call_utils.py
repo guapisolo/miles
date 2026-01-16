@@ -22,7 +22,7 @@ def _tokenize_postfix_messages(
     messages_without = base_messages
     messages_with = base_messages + postfix_messages
 
-    tokens_with = tokenizer.apply_chat_template(messages_with, tokenize=True, add_generation_prompt=False)
+    tokens_with = tokenizer.apply_chat_template(messages_with, tokenize=True, add_generation_prompt=True)
     tokens_without = tokenizer.apply_chat_template(messages_without, tokenize=True, add_generation_prompt=False)
 
     assert tokens_with[: len(tokens_without)] == tokens_without, (
