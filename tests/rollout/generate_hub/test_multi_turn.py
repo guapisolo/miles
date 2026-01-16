@@ -121,6 +121,10 @@ def _run_generate(variant: str, env: GenerateEnv, sample: Sample, sampling_param
 
 SINGLE_TURN_PROMPT = [{"role": "user", "content": "What is 1+1?"}]
 SINGLE_TURN_RESPONSE = "The answer is 2."
+_SINGLE_TURN_PROMPT_TEXT = TOKENIZER.apply_chat_template(
+    SINGLE_TURN_PROMPT, tokenize=False, add_generation_prompt=True, tools=SAMPLE_TOOLS
+)
+SINGLE_TURN_PROMPT_TOKEN_LEN = len(TOKENIZER(_SINGLE_TURN_PROMPT_TEXT, add_special_tokens=False)["input_ids"])
 
 TWO_TURN_USER_QUESTION = "What is 42 + year + temperature?"
 TWO_TURN_PROMPT = [{"role": "user", "content": TWO_TURN_USER_QUESTION}]
