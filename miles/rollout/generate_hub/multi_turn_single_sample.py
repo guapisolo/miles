@@ -20,7 +20,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
     # Set up the initial prompt with system prompt and tools (outside the loop)
-    tool_specs = load_function(args.generate_tool_specs)
+    tool_specs = load_function(args.generate_tool_specs_path)
     assert isinstance(tool_specs, list)
     prompt = format_conversation_with_tools(prompt=sample.prompt, tools=tool_specs)
 
@@ -119,7 +119,8 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 def _add_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--generate-max-turns", type=int, default=16)
     parser.add_argument("--generate-max-tool-calls", type=int, default=16)
-    parser.add_argument("--generate-tool-specs", type=str)
+    parser.add_argument("--generate-tool-specs-path", type=str)
+    parser.add_argument("--generate-execute-function-path", type=str)
 
 
 generate.add_arguments = _add_arguments
