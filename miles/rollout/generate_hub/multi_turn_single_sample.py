@@ -83,7 +83,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         if output["meta_info"]["finish_reason"]["type"] == "length":
             break
 
-        # TODO decide execute_tool_function API
         parsed_tool_call = tool_call_parser.parse_non_stream(cur_response)
         out = await execute_tool_function(parsed_tool_call)
         tool_messages = out["tool_messages"]
