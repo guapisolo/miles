@@ -167,7 +167,7 @@ class TestBasicMultiTurn:
     def test_two_turns_with_tool_call(self, generation_env):
         generation_env.mock_server.process_fn = multi_turn_tool_call_process_fn
 
-        result = run_generate(generation_env, make_sample(prompt=TWO_TURN_PROMPT))
+        result = _run_generate(generation_env, make_sample(prompt=TWO_TURN_PROMPT))
 
         assert len(result.requests) == 2
         verify_sample(
