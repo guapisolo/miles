@@ -3,6 +3,7 @@ Simple multi-turn generation with tool calling.
 """
 
 import argparse
+from typing import Any
 
 from pydantic import TypeAdapter
 
@@ -85,7 +86,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
         parsed_tool_call = tool_call_parser.parse_non_stream(cur_response)
         out = await execute_tool_function(parsed_tool_call)
-        tool_messages = out["tool_messages"]
+        tool_messages: list[dict[str, Any]] = out["tool_messages"]
 
         next_obs_tokens_ids = tokenize_tool_responses(tool_messages, tokenizer=tokenizer)
         response += TODO
