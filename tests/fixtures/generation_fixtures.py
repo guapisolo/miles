@@ -143,11 +143,12 @@ def make_args(
 
 
 @pytest.fixture
-def generation_env(request):
+def generation_env(request, variant):
     SingletonMeta.clear_all_instances()
     params = getattr(request, "param", {})
     args_kwargs = params.get("args_kwargs", {})
     model_name = args_kwargs.get("model_name", MODEL_NAME)
+    custom_generate_function_path = VARIANT_TO_GENERATE_FN_PATH.get(variant)
 
     def process_fn(_):
         x = params.get("process_fn_kwargs", {})
@@ -166,7 +167,12 @@ def generation_env(request):
 
     with with_mock_server(model_name=model_name, process_fn=process_fn) as mock_server:
         other_args_kwargs = {k: v for k, v in args_kwargs.items() if k != "model_name"}
-        args = make_args(router_port=mock_server.port, model_name=model_name, **other_args_kwargs)
+        args = make_args(
+            router_port=mock_server.port,
+            model_name=model_name,
+            custom_generate_function_path=custom_generate_function_path,
+            **other_args_kwargs,
+        )
         yield GenerateEnv(args=args, mock_server=mock_server)
 
     SingletonMeta.clear_all_instances()
