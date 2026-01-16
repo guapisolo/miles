@@ -46,7 +46,9 @@ def compute_request_payload(
     return payload
 
 
-async def update_sample_from_response(args, sample: Sample, payload: dict, output: dict, update_loss_mask: bool = False):
+async def update_sample_from_response(
+    args, sample: Sample, payload: dict, output: dict, update_loss_mask: bool = False
+):
     # Initialize sample.tokens for the first turn
     if (len(sample.response) == 0) and not sample.tokens:
         sample.tokens = payload["input_ids"]
@@ -57,7 +59,7 @@ async def update_sample_from_response(args, sample: Sample, payload: dict, outpu
         # TODO may rename to match
         await postprocess_sample_with_radix_tree(args, sample, output)
 
-        assert not update_loss_mask, f"This code branch has not implemented update_loss_mask"
+        assert not update_loss_mask, "This code branch has not implemented update_loss_mask"
     else:
         if x := output["meta_info"].get("output_token_logprobs"):
             new_response_tokens = [item[1] for item in x]
