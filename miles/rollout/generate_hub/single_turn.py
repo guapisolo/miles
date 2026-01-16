@@ -35,9 +35,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     else:
         input_ids = prompt_ids
 
-        assert not sample.tokens
-        sample.tokens = input_ids
-
     payload = compute_request_payload(
         args, input_ids=input_ids, sampling_params=sampling_params, multimodal_inputs=sample.multimodal_inputs
     )
