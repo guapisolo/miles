@@ -46,9 +46,8 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     for _turn in range(args.generate_max_turns):
         # TODO handle separately
         # Check if total length exceeds max context length
-        total_length = len(sample.tokens)
         max_context_length = args.rollout_max_context_len
-        if total_length >= max_context_length:
+        if len(sample.tokens) >= max_context_length:
             sample.status = Sample.Status.TRUNCATED
             break
 
