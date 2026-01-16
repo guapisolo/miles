@@ -71,8 +71,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
         await update_sample_from_response(args, sample, payload=payload, output=output)
 
-        finish_reason_type = output["meta_info"]["finish_reason"]["type"]
-        if finish_reason_type in ("abort", "length"):
+        if output["meta_info"]["finish_reason"]["type"] in ("abort", "length"):
             break
 
         # ----------------------- Execute tools -------------------------
