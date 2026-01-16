@@ -94,7 +94,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         tool_messages = await _execute_tool_calls(parsed_tool_calls, execute_tool_function)
 
         next_obs_tokens_ids: list[int] = tokenize_tool_responses(tool_messages, tokenizer=tokenizer)
-        # TODO is this ok?
         sample.response += tokenizer.decode(next_obs_tokens_ids)
         sample.response_length += len(next_obs_tokens_ids)
         sample.tokens += next_obs_tokens_ids
