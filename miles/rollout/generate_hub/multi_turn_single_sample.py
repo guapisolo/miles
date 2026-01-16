@@ -101,9 +101,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
             sample.rollout_log_probs
         ), f"Token/logp length mismatch at turn {turn}: {len(response_token_ids)} tokens vs {len(sample.rollout_log_probs)} logps"
 
-        if turn >= args.generate_max_tool_calls:
-            break
-
     # Set sample attributes
     sample.tokens = prompt_tokens_ids + response_token_ids
     sample.response_length = len(response_token_ids)
@@ -120,7 +117,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
 def _add_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--generate-max-turns", type=int, default=16)
-    parser.add_argument("--generate-max-tool-calls", type=int, default=16)
     parser.add_argument("--generate-tool-specs-path", type=str)
     parser.add_argument("--generate-tool-call-parser", type=str)
     parser.add_argument("--generate-execute-tool-function-path", type=str)
