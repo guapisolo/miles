@@ -52,7 +52,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
             break
 
         output = await post(url, payload)
-        await update_sample_from_response(args, sample, payload=payload, output=output)
+        await update_sample_from_response(args, sample, payload=payload, output=output, update_loss_mask=True)
 
         if output["meta_info"]["finish_reason"]["type"] in ("abort", "length"):
             break
