@@ -79,9 +79,9 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         if output["meta_info"]["finish_reason"]["type"] == "length":
             break
 
-        next_obs, done = await execute_predictions(cur_response)
-        if done:
-            break
+        # TODO decide execute_tool_function API
+        out = await execute_tool_function(cur_response)
+        next_obs, done = out["next_obs"], out["done"]
 
         # Count tool calls (when we get interpreter output, it means a tool
         # was called)
@@ -140,10 +140,3 @@ def postprocess_predictions(prediction: str):
 
 def postprocess_responses(resp: str) -> str:
     return TODO
-
-
-async def execute_predictions(prediction: str) -> str:
-    """Execute predictions and return results"""
-    action, content = postprocess_predictions(prediction)
-    next_obs, done = TODO
-    return next_obs, done
