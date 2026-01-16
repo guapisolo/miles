@@ -102,12 +102,12 @@ def make_args(
     model_name: str = MODEL_NAME,
     extra_argv: list[str] | None = None,
     custom_generate_function_path: str | None = None,
-    generate_max_turns: int | None = FILL_THINGS_HERE,
-    generate_max_tool_calls: int | None = None,
-    generate_tool_specs_path: str | None = None,
-    generate_tool_call_parser: str | None = None,
-    generate_execute_tool_function_path: str | None = None,
-    rollout_max_context_len: int | None = None,
+    generate_max_turns: int = 16,
+    generate_max_tool_calls: int = 16,
+    generate_tool_specs_path: str = "miles.utils.test_utils.mock_tools.SAMPLE_TOOLS",
+    generate_tool_call_parser: str = "qwen25",
+    generate_execute_tool_function_path: str = "miles.utils.test_utils.mock_tools.execute_tool_call",
+    rollout_max_context_len: int = 4096,
 ) -> Namespace:
     argv = [
         "pytest",
@@ -154,7 +154,7 @@ def make_args(
             argv.extend(["--generate-execute-tool-function-path", generate_execute_tool_function_path])
         if rollout_max_context_len is not None:
             argv.extend(["--rollout-max-context-len", str(rollout_max_context_len)])
-        if extra_argv:
+    if extra_argv:
             argv.extend(extra_argv)
 
     from miles.utils.arguments import parse_args
