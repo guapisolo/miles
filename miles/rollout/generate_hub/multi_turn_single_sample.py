@@ -84,7 +84,8 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
             break
 
         # TODO decide execute_tool_function API
-        out = await execute_tool_function(TODO)
+        parsed_tool_call = tool_call_parser.parse_non_stream(cur_response)
+        out = await execute_tool_function(parsed_tool_call)
         next_obs, done = out["next_obs"], out["done"]
 
         next_obs_tokens_ids = tokenize_tool_responses(TODO)
