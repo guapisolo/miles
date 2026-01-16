@@ -43,7 +43,7 @@ MULTI_TURN_EXTRA_ARGV = [
 class SampleParsedChunk:
     tokens_decoded_str: str
     loss_mask_value: int
-    rollout_log_probs: tuple[float, ...]
+    rollout_log_probs: list[float]
 
 
 def parse_sample_into_chunks(sample: Sample, tokenizer) -> list[SampleParsedChunk]:
@@ -61,7 +61,7 @@ def parse_sample_into_chunks(sample: Sample, tokenizer) -> list[SampleParsedChun
             SampleParsedChunk(
                 tokens_decoded_str=tokenizer.decode(response_tokens[sli]),
                 loss_mask_value=mask_val,
-                rollout_log_probs=tuple(log_probs[sli]),
+                rollout_log_probs=log_probs[sli],
             )
         )
         idx += group_len
