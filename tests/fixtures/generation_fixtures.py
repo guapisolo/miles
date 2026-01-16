@@ -124,7 +124,7 @@ def make_args(
         "--sglang-router-port",
         str(router_port),
         "--rollout-max-response-len",
-        "64",
+        "16",
     ]
     if use_rollout_routing_replay:
         argv.append("--use-rollout-routing-replay")
