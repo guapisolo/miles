@@ -71,6 +71,7 @@ def parse_sample_into_chunks(sample: Sample, tokenizer) -> list[SampleParsedChun
 def expected_partial_sample(
     *,
     prompt: list[dict],
+    response: str,
     response_length: int,
     status: Sample.Status = Sample.Status.COMPLETED,
     cached_tokens: int = 0,
@@ -78,6 +79,7 @@ def expected_partial_sample(
 ) -> Sample:
     return Sample(
         prompt=prompt,
+        response=response,
         response_length=response_length,
         status=status,
         weight_versions=[],
@@ -91,14 +93,15 @@ def verify_sample(
     *,
     expected_chunks: list[SampleParsedChunk],
     prompt: list[dict],
+    response: str,
     response_length: int,
     status: Sample.Status = Sample.Status.COMPLETED,
 ):
     actual_chunks = parse_sample_into_chunks(actual, TOKENIZER)
     assert actual_chunks == expected_chunks
 
-    actual_partial = replace(deepcopy(actual), tokens=[], response="", loss_mask=[], rollout_log_probs=[])
-    expected_partial = expected_partial_sample(prompt=prompt, response_length=response_length, status=status)
+    actual_partial = replace(deepcopy(actual), tokens=[], loss_mask=[], rollout_log_probs=[])
+    expected_partial = expected_partial_sample(prompt=prompt, response=response, response_length=response_length, status=status)
     assert actual_partial == expected_partial
 
 
@@ -156,6 +159,7 @@ class TestBasicMultiTurn:
                 ),
             ],
             prompt=SINGLE_TURN_PROMPT,
+            response=SINGLE_TURN_RESPONSE,
             response_length=6,
         )
 
@@ -190,5 +194,6 @@ class TestBasicMultiTurn:
                 ),
             ],
             prompt=TWO_TURN_PROMPT,
+            response=TWO_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE + TWO_TURN_SECOND_RESPONSE,
             response_length=57 + 47 + 25,
         )
