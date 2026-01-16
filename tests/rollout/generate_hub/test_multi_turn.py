@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import pytest
+from transformers import AutoTokenizer
 
 from miles.rollout.base_types import GenerateFnInput
 from miles.rollout.modular_rollout.orchestration_common import GenerateState
@@ -8,6 +9,8 @@ from miles.utils.async_utils import run
 from miles.utils.test_utils.mock_sglang_server import ProcessResult
 from miles.utils.test_utils.mock_tools import (
     MULTI_TURN_FIRST_PROMPT,
+    MULTI_TURN_FIRST_RESPONSE,
+    MULTI_TURN_SECOND_RESPONSE,
     SAMPLE_TOOLS,
     mock_execute_tool_function,
     multi_turn_tool_call_process_fn,
@@ -19,6 +22,7 @@ _ = generation_env, SAMPLE_TOOLS, mock_execute_tool_function, multi_turn_tool_ca
 
 MODEL_NAME = "Qwen/Qwen3-0.6B"
 DEFAULT_SAMPLING_PARAMS = {"max_new_tokens": 64, "temperature": 0.7}
+TOKENIZER = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
 MULTI_TURN_EXTRA_ARGV = [
     "--generate-max-turns", "4",
