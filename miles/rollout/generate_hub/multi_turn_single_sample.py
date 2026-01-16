@@ -31,7 +31,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     assert isinstance(tool_specs, list)
 
     tool_call_parser = FunctionCallParser(
-        tools=(TypeAdapter(list[Tool]).validate_python(tool_specs)),
+        tools=TypeAdapter(list[Tool]).validate_python(tool_specs),
         tool_call_parser=args.generate_tool_call_parser,
     )
 
