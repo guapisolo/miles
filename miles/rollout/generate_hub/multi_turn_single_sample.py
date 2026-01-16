@@ -45,8 +45,8 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     assert sample.tokens == []
     assert sample.response == ""
     assert sample.response_length == 0
-    assert sample.loss_masks is None
-    sample.loss_masks = []
+    assert sample.loss_mask is None
+    sample.loss_mask = []
     sample.tokens = prompt_tokens_ids.copy()
 
     for turn in range(args.generate_max_turns):
@@ -80,7 +80,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         sample.response += cur_response
         sample.response_length += len(cur_response_token_ids)
         sample.tokens += cur_response_token_ids
-        sample.loss_masks += [1] * len(cur_response_token_ids)
+        sample.loss_mask += [1] * len(cur_response_token_ids)
 
         finish_reason_type = output["meta_info"]["finish_reason"]["type"]
         if finish_reason_type in ("abort", "length"):
