@@ -9,6 +9,7 @@ from miles.rollout.generate_hub.generate_endpoint_wrapper import (
     update_sample_from_response,
 )
 from miles.utils.http_utils import post
+from miles.utils.types import Sample
 
 
 async def generate(input: GenerateFnInput) -> GenerateFnOutput:
@@ -23,15 +24,16 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     # Handle partial rollout resuming
     if len(sample.response) > 0:
         sampling_params["max_new_tokens"] -= len(sample.tokens) - len(prompt_ids)
+        assert sampling_params["max_new_tokens"] >= 0
+        if sampling_params["max_new_tokens"] == 0:
+            sample.status = Sample.Status.TRUNCATED
+            return GenerateFnOutput(samples=sample)
+
         input_ids = sample.tokens
     else:
         input_ids = prompt_ids
 
-    payload, halt_status = await compute_request_payload(input.state, sample, input_ids, sampling_params)
-
-    if payload is None:
-        sample.status = halt_status
-        return GenerateFnOutput(samples=sample)
+    payload = await compute_request_payload(input.state, sample, input_ids, sampling_params)
 
     output = await post(url, payload)
 

@@ -1,6 +1,7 @@
 """
 Wrapper to integrate SGLang's `/generate` endpoint with RL things like Sample.
 """
+from typing import Any
 
 import numpy as np
 import pybase64
@@ -23,7 +24,7 @@ async def compute_prompt_ids_from_sample(state, sample):
         return state.tokenizer.encode(sample.prompt, add_special_tokens=False)
 
 
-async def compute_request_payload(state, sample, input_ids: list[int], sampling_params: dict):
+async def compute_request_payload(state, sample, input_ids: list[int], sampling_params: dict) -> dict[str, Any]:
     assert sample.status in {Sample.Status.PENDING, Sample.Status.ABORTED}, f"{sample.status=}"
 
     payload = {
@@ -35,12 +36,7 @@ async def compute_request_payload(state, sample, input_ids: list[int], sampling_
     if image_data := (sample.multimodal_inputs or {}).get("images"):
         payload["image_data"] = [encode_image_for_rollout_engine(image) for image in image_data]
 
-    assert payload["sampling_params"]["max_new_tokens"] >= 0
-
-    if payload["sampling_params"]["max_new_tokens"] == 0:
-        return None, Sample.Status.TRUNCATED
-
-    return payload, None
+    return payload
 
 
 async def update_sample_from_response(args, sample: Sample, payload: dict, output: dict):
