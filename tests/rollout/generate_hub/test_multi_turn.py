@@ -6,7 +6,12 @@ from miles.rollout.base_types import GenerateFnInput
 from miles.rollout.modular_rollout.orchestration_common import GenerateState
 from miles.utils.async_utils import run
 from miles.utils.test_utils.mock_sglang_server import ProcessResult
-from miles.utils.test_utils.mock_tools import SAMPLE_TOOLS, mock_execute_tool_function
+from miles.utils.test_utils.mock_tools import (
+    MULTI_TURN_FIRST_PROMPT,
+    SAMPLE_TOOLS,
+    mock_execute_tool_function,
+    multi_turn_tool_call_process_fn,
+)
 from miles.utils.types import Sample
 from tests.fixtures.generation_fixtures import GenerateEnv, generation_env
 
