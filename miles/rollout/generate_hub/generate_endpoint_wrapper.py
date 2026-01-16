@@ -1,7 +1,7 @@
 """
 Wrapper to integrate SGLang's `/generate` endpoint with RL things like Sample.
 """
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pybase64
@@ -27,14 +27,19 @@ async def compute_prompt_ids_from_sample(state, sample):
 # Thin wrapper to construct request payload.
 # Make it a function to allow adding logics like `return_routed_experts` in the future
 # without requiring users to change their code.
-async def compute_request_payload(state, sample, input_ids: list[int], sampling_params: dict) -> dict[str, Any]:
+async def compute_request_payload(
+    args,
+    input_ids: list[int],
+    sampling_params: dict,
+    multimodal_inputs: Optional[dict] = None,
+) -> dict[str, Any]:
     payload = {
         "input_ids": input_ids,
         "sampling_params": sampling_params,
         "return_logprob": True,
-        "return_routed_experts": state.args.use_rollout_routing_replay,
+        "return_routed_experts": args.use_rollout_routing_replay,
     }
-    if image_data := (sample.multimodal_inputs or {}).get("images"):
+    if image_data := (multimodal_inputs or {}).get("images"):
         payload["image_data"] = [encode_image_for_rollout_engine(image) for image in image_data]
 
     return payload

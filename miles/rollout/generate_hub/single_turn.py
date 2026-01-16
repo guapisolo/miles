@@ -35,7 +35,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     else:
         input_ids = prompt_ids
 
-    payload = await compute_request_payload(input.state, sample, input_ids, sampling_params)
+    payload = await compute_request_payload(args, input_ids=input_ids, sampling_params=sampling_params, multimodal_inputs=sample.multimodal_inputs)
 
     output = await post(url, payload)
 
