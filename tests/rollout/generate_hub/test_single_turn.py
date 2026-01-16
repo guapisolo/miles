@@ -300,6 +300,8 @@ VLM_MODEL_NAME = "Qwen/Qwen2-VL-2B-Instruct"
 class TestMultimodal:
     @pytest.mark.parametrize("generation_env", [{"args_kwargs": {"model_name": VLM_MODEL_NAME}}], indirect=True)
     def test_multimodal_inputs_processed(self, variant, generation_env):
+        if variant == "multi_turn_single_sample":
+            pytest.skip("multi_turn_single_sample does not support multimodal inputs")
         test_image = Image.new("RGB", (64, 64), color="red")
         multimodal_inputs = {"images": [test_image]}
         processor = AutoProcessor.from_pretrained(VLM_MODEL_NAME, trust_remote_code=True)
