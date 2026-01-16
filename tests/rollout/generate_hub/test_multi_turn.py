@@ -135,7 +135,8 @@ SINGLE_TURN_RESPONSE = "The answer is 2."
 _SINGLE_TURN_PROMPT_TEXT = TOKENIZER.apply_chat_template(
     SINGLE_TURN_PROMPT, tokenize=False, add_generation_prompt=True, tools=SAMPLE_TOOLS
 )
-SINGLE_TURN_PROMPT_TOKEN_LEN = len(TOKENIZER(_SINGLE_TURN_PROMPT_TEXT, add_special_tokens=False)["input_ids"])
+SINGLE_TURN_PROMPT_TOKEN_IDS = TOKENIZER(_SINGLE_TURN_PROMPT_TEXT, add_special_tokens=False)["input_ids"]
+SINGLE_TURN_PROMPT_TOKEN_LEN = len(SINGLE_TURN_PROMPT_TOKEN_IDS)
 
 TWO_TURN_USER_QUESTION = "What is 42 + year + temperature?"
 TWO_TURN_PROMPT = [{"role": "user", "content": TWO_TURN_USER_QUESTION}]
@@ -167,7 +168,7 @@ class TestBasicMultiTurn:
 
         result = _run_generate(variant, generation_env, make_sample(prompt=SINGLE_TURN_PROMPT))
 
-        assert len(result.requests) == 1
+        assert result.requests == [expected_request(SINGLE_TURN_PROMPT_TOKEN_IDS)]
         verify_sample(
             result.sample,
             expected_chunks=[
@@ -194,7 +195,10 @@ class TestBasicMultiTurn:
 
         result = _run_generate(variant, generation_env, make_sample(prompt=TWO_TURN_PROMPT))
 
-        assert len(result.requests) == 2
+        assert result.requests == [
+            expected_request(FIRST_PROMPT_TOKEN_IDS),
+            expected_request(SECOND_PROMPT_TOKEN_IDS),
+        ]
         verify_sample(
             result.sample,
             expected_chunks=[
@@ -246,8 +250,10 @@ class TestExitConditions:
 
         result = _run_generate(variant, generation_env, make_sample(prompt=SINGLE_TURN_PROMPT))
 
-        assert len(result.requests) == 1
+        assert result.requests == [expected_request(SINGLE_TURN_PROMPT_TOKEN_IDS)]
         assert result.sample.status == Sample.Status.ABORTED
+        assert result.sample.response == ""
+        assert result.sample.response_length == 0
 
     @pytest.mark.parametrize(
         "generation_env",
@@ -261,8 +267,7 @@ class TestExitConditions:
 
         result = _run_generate(variant, generation_env, make_sample(prompt=TWO_TURN_PROMPT))
 
-        assert len(result.requests) == 1
-        assert result.sample.status == Sample.Status.TRUNCATED
+        assert result.requests == [expected_request(FIRST_PROMPT_TOKEN_IDS)]
         verify_sample(
             result.sample,
             expected_chunks=[
@@ -286,18 +291,33 @@ class TestExitConditions:
         indirect=True,
     )
     def test_max_turns_reached(self, variant, generation_env):
-        call_count = [0]
-
-        def always_tool_call_process_fn(_):
-            call_count[0] += 1
-            return ProcessResult(text=MULTI_TURN_FIRST_RESPONSE, finish_reason="stop")
-
-        generation_env.mock_server.process_fn = always_tool_call_process_fn
+        generation_env.mock_server.process_fn = lambda _: ProcessResult(
+            text=MULTI_TURN_FIRST_RESPONSE, finish_reason="stop"
+        )
 
         result = _run_generate(variant, generation_env, make_sample(prompt=TWO_TURN_PROMPT))
 
-        assert call_count[0] == 1
-        assert len(result.requests) == 1
+        assert result.requests == [expected_request(FIRST_PROMPT_TOKEN_IDS)]
+        verify_sample(
+            result.sample,
+            expected_chunks=[
+                SampleParsedChunk(
+                    tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
+                    loss_mask_value=1,
+                    rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                ),
+                SampleParsedChunk(
+                    tokens_decoded_str=TWO_TURN_TOOL_RESPONSE,
+                    loss_mask_value=0,
+                    rollout_log_probs=[0.0] * 31,
+                ),
+            ],
+            expected_partial_sample=expected_partial_sample(
+                prompt=TWO_TURN_PROMPT,
+                response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
+                response_length=45 + 31,
+            ),
+        )
 
     @pytest.mark.parametrize(
         "generation_env",
