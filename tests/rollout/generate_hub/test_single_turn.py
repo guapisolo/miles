@@ -1,5 +1,4 @@
-from argparse import Namespace
-from typing import Any
+from dataclasses import dataclass
 
 import numpy as np
 import pybase64
@@ -14,7 +13,7 @@ from miles.utils.async_utils import run
 from miles.utils.processing_utils import encode_image_for_rollout_engine
 from miles.utils.test_utils.mock_sglang_server import ProcessResult, ProcessResultMetaInfo
 from miles.utils.types import Sample
-from tests.fixtures.generate_fixtures import GenerateEnv, generation_env, make_args
+from tests.fixtures.generate_fixtures import GenerateEnv, generation_env
 
 _ = generation_env
 
@@ -96,52 +95,6 @@ def expected_sample(
     )
 
 
-def make_args(
-    *,
-    router_port: int,
-    use_rollout_routing_replay: bool = False,
-    sglang_speculative_algorithm: str | None = None,
-    model_name: str = MODEL_NAME,
-) -> Namespace:
-    argv = [
-        "pytest",
-        "--train-backend",
-        "fsdp",
-        "--rollout-batch-size",
-        "1",
-        "--num-rollout",
-        "1",
-        "--rollout-num-gpus",
-        "1",
-        "--rollout-num-gpus-per-engine",
-        "1",
-        "--hf-checkpoint",
-        model_name,
-        "--prompt-data",
-        "/dev/null",
-        "--rm-type",
-        "math",
-        "--sglang-router-ip",
-        "127.0.0.1",
-        "--sglang-router-port",
-        str(router_port),
-        "--rollout-max-response-len",
-        "16",
-    ]
-    if use_rollout_routing_replay:
-        argv.append("--use-rollout-routing-replay")
-    if sglang_speculative_algorithm:
-        argv.extend(["--sglang-speculative-algorithm", sglang_speculative_algorithm])
-
-    from miles.utils.arguments import parse_args
-
-    with patch("sys.argv", argv):
-        args = parse_args()
-
-    init_http_client(args)
-    return args
-
-
 async def call_generate(variant: str, args: Namespace, sample: Sample, sampling_params: dict[str, Any]) -> Sample:
     if variant == "sglang_rollout":
         from miles.rollout.sglang_rollout import generate
@@ -160,45 +113,9 @@ async def call_generate(variant: str, args: Namespace, sample: Sample, sampling_
 
 
 @dataclass
-class GenerateEnv:
-    args: Namespace
-    mock_server: Any
-
-
-@dataclass
 class GenerateResult:
     sample: Sample
     requests: list[dict]
-
-
-@pytest.fixture
-def env(request):
-    SingletonMeta.clear_all_instances()
-    params = getattr(request, "param", {})
-    args_kwargs = params.get("args_kwargs", {})
-    model_name = args_kwargs.get("model_name", MODEL_NAME)
-
-    def process_fn(_):
-        x = params.get("process_fn_kwargs", {})
-        return ProcessResult(
-            text=x.get("response_text", RESPONSE_TEXT),
-            finish_reason=x.get("finish_reason", "stop"),
-            cached_tokens=x.get("cached_tokens", 0),
-            meta_info=ProcessResultMetaInfo(
-                weight_version=x.get("weight_version"),
-                routed_experts=x.get("routed_experts"),
-                spec_accept_token_num=x.get("spec_accept_token_num"),
-                spec_draft_token_num=x.get("spec_draft_token_num"),
-                spec_verify_ct=x.get("spec_verify_ct"),
-            ),
-        )
-
-    with with_mock_server(model_name=model_name, process_fn=process_fn) as mock_server:
-        other_args_kwargs = {k: v for k, v in args_kwargs.items() if k != "model_name"}
-        args = make_args(router_port=mock_server.port, model_name=model_name, **other_args_kwargs)
-        yield GenerateEnv(args=args, mock_server=mock_server)
-
-    SingletonMeta.clear_all_instances()
 
 
 def make_sample(tokens=None, response="", response_length=0, status=Sample.Status.PENDING, multimodal_inputs=None):
@@ -224,14 +141,14 @@ def run_generate(variant: str, env: GenerateEnv, sample: Sample | None = None, s
 
 
 class TestBasicGeneration:
-    def test_basic_generation(self, variant, env):
-        result = run_generate(variant, env)
+    def test_basic_generation(self, variant, generation_env):
+        result = run_generate(variant, generation_env)
         assert result.requests == [expected_request(variant)]
         assert result.sample == expected_sample()
 
 
 class TestResumedSingleTurn:
-    def test_two_consecutive_calls_on_same_sample(self, variant, env):
+    def test_two_consecutive_calls_on_same_sample(self, variant, generation_env):
         partial_text = "\\boxed"
         partial_tokens = [59, 79075]
         partial_log_probs = [-0.0, -0.0078125]
@@ -240,9 +157,9 @@ class TestResumedSingleTurn:
         remaining_tokens = [90, 23, 92]
         remaining_log_probs = [-0.0, -0.0078125, -0.015625]
 
-        env.mock_server.process_fn = lambda _: ProcessResult(text=partial_text, finish_reason="abort")
+        generation_env.mock_server.process_fn = lambda _: ProcessResult(text=partial_text, finish_reason="abort")
         sample = make_sample()
-        result1 = run_generate(variant, env, sample)
+        result1 = run_generate(variant, generation_env, sample)
         assert result1.requests == [expected_request(variant)]
         assert result1.sample == expected_sample(
             response=partial_text,
@@ -252,8 +169,8 @@ class TestResumedSingleTurn:
             status=Sample.Status.ABORTED,
         )
 
-        env.mock_server.process_fn = lambda _: ProcessResult(text=remaining_text, finish_reason="stop")
-        result2 = run_generate(variant, env, result1.sample)
+        generation_env.mock_server.process_fn = lambda _: ProcessResult(text=remaining_text, finish_reason="stop")
+        result2 = run_generate(variant, generation_env, result1.sample)
         tokens_after_turn1 = PROMPT_TOKENS + partial_tokens
         assert result2.requests == [
             expected_request(
@@ -274,23 +191,23 @@ class TestResumedSingleTurn:
 
 class TestFinishReason:
     @pytest.mark.parametrize(
-        "env,expected_status",
+        "generation_env,expected_status",
         [
             ({"process_fn_kwargs": {"finish_reason": "stop"}}, Sample.Status.COMPLETED),
             ({"process_fn_kwargs": {"finish_reason": "length"}}, Sample.Status.TRUNCATED),
             ({"process_fn_kwargs": {"finish_reason": "abort"}}, Sample.Status.ABORTED),
         ],
-        indirect=["env"],
+        indirect=["generation_env"],
     )
-    def test_finish_reason_sets_status(self, variant, env, expected_status):
-        result = run_generate(variant, env)
+    def test_finish_reason_sets_status(self, variant, generation_env, expected_status):
+        result = run_generate(variant, generation_env)
         assert result.requests == [expected_request(variant)]
         assert result.sample == expected_sample(status=expected_status)
 
 
 class TestRoutedExperts:
     @pytest.mark.parametrize(
-        "env",
+        "generation_env",
         [
             {
                 "args_kwargs": {"use_rollout_routing_replay": True},
@@ -299,23 +216,23 @@ class TestRoutedExperts:
         ],
         indirect=True,
     )
-    def test_routed_experts_enabled_and_parsed(self, variant, env):
+    def test_routed_experts_enabled_and_parsed(self, variant, generation_env):
         num_layers, moe_router_topk = 2, 4
         num_tokens = len(PROMPT_TOKENS) + len(RESPONSE_TOKENS)
         routed_experts_array = np.arange((num_tokens - 1) * num_layers * moe_router_topk, dtype=np.int32).reshape(
             num_tokens - 1, num_layers, moe_router_topk
         )
 
-        env.args.num_layers = num_layers
-        env.args.moe_router_topk = moe_router_topk
+        generation_env.args.num_layers = num_layers
+        generation_env.args.moe_router_topk = moe_router_topk
         routed_experts_str = pybase64.b64encode(routed_experts_array.tobytes()).decode("ascii")
-        env.mock_server.process_fn = lambda _: ProcessResult(
+        generation_env.mock_server.process_fn = lambda _: ProcessResult(
             text=RESPONSE_TEXT,
             finish_reason="stop",
             meta_info=ProcessResultMetaInfo(routed_experts=routed_experts_str),
         )
 
-        result = run_generate(variant, env)
+        result = run_generate(variant, generation_env)
         assert result.requests == [expected_request(variant, return_routed_experts=True)]
         assert result.sample.rollout_routed_experts is not None
         assert result.sample.rollout_routed_experts.shape == (num_tokens - 1, num_layers, moe_router_topk)
@@ -324,15 +241,15 @@ class TestRoutedExperts:
 
 class TestMetaInfo:
     @pytest.mark.parametrize(
-        "env", [{"process_fn_kwargs": {"cached_tokens": 3, "weight_version": "v1.0"}}], indirect=True
+        "generation_env", [{"process_fn_kwargs": {"cached_tokens": 3, "weight_version": "v1.0"}}], indirect=True
     )
-    def test_meta_info_fields_updated(self, variant, env):
-        result = run_generate(variant, env)
+    def test_meta_info_fields_updated(self, variant, generation_env):
+        result = run_generate(variant, generation_env)
         assert result.requests == [expected_request(variant)]
         assert result.sample == expected_sample(cached_tokens=3, weight_versions=["v1.0"])
 
     @pytest.mark.parametrize(
-        "env",
+        "generation_env",
         [
             {
                 "args_kwargs": {"sglang_speculative_algorithm": "EAGLE"},
@@ -341,8 +258,8 @@ class TestMetaInfo:
         ],
         indirect=True,
     )
-    def test_spec_info_updated(self, variant, env):
-        result = run_generate(variant, env)
+    def test_spec_info_updated(self, variant, generation_env):
+        result = run_generate(variant, generation_env)
         assert result.requests == [expected_request(variant)]
         assert result.sample == expected_sample(
             spec_info=Sample.SpecInfo(
