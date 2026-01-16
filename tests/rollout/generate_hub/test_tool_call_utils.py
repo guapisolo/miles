@@ -3,9 +3,9 @@ from pydantic import TypeAdapter
 from sglang.srt.entrypoints.openai.protocol import Tool
 from sglang.srt.function_call.core_types import ToolCallItem
 from sglang.srt.function_call.function_call_parser import FunctionCallParser
+from tests.fixtures.tool_fixtures import SAMPLE_TOOLS
 
 from miles.rollout.generate_hub.tool_call_utils import _DUMMY_USER, _build_dummy_assistant, tokenize_tool_responses
-from tests.fixtures.tool_fixtures import SAMPLE_TOOLS
 
 TOOL_CALL_TEST_MODELS = [
     "Qwen/Qwen2.5-0.5B-Instruct",
@@ -126,7 +126,7 @@ class TestSGLangFunctionCallParser:
                 'Let me check for you.\n<tool_call>\n{"name": "get_year", "arguments": {}}\n</tool_call>',
                 (
                     "Let me check for you.",
-                    [ToolCallItem(tool_index=0, name="get_year", parameters='{}')],
+                    [ToolCallItem(tool_index=0, name="get_year", parameters="{}")],
                 ),
                 id="single_tool_call",
             ),
@@ -137,7 +137,7 @@ class TestSGLangFunctionCallParser:
                 (
                     "I will get year and temperature.",
                     [
-                        ToolCallItem(tool_index=0, name="get_year", parameters='{}'),
+                        ToolCallItem(tool_index=0, name="get_year", parameters="{}"),
                         ToolCallItem(tool_index=1, name="get_temperature", parameters='{"location": "Shanghai"}'),
                     ],
                 ),
