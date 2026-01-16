@@ -180,12 +180,12 @@ class TestBasicMultiTurn:
                     rollout_log_probs=tuple([0.0] * 47),
                 ),
                 SampleParsedChunk(
-                    tokens_decoded_str=TWO_TURN_SECOND_RESPONSE,
+                    tokens_decoded_str=MULTI_TURN_SECOND_RESPONSE,
                     loss_mask_value=1,
                     rollout_log_probs=tuple(-1 / 128 * i for i in range(25)),
                 ),
             ],
             prompt=TWO_TURN_PROMPT,
-            response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE + TWO_TURN_SECOND_RESPONSE,
+            response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE + MULTI_TURN_SECOND_RESPONSE,
             response_length=57 + 47 + 25,
         )
