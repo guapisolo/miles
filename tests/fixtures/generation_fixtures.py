@@ -29,6 +29,7 @@ def make_args(
     use_rollout_routing_replay: bool = False,
     sglang_speculative_algorithm: str | None = None,
     model_name: str = MODEL_NAME,
+    extra_argv: list[str] | None = None,
 ) -> Namespace:
     argv = [
         "pytest",
@@ -53,12 +54,14 @@ def make_args(
         "--sglang-router-port",
         str(router_port),
         "--rollout-max-response-len",
-        "16",
+        "64",
     ]
     if use_rollout_routing_replay:
         argv.append("--use-rollout-routing-replay")
     if sglang_speculative_algorithm:
         argv.extend(["--sglang-speculative-algorithm", sglang_speculative_algorithm])
+    if extra_argv:
+        argv.extend(extra_argv)
 
     from miles.utils.arguments import parse_args
 

@@ -34,6 +34,15 @@ async def mock_execute_tool(parsed_tool_call):
     return {"tool_messages": []}
 
 
+MULTI_TURN_EXTRA_ARGV = [
+    "--generate-max-turns", "4",
+    "--generate-max-tool-calls", "4",
+    "--generate-tool-specs-path", f"{__name__}:TOOL_SPECS",
+    "--generate-tool-call-parser", "qwen25",
+    "--execute-tool-function-path", f"{__name__}:mock_execute_tool",
+]
+
+
 @dataclass
 class GenerateResult:
     sample: Sample
@@ -71,7 +80,7 @@ def run_generate(env: GenerateEnv, sample: Sample | None = None, sampling_params
 class TestBasicMultiTurn:
     @pytest.mark.parametrize(
         "generation_env",
-        [{"args_kwargs": {"extra_argv": _build_multi_turn_argv()}}],
+        [{"args_kwargs": {"extra_argv": MULTI_TURN_EXTRA_ARGV}}],
         indirect=True,
     )
     def test_single_turn_no_tool_call(self, generation_env):
@@ -82,13 +91,3 @@ class TestBasicMultiTurn:
         assert len(result.requests) == 1
         assert result.sample.status == Sample.Status.COMPLETED
         assert "The answer is 2." in result.sample.response
-
-
-def _build_multi_turn_argv():
-    return [
-        "--generate-max-turns", "4",
-        "--generate-max-tool-calls", "4",
-        "--generate-tool-specs-path", f"{__name__}:TOOL_SPECS",
-        "--generate-tool-call-parser", "qwen25",
-        "--execute-tool-function-path", f"{__name__}:mock_execute_tool",
-    ]
