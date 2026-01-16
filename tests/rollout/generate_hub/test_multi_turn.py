@@ -40,6 +40,7 @@ MULTI_TURN_EXTRA_ARGV = [
     "miles.utils.test_utils.mock_tools:mock_execute_tool_function",
 ]
 
+
 @pytest.fixture(params=["multi_turn_single_sample"])
 def variant(request):
     return request.param

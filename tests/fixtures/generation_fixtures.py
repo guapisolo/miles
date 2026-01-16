@@ -10,10 +10,10 @@ from unittest.mock import patch
 import pytest
 
 from miles.rollout.base_types import GenerateFnInput
+from miles.rollout.modular_rollout.compatibility import load_generate_function
 from miles.rollout.modular_rollout.orchestration_common import GenerateState
 from miles.utils.async_utils import run
 from miles.utils.http_utils import init_http_client
-from miles.rollout.modular_rollout.compatibility import load_generate_function
 from miles.utils.misc import SingletonMeta
 from miles.utils.test_utils.mock_sglang_server import ProcessResult, ProcessResultMetaInfo, with_mock_server
 from miles.utils.types import Sample
@@ -30,13 +30,13 @@ VARIANT_TO_GENERATE_FN_PATH = {
 
 
 def make_sample(
-        *,
-        prompt: str | list[dict] = "What is 1+7?",
-        tokens: list[int] | None = None,
-        response: str = "",
-        response_length: int = 0,
-        status: Sample.Status = Sample.Status.PENDING,
-        multimodal_inputs: dict | None = None,
+    *,
+    prompt: str | list[dict] = "What is 1+7?",
+    tokens: list[int] | None = None,
+    response: str = "",
+    response_length: int = 0,
+    status: Sample.Status = Sample.Status.PENDING,
+    multimodal_inputs: dict | None = None,
 ) -> Sample:
     return Sample(
         prompt=prompt,
