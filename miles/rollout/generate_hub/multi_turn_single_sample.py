@@ -5,6 +5,7 @@ Simple multi-turn generation with tool calling.
 import argparse
 import json
 import uuid
+from typing import Callable
 
 from pydantic import TypeAdapter
 from sglang.srt.entrypoints.openai.protocol import Tool
@@ -15,6 +16,7 @@ from miles.rollout.generate_hub.tool_call_utils import tokenize_tool_responses, 
 from miles.utils.http_utils import post
 from miles.utils.misc import load_function
 from miles.utils.types import Sample
+from sglang.srt.function_call.core_types import ToolCallItem
 
 
 async def generate(input: GenerateFnInput) -> GenerateFnOutput:
@@ -110,7 +112,7 @@ def _add_arguments(parser: argparse.ArgumentParser):
 generate.add_arguments = _add_arguments
 
 
-async def execute_tool_calls(tool_calls, execute_one) -> list[dict]:
+async def execute_tool_calls(tool_calls: list[ToolCallItem], execute_one: Callable) -> list[dict]:
     tool_messages = []
     for call in tool_calls:
         params = json.loads(call.parameters) if call.parameters else {}
