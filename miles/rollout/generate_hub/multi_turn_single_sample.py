@@ -44,11 +44,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     sample.tokens = prompt_tokens_ids.copy()
 
     for _turn in range(args.generate_max_turns):
-        max_context_length = args.rollout_max_context_len or float("inf")
-        if len(sample.tokens) >= max_context_length:
-            sample.status = Sample.Status.TRUNCATED
-            break
-
         # ----------------------- Call inference endpoint -------------------------
 
         payload, halt_status = compute_request_payload(args, sample.tokens, input.sampling_params)
