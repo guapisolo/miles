@@ -5,6 +5,7 @@ Simple multi-turn generation with tool calling.
 import argparse
 
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
+from miles.rollout.generate_hub.tool_call_utils import tokenize_tool_responses
 from miles.utils.http_utils import post
 from miles.utils.misc import load_function
 from miles.utils.types import Sample
@@ -76,16 +77,15 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         out = await execute_tool_function(TODO)
         next_obs, done = out["next_obs"], out["done"]
 
-        assert next_obs != "", "Next observation should not be empty."
-        obs_tokens_ids = tokenizer(next_obs, add_special_tokens=False)["input_ids"]
-        response += next_obs
-        response_token_ids += obs_tokens_ids
-        loss_masks += [0] * len(obs_tokens_ids)
+        next_obs_tokens_ids = tokenize_tool_responses(TODO)
+        response += TODO
+        response_token_ids += next_obs_tokens_ids
+        loss_masks += [0] * len(next_obs_tokens_ids)
 
         # Add dummy log probs for observation tokens (they won't be used due to loss_mask=0)
         # Check if maximum tool call count reached
         if sample.rollout_log_probs is not None:
-            sample.rollout_log_probs += [0.0] * len(obs_tokens_ids)
+            sample.rollout_log_probs += [0.0] * len(next_obs_tokens_ids)
 
             assert len(response_token_ids) == len(
                 sample.rollout_log_probs
