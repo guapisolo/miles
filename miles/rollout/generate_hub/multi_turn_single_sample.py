@@ -89,7 +89,8 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         tool_messages: list[dict[str, Any]] = out["tool_messages"]
 
         next_obs_tokens_ids: list[int] = tokenize_tool_responses(tool_messages, tokenizer=tokenizer)
-        response += TODO
+        # TODO is this ok?
+        response += tokenizer.decode(next_obs_tokens_ids)
         response_token_ids += next_obs_tokens_ids
         loss_masks += [0] * len(next_obs_tokens_ids)
 
