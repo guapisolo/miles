@@ -28,8 +28,6 @@ DEFAULT_SAMPLING_PARAMS = {"max_new_tokens": 64, "temperature": 0.7}
 TOKENIZER = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
 MULTI_TURN_EXTRA_ARGV = [
-    "--custom-generate-function-path",
-    "miles.rollout.generate_hub.multi_turn_single_sample.generate",
     "--generate-max-turns",
     "4",
     "--generate-max-tool-calls",
