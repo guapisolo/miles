@@ -86,11 +86,11 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         if finish_reason_type in ("abort", "length"):
             break
 
-        _, parsed_tool_calls = tool_call_parser.parse_non_stream(output["text"])
-        if len(parsed_tool_calls) == 0:
+        _, tool_calls = tool_call_parser.parse_non_stream(output["text"])
+        if len(tool_calls) == 0:
             break
 
-        tool_messages = await _execute_tool_calls(parsed_tool_calls, execute_tool_function)
+        tool_messages = await execute_tool_calls(tool_calls, execute_tool_function)
 
         update_sample_with_tool_responses(sample, tool_messages, tokenizer=tokenizer)
 
@@ -110,9 +110,9 @@ def _add_arguments(parser: argparse.ArgumentParser):
 generate.add_arguments = _add_arguments
 
 
-async def _execute_tool_calls(parsed_tool_calls, execute_one) -> list[dict]:
+async def execute_tool_calls(tool_calls, execute_one) -> list[dict]:
     tool_messages = []
-    for call in parsed_tool_calls:
+    for call in tool_calls:
         params = json.loads(call.parameters) if call.parameters else {}
         result = await execute_one(call.name, params)
         assert isinstance(result, str)
