@@ -28,25 +28,6 @@ VARIANT_TO_GENERATE_FN_PATH = {
     "multi_turn_single_sample": "miles.rollout.generate_hub.multi_turn_single_sample.generate",
 }
 
-MULTI_TURN_DEFAULT_CONFIG = {
-    "generate_max_turns": 16,
-    "generate_max_tool_calls": 16,
-    "generate_tool_specs_path": "miles.utils.test_utils.mock_tools.SAMPLE_TOOLS",
-    "generate_tool_call_parser": "qwen25",
-    "generate_execute_tool_function_path": "miles.utils.test_utils.mock_tools.execute_tool_call",
-    "rollout_max_context_len": 4096,
-}
-
-MULTI_TURN_CONFIG_KEYS = set(MULTI_TURN_DEFAULT_CONFIG.keys())
-
-
-def _config_to_argv(config: dict) -> list[str]:
-    result = []
-    for k, v in config.items():
-        if v is not None:
-            result.extend([f"--{k.replace('_', '-')}", str(v)])
-    return result
-
 
 def make_sample(
     *,
@@ -120,7 +101,12 @@ def make_args(
     model_name: str = MODEL_NAME,
     extra_argv: list[str] | None = None,
     custom_generate_function_path: str | None = None,
-    multi_turn_config: dict | None = None,
+    generate_max_turns: int | None = None,
+    generate_max_tool_calls: int | None = None,
+    generate_tool_specs_path: str | None = None,
+    generate_tool_call_parser: str | None = None,
+    generate_execute_tool_function_path: str | None = None,
+    rollout_max_context_len: int | None = None,
 ) -> Namespace:
     argv = [
         "pytest",
@@ -153,10 +139,18 @@ def make_args(
         argv.extend(["--sglang-speculative-algorithm", sglang_speculative_algorithm])
     if custom_generate_function_path:
         argv.extend(["--custom-generate-function-path", custom_generate_function_path])
-    if multi_turn_config is not None:
-        config = dict(MULTI_TURN_DEFAULT_CONFIG)
-        config.update(multi_turn_config)
-        argv.extend(_config_to_argv(config))
+    if generate_max_turns is not None:
+        argv.extend(["--generate-max-turns", str(generate_max_turns)])
+    if generate_max_tool_calls is not None:
+        argv.extend(["--generate-max-tool-calls", str(generate_max_tool_calls)])
+    if generate_tool_specs_path:
+        argv.extend(["--generate-tool-specs-path", generate_tool_specs_path])
+    if generate_tool_call_parser:
+        argv.extend(["--generate-tool-call-parser", generate_tool_call_parser])
+    if generate_execute_tool_function_path:
+        argv.extend(["--generate-execute-tool-function-path", generate_execute_tool_function_path])
+    if rollout_max_context_len is not None:
+        argv.extend(["--rollout-max-context-len", str(rollout_max_context_len)])
     if extra_argv:
         argv.extend(extra_argv)
 
@@ -169,6 +163,16 @@ def make_args(
     return args
 
 
+MULTI_TURN_DEFAULT_ARGS = {
+    "generate_max_turns": 16,
+    "generate_max_tool_calls": 16,
+    "generate_tool_specs_path": "miles.utils.test_utils.mock_tools.SAMPLE_TOOLS",
+    "generate_tool_call_parser": "qwen25",
+    "generate_execute_tool_function_path": "miles.utils.test_utils.mock_tools.execute_tool_call",
+    "rollout_max_context_len": 4096,
+}
+
+
 @pytest.fixture
 def generation_env(request, variant):
     SingletonMeta.clear_all_instances()
@@ -177,9 +181,8 @@ def generation_env(request, variant):
     model_name = args_kwargs.get("model_name", MODEL_NAME)
     custom_generate_function_path = VARIANT_TO_GENERATE_FN_PATH[variant]
 
-    multi_turn_config = None
     if variant == "multi_turn_single_sample":
-        multi_turn_config = {k: args_kwargs[k] for k in MULTI_TURN_CONFIG_KEYS if k in args_kwargs}
+        args_kwargs = {**MULTI_TURN_DEFAULT_ARGS, **args_kwargs}
 
     def process_fn(_):
         x = params.get("process_fn_kwargs", {})
@@ -196,15 +199,12 @@ def generation_env(request, variant):
             ),
         )
 
-    excluded_keys = {"model_name", "extra_argv"} | MULTI_TURN_CONFIG_KEYS
     with with_mock_server(model_name=model_name, process_fn=process_fn) as mock_server:
-        other_args_kwargs = {k: v for k, v in args_kwargs.items() if k not in excluded_keys}
+        other_args_kwargs = {k: v for k, v in args_kwargs.items() if k != "model_name"}
         args = make_args(
             router_port=mock_server.port,
             model_name=model_name,
             custom_generate_function_path=custom_generate_function_path,
-            extra_argv=args_kwargs.get("extra_argv"),
-            multi_turn_config=multi_turn_config,
             **other_args_kwargs,
         )
         yield GenerateEnv(args=args, mock_server=mock_server)
