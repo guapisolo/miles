@@ -6,40 +6,21 @@ from miles.rollout.base_types import GenerateFnInput
 from miles.rollout.modular_rollout.orchestration_common import GenerateState
 from miles.utils.async_utils import run
 from miles.utils.test_utils.mock_sglang_server import ProcessResult
+from miles.utils.test_utils.mock_tools import SAMPLE_TOOLS, mock_execute_tool_function
 from miles.utils.types import Sample
 from tests.fixtures.generation_fixtures import GenerateEnv, generation_env
 
-_ = generation_env
+_ = generation_env, SAMPLE_TOOLS, mock_execute_tool_function
 
 MODEL_NAME = "Qwen/Qwen3-0.6B"
 DEFAULT_SAMPLING_PARAMS = {"max_new_tokens": 64, "temperature": 0.7}
 
-TOOL_SPECS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_answer",
-            "description": "Get the answer to a math question",
-            "parameters": {
-                "type": "object",
-                "properties": {"question": {"type": "string"}},
-                "required": ["question"],
-            },
-        },
-    }
-]
-
-
-async def mock_execute_tool(parsed_tool_call):
-    return {"tool_messages": []}
-
-
 MULTI_TURN_EXTRA_ARGV = [
     "--generate-max-turns", "4",
     "--generate-max-tool-calls", "4",
-    "--generate-tool-specs-path", f"{__name__}:TOOL_SPECS",
+    "--generate-tool-specs-path", "miles.utils.test_utils.mock_tools:SAMPLE_TOOLS",
     "--generate-tool-call-parser", "qwen25",
-    "--generate-execute-tool-function-path", f"{__name__}:mock_execute_tool",
+    "--generate-execute-tool-function-path", "miles.utils.test_utils.mock_tools:mock_execute_tool_function",
 ]
 
 
