@@ -23,13 +23,13 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
     # Handle partial rollout resuming
     if len(sample.response) > 0:
+        input_ids = sample.tokens
         sampling_params["max_new_tokens"] -= len(sample.tokens) - len(prompt_ids)
+
         assert sampling_params["max_new_tokens"] >= 0
         if sampling_params["max_new_tokens"] == 0:
             sample.status = Sample.Status.TRUNCATED
             return GenerateFnOutput(samples=sample)
-
-        input_ids = sample.tokens
     else:
         input_ids = prompt_ids
 
