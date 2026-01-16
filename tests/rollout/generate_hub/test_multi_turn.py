@@ -1,9 +1,9 @@
-from dataclasses import dataclass
-from itertools import groupby
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from itertools import groupby
 
 import pytest
+from tests.fixtures.generation_fixtures import GenerateEnv, generation_env, make_sample, run_generate
 from transformers import AutoTokenizer
 
 from miles.utils.test_utils.mock_sglang_server import ProcessResult
@@ -14,13 +14,6 @@ from miles.utils.test_utils.mock_tools import (
     multi_turn_tool_call_process_fn,
 )
 from miles.utils.types import Sample
-from tests.fixtures.generation_fixtures import (
-    GenerateEnv,
-    GenerateResult,
-    generation_env,
-    make_sample,
-    run_generate,
-)
 
 _ = generation_env, SAMPLE_TOOLS, mock_execute_tool_function, multi_turn_tool_call_process_fn
 
@@ -33,11 +26,16 @@ DEFAULT_SAMPLING_PARAMS = {"max_new_tokens": 64, "temperature": 0.7}
 TOKENIZER = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
 MULTI_TURN_EXTRA_ARGV = [
-    "--generate-max-turns", "4",
-    "--generate-max-tool-calls", "4",
-    "--generate-tool-specs-path", "miles.utils.test_utils.mock_tools:SAMPLE_TOOLS",
-    "--generate-tool-call-parser", "qwen25",
-    "--generate-execute-tool-function-path", "miles.utils.test_utils.mock_tools:mock_execute_tool_function",
+    "--generate-max-turns",
+    "4",
+    "--generate-max-tool-calls",
+    "4",
+    "--generate-tool-specs-path",
+    "miles.utils.test_utils.mock_tools:SAMPLE_TOOLS",
+    "--generate-tool-call-parser",
+    "qwen25",
+    "--generate-execute-tool-function-path",
+    "miles.utils.test_utils.mock_tools:mock_execute_tool_function",
 ]
 
 
@@ -141,7 +139,9 @@ class TestBasicMultiTurn:
         indirect=True,
     )
     def test_single_turn_no_tool_call(self, generation_env):
-        generation_env.mock_server.process_fn = lambda _: ProcessResult(text=SINGLE_TURN_RESPONSE, finish_reason="stop")
+        generation_env.mock_server.process_fn = lambda _: ProcessResult(
+            text=SINGLE_TURN_RESPONSE, finish_reason="stop"
+        )
 
         result = _run_generate(generation_env, make_sample(prompt=SINGLE_TURN_PROMPT))
 

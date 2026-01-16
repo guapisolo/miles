@@ -56,12 +56,14 @@ async def mock_execute_tool_function(parsed_tool_call) -> dict:
     for call in tool_calls:
         params = json.loads(call.parameters) if call.parameters else {}
         result = execute_tool_call(call.name, params)
-        tool_messages.append({
-            "role": "tool",
-            "tool_call_id": f"call{call.tool_index:05d}",
-            "content": json.dumps(result),
-            "name": call.name,
-        })
+        tool_messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"call{call.tool_index:05d}",
+                "content": json.dumps(result),
+                "name": call.name,
+            }
+        )
     return {"tool_messages": tool_messages}
 
 

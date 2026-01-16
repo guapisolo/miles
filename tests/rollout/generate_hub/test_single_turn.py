@@ -1,23 +1,14 @@
-from dataclasses import dataclass
-
 import numpy as np
 import pybase64
 import pytest
 import torch
 from PIL import Image
+from tests.fixtures.generation_fixtures import GenerateEnv, generation_env, make_sample, run_generate
 from transformers import AutoProcessor
 
 from miles.utils.processing_utils import encode_image_for_rollout_engine
 from miles.utils.test_utils.mock_sglang_server import ProcessResult, ProcessResultMetaInfo
 from miles.utils.types import Sample
-from tests.fixtures.generation_fixtures import (
-    DEFAULT_SAMPLING_PARAMS,
-    GenerateEnv,
-    GenerateResult,
-    generation_env,
-    make_sample,
-    run_generate,
-)
 
 _ = generation_env
 
