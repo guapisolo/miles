@@ -97,8 +97,44 @@ MULTI_TURN_FIRST_RESPONSE = (
     "</tool_call>"
 )
 
-# Placeholder - will be determined by running the test
-MULTI_TURN_SECOND_PROMPT = "PLACEHOLDER_SECOND_PROMPT"
+MULTI_TURN_SECOND_PROMPT = (
+    '<|im_start|>system\n'
+    '# Tools\n'
+    '\n'
+    'You may call one or more functions to assist with the user query.\n'
+    '\n'
+    'You are provided with function signatures within <tools></tools> XML tags:\n'
+    '<tools>\n'
+    '{"type": "function", "function": {"name": "get_year", "description": "Get current year", "parameters": {"type": "object", "properties": {}, "required": []}}}\n'
+    '{"type": "function", "function": {"name": "get_temperature", "description": "Get temperature for a location", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}}\n'
+    '</tools>\n'
+    '\n'
+    'For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n'
+    '<tool_call>\n'
+    '{"name": <function-name>, "arguments": <args-json-object>}\n'
+    '</tool_call><|im_end|>\n'
+    '<|im_start|>user\n'
+    '<|im_start|>system\n'
+    '# Tools\n'
+    '\n'
+    'You may call one or more functions to assist with the user query.\n'
+    '\n'
+    'You are provided with function signatures within <tools></tools> XML tags:\n'
+    '<tools>\n'
+    '{"type": "function", "function": {"name": "get_year", "description": "Get current year", "parameters": {"type": "object", "properties": {}, "required": []}}}\n'
+    '{"type": "function", "function": {"name": "get_temperature", "description": "Get temperature for a location", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}}\n'
+    '</tools>\n'
+    '\n'
+    'For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n'
+    '<tool_call>\n'
+    '{"name": <function-name>, "arguments": <args-json-object>}\n'
+    '</tool_call><|im_end|>\n'
+    '<|im_start|>user\n'
+    'What is 42 + year + temperature?<|im_end|>\n'
+    '<|im_start|>assistant\n'
+    '<|im_end|>\n'
+    '<|im_start|>assistant\n'
+)
 MULTI_TURN_SECOND_RESPONSE = "The answer is: 42 + 2026 + -60 = 2008."
 
 
