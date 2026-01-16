@@ -26,6 +26,7 @@ class IntegrationEnvConfig:
     latency: float = 0.0
 
 
+# TODO may rename to RolloutEnv
 @dataclass(frozen=True)
 class IntegrationEnv:
     args: Namespace
