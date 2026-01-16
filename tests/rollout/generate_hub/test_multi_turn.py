@@ -180,7 +180,7 @@ class TestBasicMultiTurn:
                 SampleParsedChunk(
                     tokens_decoded_str=MULTI_TURN_SECOND_RESPONSE,
                     loss_mask_value=1,
-                    rollout_log_probs=tuple(-1 / 128 * i for i in range(25)),
+                    rollout_log_probs=[-1 / 128 * i for i in range(25)],
                 ),
             ],
             expected_partial_sample=expected_partial_sample(
