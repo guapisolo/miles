@@ -121,7 +121,7 @@ class TestBasicGeneration:
 class TestResumedSingleTurn:
     def test_two_consecutive_calls_on_same_sample(self, variant, generation_env):
         if variant == "multi_turn_single_sample":
-            pytest.skip("multi_turn_single_sample does not support resumed single turn")
+            pytest.skip("not supported yet")
         partial_text = "\\boxed"
         partial_tokens = [59, 79075]
         partial_log_probs = [-0.0, -0.0078125]
