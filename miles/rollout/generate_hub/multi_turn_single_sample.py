@@ -5,7 +5,7 @@ Simple multi-turn generation with tool calling.
 import argparse
 import json
 import uuid
-from typing import Callable
+from typing import Callable, Any
 
 from pydantic import TypeAdapter
 from sglang.srt.entrypoints.openai.protocol import Tool
@@ -112,7 +112,7 @@ def _add_arguments(parser: argparse.ArgumentParser):
 generate.add_arguments = _add_arguments
 
 
-async def execute_tool_calls(tool_calls: list[ToolCallItem], execute_one: Callable) -> list[dict]:
+async def execute_tool_calls(tool_calls: list[ToolCallItem], execute_one: Callable) -> list[dict[str, Any]]:
     tool_messages = []
     for call in tool_calls:
         params = json.loads(call.parameters) if call.parameters else {}
