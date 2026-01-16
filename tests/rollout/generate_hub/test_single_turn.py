@@ -1,4 +1,6 @@
+from argparse import Namespace
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pybase64
@@ -13,7 +15,7 @@ from miles.utils.async_utils import run
 from miles.utils.processing_utils import encode_image_for_rollout_engine
 from miles.utils.test_utils.mock_sglang_server import ProcessResult, ProcessResultMetaInfo
 from miles.utils.types import Sample
-from tests.fixtures.generate_fixtures import GenerateEnv, generation_env
+from tests.fixtures.generation_fixtures import GenerateEnv, generation_env
 
 _ = generation_env
 
@@ -270,20 +272,20 @@ class TestMetaInfo:
 
 class TestInputStatusValidation:
     @pytest.mark.parametrize("status", [Sample.Status.PENDING, Sample.Status.ABORTED])
-    def test_allowed_statuses(self, variant, env, status):
-        result = run_generate(variant, env, make_sample(status=status))
+    def test_allowed_statuses(self, variant, generation_env, status):
+        result = run_generate(variant, generation_env, make_sample(status=status))
         assert result.requests == [expected_request(variant)]
         assert result.sample.status == Sample.Status.COMPLETED
 
     @pytest.mark.parametrize("status", [Sample.Status.COMPLETED, Sample.Status.TRUNCATED])
-    def test_rejected_statuses(self, variant, env, status):
+    def test_rejected_statuses(self, variant, generation_env, status):
         with pytest.raises(AssertionError):
-            run_generate(variant, env, make_sample(status=status))
+            run_generate(variant, generation_env, make_sample(status=status))
 
 
 class TestPayloadStructure:
-    def test_sampling_params_passed_through(self, variant, env):
-        result = run_generate(variant, env, sampling_params={"max_new_tokens": 16, "temperature": 0.5, "top_p": 0.9})
+    def test_sampling_params_passed_through(self, variant, generation_env):
+        result = run_generate(variant, generation_env, sampling_params={"max_new_tokens": 16, "temperature": 0.5, "top_p": 0.9})
         assert result.requests == [
             expected_request(variant, sampling_params={"max_new_tokens": 16, "temperature": 0.5, "top_p": 0.9})
         ]
@@ -291,19 +293,19 @@ class TestPayloadStructure:
 
 
 class TestBoundaryConditions:
-    def test_max_new_tokens_zero_returns_truncated(self, variant, env):
+    def test_max_new_tokens_zero_returns_truncated(self, variant, generation_env):
         existing_tokens = [1, 2, 3, 4, 5, 6, 7] + list(range(100, 110))
         sample = make_sample(tokens=existing_tokens, response="x" * 10, response_length=10)
 
-        result = run_generate(variant, env, sample, {"max_new_tokens": 10, "temperature": 0.7})
+        result = run_generate(variant, generation_env, sample, {"max_new_tokens": 10, "temperature": 0.7})
         assert result.requests == []
         assert result.sample.status == Sample.Status.TRUNCATED
 
 
 class TestEmptyResponse:
-    @pytest.mark.parametrize("env", [{"process_fn_kwargs": {"response_text": ""}}], indirect=True)
-    def test_empty_response(self, variant, env):
-        result = run_generate(variant, env)
+    @pytest.mark.parametrize("generation_env", [{"process_fn_kwargs": {"response_text": ""}}], indirect=True)
+    def test_empty_response(self, variant, generation_env):
+        result = run_generate(variant, generation_env)
         assert result.requests == [expected_request(variant)]
         assert result.sample == expected_sample(
             response="", response_length=0, tokens=PROMPT_TOKENS, rollout_log_probs=[]
@@ -314,8 +316,8 @@ VLM_MODEL_NAME = "Qwen/Qwen2-VL-2B-Instruct"
 
 
 class TestMultimodal:
-    @pytest.mark.parametrize("env", [{"args_kwargs": {"model_name": VLM_MODEL_NAME}}], indirect=True)
-    def test_multimodal_inputs_processed(self, variant, env):
+    @pytest.mark.parametrize("generation_env", [{"args_kwargs": {"model_name": VLM_MODEL_NAME}}], indirect=True)
+    def test_multimodal_inputs_processed(self, variant, generation_env):
         test_image = Image.new("RGB", (64, 64), color="red")
         multimodal_inputs = {"images": [test_image]}
         processor = AutoProcessor.from_pretrained(VLM_MODEL_NAME, trust_remote_code=True)
@@ -325,7 +327,7 @@ class TestMultimodal:
             if k not in ["input_ids", "attention_mask"]
         }
 
-        result = run_generate(variant, env, make_sample(multimodal_inputs=multimodal_inputs))
+        result = run_generate(variant, generation_env, make_sample(multimodal_inputs=multimodal_inputs))
 
         assert result.requests == [
             expected_request(
