@@ -2,29 +2,25 @@ SAMPLE_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "get_weather",
-            "description": "Get current weather for a city",
+            "name": "get_year",
+            "description": "Get current year",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "city": {"type": "string"},
-                    "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]},
-                },
-                "required": ["city"],
+                "properties": {},
+                "required": [],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "search",
-            "description": "Search for information",
+            "name": "get_temperature",
+            "description": "Get temperature for a location",
             "parameters": {
                 "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
+                "properties": {"location": {"type": "string"}},
+                "required": ["location"],
             },
         },
     },
 ]
-

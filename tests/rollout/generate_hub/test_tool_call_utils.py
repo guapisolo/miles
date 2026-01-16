@@ -31,14 +31,14 @@ SAMPLE_TOOL_RESPONSES = [
     {
         "role": "tool",
         "tool_call_id": "call00000",
-        "content": '{"temperature": 25}',
-        "name": "get_weather",
+        "content": '{"year": 2026}',
+        "name": "get_year",
     },
     {
         "role": "tool",
         "tool_call_id": "call00001",
-        "content": '{"results": ["A", "B"]}',
-        "name": "search",
+        "content": '{"temperature": 25}',
+        "name": "get_temperature",
     },
 ]
 
@@ -86,8 +86,8 @@ class TestApplyChatTemplateWithTools:
         "You may call one or more functions to assist with the user query.\n\n"
         "You are provided with function signatures within <tools></tools> XML tags:\n"
         "<tools>\n"
-        '{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a city", "parameters": {"type": "object", "properties": {"city": {"type": "string"}, "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}}, "required": ["city"]}}}\n'
-        '{"type": "function", "function": {"name": "search", "description": "Search for information", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}\n'
+        '{"type": "function", "function": {"name": "get_year", "description": "Get current year", "parameters": {"type": "object", "properties": {}, "required": []}}}\n'
+        '{"type": "function", "function": {"name": "get_temperature", "description": "Get temperature for a location", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}}\n'
         "</tools>\n\n"
         "For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n"
         "<tool_call>\n"
@@ -123,22 +123,22 @@ class TestSGLangFunctionCallParser:
         "model_output,expected",
         [
             pytest.param(
-                'Let me check the weather for you.\n<tool_call>\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n</tool_call>',
+                'Let me check for you.\n<tool_call>\n{"name": "get_year", "arguments": {}}\n</tool_call>',
                 (
-                    "Let me check the weather for you.",
-                    [ToolCallItem(tool_index=0, name="get_weather", parameters='{"city": "Paris"}')],
+                    "Let me check for you.",
+                    [ToolCallItem(tool_index=0, name="get_year", parameters='{}')],
                 ),
                 id="single_tool_call",
             ),
             pytest.param(
-                "I will search for weather and restaurants.\n"
-                '<tool_call>\n{"name": "get_weather", "arguments": {"city": "Shanghai"}}\n</tool_call>\n'
-                '<tool_call>\n{"name": "search", "arguments": {"query": "restaurants"}}\n</tool_call>',
+                "I will get year and temperature.\n"
+                '<tool_call>\n{"name": "get_year", "arguments": {}}\n</tool_call>\n'
+                '<tool_call>\n{"name": "get_temperature", "arguments": {"location": "Shanghai"}}\n</tool_call>',
                 (
-                    "I will search for weather and restaurants.",
+                    "I will get year and temperature.",
                     [
-                        ToolCallItem(tool_index=0, name="get_weather", parameters='{"city": "Shanghai"}'),
-                        ToolCallItem(tool_index=1, name="search", parameters='{"query": "restaurants"}'),
+                        ToolCallItem(tool_index=0, name="get_year", parameters='{}'),
+                        ToolCallItem(tool_index=1, name="get_temperature", parameters='{"location": "Shanghai"}'),
                     ],
                 ),
                 id="multi_tool_calls",
