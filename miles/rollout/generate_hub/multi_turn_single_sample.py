@@ -70,9 +70,9 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
         output = await post(url, payload)
 
-        cur_response = tokenizer.decode(new_response_tokens)
         new_response_tokens = [item[1] for item in output["meta_info"]["output_token_logprobs"]]
         new_response_logprobs = [item[0] for item in output["meta_info"]["output_token_logprobs"]]
+        cur_response = tokenizer.decode(new_response_tokens)
 
         sample.tokens += new_response_tokens
         sample.response += cur_response
