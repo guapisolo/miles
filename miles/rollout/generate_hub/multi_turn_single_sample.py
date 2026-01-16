@@ -84,11 +84,11 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         if output["meta_info"]["finish_reason"]["type"] == "length":
             break
 
-        parsed_tool_call = tool_call_parser.parse_non_stream(cur_response)
-        if len(parsed_tool_call) == 0:
+        _normal_text, parsed_tool_calls = tool_call_parser.parse_non_stream(cur_response)
+        if len(parsed_tool_calls) == 0:
             break
 
-        out = await execute_tool_function(parsed_tool_call)
+        out = await execute_tool_function(parsed_tool_calls)
         tool_messages: list[dict[str, Any]] = out["tool_messages"]
 
         next_obs_tokens_ids: list[int] = tokenize_tool_responses(tool_messages, tokenizer=tokenizer)
