@@ -73,6 +73,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         cur_response_token_ids = [item[1] for item in output["meta_info"]["output_token_logprobs"]]
         cur_response = tokenizer.decode(cur_response_token_ids)
         cur_log_probs = [item[0] for item in output["meta_info"]["output_token_logprobs"]]
+
         if sample.rollout_log_probs is None:
             sample.rollout_log_probs = []
         sample.rollout_log_probs += cur_log_probs
@@ -97,7 +98,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         sample.response += tokenizer.decode(next_obs_tokens_ids)
         sample.response_length += len(next_obs_tokens_ids)
         sample.tokens += next_obs_tokens_ids
-        sample.loss_masks += [0] * len(next_obs_tokens_ids)
+        sample.loss_mask += [0] * len(next_obs_tokens_ids)
 
         sample.rollout_log_probs += [0.0] * len(next_obs_tokens_ids)
 
