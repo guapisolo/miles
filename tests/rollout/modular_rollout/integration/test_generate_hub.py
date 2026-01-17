@@ -50,7 +50,7 @@ def test_rollout(rollout_integration_env, request, test_type):
 
 def _verify_samples(variant: str, samples: list[Sample]):
     if variant in ("multi_turn_multi_samples", "agentic_tool_call_multi_samples"):
-        assert len(samples) == 2, f"multi_samples variant should return 2 samples (one per turn), got {len(samples)}"
+        assert len(samples) == 2, f"multi_samples variant should return 2 samples (one per turn)"
         for i, sample in enumerate(samples):
             assert sample.status == Sample.Status.COMPLETED
             assert sample.reward == 1, f"Sample {i} should have reward=1"
