@@ -52,8 +52,9 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         loss_mask=a.loss_mask + [0] * obs_len + b.loss_mask,
         weight_versions=a.weight_versions + b.weight_versions,
         rollout_log_probs=a.rollout_log_probs + [0.0] * obs_len + b.rollout_log_probs,
-        rollout_routed_experts=b.rollout_routed_experts,
-        remove_sample=a.remove_sample or b.remove_sample,
+        # TODO should support concat
+        rollout_routed_experts=_merge_equal_value("rollout_routed_experts"),
+        remove_sample=_merge_equal_value("remove_sample"),
         status=b.status,
         metadata=_merge_equal_value("metadata"),
         train_metadata=_merge_equal_value("train_metadata"),
