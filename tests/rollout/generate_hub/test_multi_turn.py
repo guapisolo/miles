@@ -147,27 +147,6 @@ TWO_TURN_TOOL_RESPONSE = (
 # ------------------------------------ tests ----------------------------------------
 
 
-FIRST_TURN_ASSISTANT_ONLY_CHUNK = SampleParsedChunk(
-    tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
-    loss_mask_value=1,
-    rollout_log_probs=[-1 / 128 * i for i in range(45)],
-)
-SECOND_TURN_ASSISTANT_ONLY_CHUNK = SampleParsedChunk(
-    tokens_decoded_str=MULTI_TURN_SECOND_RESPONSE,
-    loss_mask_value=1,
-    rollout_log_probs=[-1 / 128 * i for i in range(24)],
-)
-FIRST_TURN_CHUNKS = [
-    FIRST_TURN_ASSISTANT_ONLY_CHUNK,
-    SampleParsedChunk(
-        tokens_decoded_str=TWO_TURN_TOOL_RESPONSE,
-        loss_mask_value=0,
-        rollout_log_probs=[0.0] * 31,
-    ),
-]
-FINAL_TURN_CHUNKS = FIRST_TURN_CHUNKS + [SECOND_TURN_ASSISTANT_ONLY_CHUNK]
-
-
 class TestBasicMultiTurn:
     def test_single_turn_no_tool_call(self, variant, generation_env):
         generation_env.mock_server.process_fn = lambda _: ProcessResult(
@@ -207,7 +186,11 @@ class TestBasicMultiTurn:
         if variant == "multi_turn_single_sample":
             expected = [
                 ExpectedSampleInfo(
-                    chunks=FINAL_TURN_CHUNKS,
+                    chunks=[
+                        SampleParsedChunk(MULTI_TURN_FIRST_RESPONSE, 1, [-1 / 128 * i for i in range(45)]),
+                        SampleParsedChunk(TWO_TURN_TOOL_RESPONSE, 0, [0.0] * 31),
+                        SampleParsedChunk(MULTI_TURN_SECOND_RESPONSE, 1, [-1 / 128 * i for i in range(24)]),
+                    ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE + MULTI_TURN_SECOND_RESPONSE,
@@ -218,7 +201,7 @@ class TestBasicMultiTurn:
         else:
             expected = [
                 ExpectedSampleInfo(
-                    chunks=[FIRST_TURN_ASSISTANT_ONLY_CHUNK],
+                    chunks=[SampleParsedChunk(MULTI_TURN_FIRST_RESPONSE, 1, [-1 / 128 * i for i in range(45)])],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
@@ -226,7 +209,7 @@ class TestBasicMultiTurn:
                     ),
                 ),
                 ExpectedSampleInfo(
-                    chunks=[SECOND_TURN_ASSISTANT_ONLY_CHUNK],
+                    chunks=[SampleParsedChunk(MULTI_TURN_SECOND_RESPONSE, 1, [-1 / 128 * i for i in range(24)])],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_SECOND_RESPONSE,
@@ -285,13 +268,7 @@ class TestExitConditions:
             result.sample,
             [
                 ExpectedSampleInfo(
-                    chunks=[
-                        SampleParsedChunk(
-                            tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
-                            loss_mask_value=1,
-                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
-                        ),
-                    ],
+                    chunks=[SampleParsedChunk(MULTI_TURN_FIRST_RESPONSE, 1, [-1 / 128 * i for i in range(45)])],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
@@ -314,7 +291,10 @@ class TestExitConditions:
         if variant == "multi_turn_single_sample":
             expected = [
                 ExpectedSampleInfo(
-                    chunks=FIRST_TURN_CHUNKS,
+                    chunks=[
+                        SampleParsedChunk(MULTI_TURN_FIRST_RESPONSE, 1, [-1 / 128 * i for i in range(45)]),
+                        SampleParsedChunk(TWO_TURN_TOOL_RESPONSE, 0, [0.0] * 31),
+                    ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
@@ -325,7 +305,7 @@ class TestExitConditions:
         else:
             expected = [
                 ExpectedSampleInfo(
-                    chunks=[FIRST_TURN_ASSISTANT_ONLY_CHUNK],
+                    chunks=[SampleParsedChunk(MULTI_TURN_FIRST_RESPONSE, 1, [-1 / 128 * i for i in range(45)])],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
@@ -370,7 +350,10 @@ class TestRespectMaxContextLen:
         if variant == "multi_turn_single_sample":
             expected = [
                 ExpectedSampleInfo(
-                    chunks=FIRST_TURN_CHUNKS,
+                    chunks=[
+                        SampleParsedChunk(MULTI_TURN_FIRST_RESPONSE, 1, [-1 / 128 * i for i in range(45)]),
+                        SampleParsedChunk(TWO_TURN_TOOL_RESPONSE, 0, [0.0] * 31),
+                    ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
@@ -382,7 +365,7 @@ class TestRespectMaxContextLen:
         else:
             expected = [
                 ExpectedSampleInfo(
-                    chunks=[FIRST_TURN_ASSISTANT_ONLY_CHUNK],
+                    chunks=[SampleParsedChunk(MULTI_TURN_FIRST_RESPONSE, 1, [-1 / 128 * i for i in range(45)])],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
