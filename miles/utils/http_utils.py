@@ -269,6 +269,7 @@ def _init_ray_distributed_post(args):
     _post_actors = created
 
 
+# TODO may generalize the name since it now contains http DELETE/GET etc (with retries and remote-execution)
 async def post(url, payload, max_retries=60, action="post"):
     # If distributed mode is enabled and actors exist, dispatch via Ray.
     if _distributed_post_enabled and _post_actors:

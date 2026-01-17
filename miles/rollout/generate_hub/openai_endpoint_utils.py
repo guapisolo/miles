@@ -7,7 +7,7 @@ from argparse import Namespace
 from copy import deepcopy
 
 from miles.router.sessions import GetSessionResponse, SessionRecord
-from miles.utils.http_utils import get, post
+from miles.utils.http_utils import post
 from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class OpenAIEndpointTracer:
         return OpenAIEndpointTracer(router_url=router_url, session_id=session_id)
 
     async def collect_records(self) -> list[SessionRecord]:
-        response = await get(f"{self.router_url}/sessions/{self.session_id}")
+        response = await post(f"{self.router_url}/sessions/{self.session_id}", {}, action="get")
         response = GetSessionResponse.model_validate(response)
         records = response.records
 
