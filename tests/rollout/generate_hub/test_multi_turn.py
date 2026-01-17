@@ -7,11 +7,7 @@ from tests.fixtures.generation_fixtures import GenerateEnv, generation_env, list
 from transformers import AutoTokenizer
 
 from miles.utils.test_utils.mock_sglang_server import ProcessResult
-from miles.utils.test_utils.mock_tools import (
-    SAMPLE_TOOLS,
-    ThreeTurnStub,
-    TwoTurnStub,
-)
+from miles.utils.test_utils.mock_tools import SAMPLE_TOOLS, ThreeTurnStub, TwoTurnStub
 from miles.utils.types import Sample
 
 _ = generation_env, SAMPLE_TOOLS, TwoTurnStub, ThreeTurnStub
@@ -151,7 +147,6 @@ SINGLE_TURN_PROMPT_TOKEN_IDS = TOKENIZER(_SINGLE_TURN_PROMPT_TEXT, add_special_t
 SINGLE_TURN_PROMPT_TOKEN_LEN = len(SINGLE_TURN_PROMPT_TOKEN_IDS)
 
 
-
 # ------------------------------------ tests ----------------------------------------
 
 
@@ -281,9 +276,7 @@ class TestExitConditions:
 
     def test_finish_reason_length_exits_and_preserves_content(self, variant, generation_env):
         S = TwoTurnStub
-        generation_env.mock_server.process_fn = lambda _: ProcessResult(
-            text=S.FIRST_RESPONSE, finish_reason="length"
-        )
+        generation_env.mock_server.process_fn = lambda _: ProcessResult(text=S.FIRST_RESPONSE, finish_reason="length")
 
         result = _run_generate(variant, generation_env, make_sample(prompt=S.PROMPT))
 
@@ -309,9 +302,7 @@ class TestExitConditions:
     @pytest.mark.parametrize("generation_env", [{"args_kwargs": {"generate_max_turns": 1}}], indirect=True)
     def test_max_turns_reached(self, variant, generation_env):
         S = TwoTurnStub
-        generation_env.mock_server.process_fn = lambda _: ProcessResult(
-            text=S.FIRST_RESPONSE, finish_reason="stop"
-        )
+        generation_env.mock_server.process_fn = lambda _: ProcessResult(text=S.FIRST_RESPONSE, finish_reason="stop")
 
         result = _run_generate(variant, generation_env, make_sample(prompt=S.PROMPT))
 
@@ -372,7 +363,15 @@ class TestRespectMaxContextLen:
 
     @pytest.mark.parametrize(
         "generation_env",
-        [{"args_kwargs": {"rollout_max_context_len": len(TwoTurnStub.FIRST_PROMPT_TOKEN_IDS) + token_len(TwoTurnStub.FIRST_RESPONSE) + token_len(TwoTurnStub.FIRST_TOOL_RESPONSE)}}],
+        [
+            {
+                "args_kwargs": {
+                    "rollout_max_context_len": len(TwoTurnStub.FIRST_PROMPT_TOKEN_IDS)
+                    + token_len(TwoTurnStub.FIRST_RESPONSE)
+                    + token_len(TwoTurnStub.FIRST_TOOL_RESPONSE)
+                }
+            }
+        ],
         indirect=True,
     )
     def test_second_turn_exceeds_max_context_len_returns_truncated(self, variant, generation_env):

@@ -115,7 +115,11 @@ class TwoTurnStub:
     FIRST_RESPONSE_CONTENT = "Let me get the year and temperature first."
     FIRST_TOOL_CALLS_OPENAI_FORMAT = [
         {"id": "call00000", "function": {"arguments": "{}", "name": "get_year"}, "type": "function"},
-        {"id": "call00001", "function": {"arguments": '{"location": "Mars"}', "name": "get_temperature"}, "type": "function"},
+        {
+            "id": "call00001",
+            "function": {"arguments": '{"location": "Mars"}', "name": "get_temperature"},
+            "type": "function",
+        },
     ]
 
     OPENAI_MESSAGES_FIRST_TURN = [{"role": "user", "content": USER_QUESTION}]
@@ -204,12 +208,20 @@ class ThreeTurnStub:
     FIRST_RESPONSE_CONTENT = "Let me get the year and Mars temperature first."
     FIRST_TOOL_CALLS_OPENAI_FORMAT = [
         {"id": "call00000", "function": {"arguments": "{}", "name": "get_year"}, "type": "function"},
-        {"id": "call00001", "function": {"arguments": '{"location": "Mars"}', "name": "get_temperature"}, "type": "function"},
+        {
+            "id": "call00001",
+            "function": {"arguments": '{"location": "Mars"}', "name": "get_temperature"},
+            "type": "function",
+        },
     ]
 
     SECOND_RESPONSE_CONTENT = "Now let me get Earth temperature."
     SECOND_TOOL_CALLS_OPENAI_FORMAT = [
-        {"id": "call00000", "function": {"arguments": '{"location": "Earth"}', "name": "get_temperature"}, "type": "function"},
+        {
+            "id": "call00000",
+            "function": {"arguments": '{"location": "Earth"}', "name": "get_temperature"},
+            "type": "function",
+        },
     ]
 
     OPENAI_MESSAGES_FIRST_TURN = [{"role": "user", "content": USER_QUESTION}]
