@@ -10,27 +10,31 @@ from miles.utils.test_utils.mock_sglang_server import MockSGLangServer, default_
 from miles.utils.test_utils.uvicorn_thread_server import UvicornThreadServer
 
 
-def make_router_args(
-    router_port: int,
-    concurrency: int = 10,
-    num_gpus: int = 1,
-    num_gpus_per_engine: int = 1,
-    health_check_interval: float = 1.0,
-    health_check_failure_threshold: int = 3,
-    max_connections: int | None = None,
-    timeout: float | None = None,
-) -> Namespace:
-    return Namespace(
+def make_router_args(router_port: int, **overrides) -> Namespace:
+    defaults = dict(
         sglang_router_ip="127.0.0.1",
         sglang_router_port=router_port,
-        sglang_server_concurrency=concurrency,
-        rollout_num_gpus=num_gpus,
-        rollout_num_gpus_per_engine=num_gpus_per_engine,
-        rollout_health_check_interval=health_check_interval,
-        miles_router_health_check_failure_threshold=health_check_failure_threshold,
-        miles_router_max_connections=max_connections,
-        miles_router_timeout=timeout,
+        sglang_server_concurrency=10,
+        rollout_num_gpus=1,
+        rollout_num_gpus_per_engine=1,
+        rollout_health_check_interval=1.0,
+        miles_router_health_check_failure_threshold=3,
+        miles_router_max_connections=None,
+        miles_router_timeout=None,
         miles_router_middleware_paths=[],
+    )
+    defaults.update(overrides)
+    return Namespace(**defaults)
+
+
+def create_mock_worker(start_port: int = 30000) -> MockSGLangServer:
+    port = find_available_port(start_port)
+    return MockSGLangServer(
+        model_name="Qwen/Qwen3-0.6B",
+        process_fn=default_process_fn,
+        host="127.0.0.1",
+        port=port,
+        latency=0.0,
     )
 
 
@@ -46,8 +50,7 @@ class RouterEnv:
 
 @pytest.fixture
 def router_env():
-    router_port = find_available_port(20000)
-    args = make_router_args(router_port)
+    args = make_router_args(find_available_port(20000))
     router = MilesRouter(args, verbose=False)
     server = UvicornThreadServer(router.app, host=args.sglang_router_ip, port=args.sglang_router_port)
     server.start()
@@ -57,49 +60,31 @@ def router_env():
 
 @pytest.fixture
 def mock_worker():
-    port = find_available_port(30000)
-    server = MockSGLangServer(
-        model_name="Qwen/Qwen3-0.6B",
-        process_fn=default_process_fn,
-        host="127.0.0.1",
-        port=port,
-        latency=0.0,
-    )
+    server = create_mock_worker()
     server.start()
     yield server
     server.stop()
 
 
 @pytest.fixture
-def mock_worker_pair():
-    port1 = find_available_port(30000)
-    port2 = find_available_port(port1 + 1)
-    server1 = MockSGLangServer(
-        model_name="Qwen/Qwen3-0.6B",
-        process_fn=default_process_fn,
-        host="127.0.0.1",
-        port=port1,
-        latency=0.0,
-    )
-    server2 = MockSGLangServer(
-        model_name="Qwen/Qwen3-0.6B",
-        process_fn=default_process_fn,
-        host="127.0.0.1",
-        port=port2,
-        latency=0.0,
-    )
-    server1.start()
-    server2.start()
-    yield server1, server2
-    server1.stop()
-    server2.stop()
+def mock_worker_factory():
+    servers = []
+
+    def _create():
+        start_port = 30000 + len(servers) * 100
+        server = create_mock_worker(start_port)
+        server.start()
+        servers.append(server)
+        return server
+
+    yield _create
+    for s in servers:
+        s.stop()
 
 
 @pytest.fixture
 def standalone_router():
-    router_port = find_available_port(20000)
-    args = make_router_args(router_port)
-    return MilesRouter(args, verbose=False)
+    return MilesRouter(make_router_args(find_available_port(20000)), verbose=False)
 
 
 class TestWorkerManagement:
@@ -122,11 +107,8 @@ class TestWorkerManagement:
 
     def test_add_worker_duplicate(self, router_env: RouterEnv):
         worker_url = "http://127.0.0.1:30003"
-        r1 = requests.post(f"{router_env.url}/add_worker", params={"url": worker_url}, timeout=5.0)
-        r1.raise_for_status()
-
-        r2 = requests.post(f"{router_env.url}/add_worker", params={"url": worker_url}, timeout=5.0)
-        r2.raise_for_status()
+        requests.post(f"{router_env.url}/add_worker", params={"url": worker_url}, timeout=5.0).raise_for_status()
+        requests.post(f"{router_env.url}/add_worker", params={"url": worker_url}, timeout=5.0).raise_for_status()
 
         assert len(router_env.router.worker_request_counts) == 1
         assert worker_url in router_env.router.worker_request_counts
@@ -143,29 +125,19 @@ class TestWorkerManagement:
 
         r = requests.get(f"{router_env.url}/list_workers", timeout=5.0)
         r.raise_for_status()
-
-        listed = r.json()["urls"]
-        assert set(listed) == set(worker_urls)
+        assert set(r.json()["urls"]) == set(worker_urls)
 
 
 class TestLoadBalancing:
     def test_use_url_selects_min_load(self, standalone_router: MilesRouter):
-        standalone_router.worker_request_counts = {
-            "http://w1:8000": 5,
-            "http://w2:8000": 2,
-            "http://w3:8000": 8,
-        }
+        standalone_router.worker_request_counts = {"http://w1:8000": 5, "http://w2:8000": 2, "http://w3:8000": 8}
 
         selected = standalone_router._use_url()
         assert selected == "http://w2:8000"
         assert standalone_router.worker_request_counts["http://w2:8000"] == 3
 
     def test_use_url_excludes_dead_workers(self, standalone_router: MilesRouter):
-        standalone_router.worker_request_counts = {
-            "http://w1:8000": 5,
-            "http://w2:8000": 1,
-            "http://w3:8000": 3,
-        }
+        standalone_router.worker_request_counts = {"http://w1:8000": 5, "http://w2:8000": 1, "http://w3:8000": 3}
         standalone_router.dead_workers = {"http://w2:8000"}
 
         selected = standalone_router._use_url()
@@ -181,7 +153,6 @@ class TestLoadBalancing:
 
     def test_finish_url_decrements_count(self, standalone_router: MilesRouter):
         standalone_router.worker_request_counts = {"http://w1:8000": 5}
-
         standalone_router._finish_url("http://w1:8000")
         assert standalone_router.worker_request_counts["http://w1:8000"] == 4
 
@@ -194,21 +165,18 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_check_worker_health_success(self, standalone_router: MilesRouter, mock_worker: MockSGLangServer):
         url, healthy = await standalone_router._check_worker_health(mock_worker.url)
-
         assert url == mock_worker.url
         assert healthy is True
 
     @pytest.mark.asyncio
     async def test_check_worker_health_failure(self, standalone_router: MilesRouter):
         url, healthy = await standalone_router._check_worker_health("http://127.0.0.1:59999")
-
         assert url == "http://127.0.0.1:59999"
         assert healthy is False
 
     @pytest.mark.asyncio
     async def test_health_check_marks_dead_worker(self):
-        router_port = find_available_port(20000)
-        args = make_router_args(router_port, health_check_failure_threshold=2)
+        args = make_router_args(find_available_port(20000), miles_router_health_check_failure_threshold=2)
         router = MilesRouter(args, verbose=False)
 
         bad_url = "http://127.0.0.1:59998"
@@ -226,7 +194,6 @@ class TestHealthCheck:
             router.worker_failure_counts[bad_url] += 1
             if router.worker_failure_counts[bad_url] >= args.miles_router_health_check_failure_threshold:
                 router.dead_workers.add(bad_url)
-
             assert bad_url in router.dead_workers
 
     @pytest.mark.asyncio
@@ -237,41 +204,33 @@ class TestHealthCheck:
 
         with patch.object(standalone_router, "_check_worker_health", new_callable=AsyncMock) as mock_check:
             mock_check.return_value = (url, True)
-
             _, is_healthy = await standalone_router._check_worker_health(url)
             if is_healthy:
                 standalone_router.worker_failure_counts[url] = 0
-
             assert standalone_router.worker_failure_counts[url] == 0
 
 
 class TestProxyIntegration:
     def test_proxy_forwards_request(self, router_env: RouterEnv, mock_worker: MockSGLangServer):
-        r = requests.post(f"{router_env.url}/add_worker", params={"url": mock_worker.url}, timeout=5.0)
-        r.raise_for_status()
+        requests.post(f"{router_env.url}/add_worker", params={"url": mock_worker.url}, timeout=5.0).raise_for_status()
 
         r = requests.post(
-            f"{router_env.url}/generate",
-            json={"input_ids": [1, 2, 3], "return_logprob": True},
-            timeout=10.0,
+            f"{router_env.url}/generate", json={"input_ids": [1, 2, 3], "return_logprob": True}, timeout=10.0
         )
         r.raise_for_status()
 
         assert "text" in r.json()
         assert len(mock_worker.request_log) == 1
 
-    def test_proxy_load_balances(self, router_env: RouterEnv, mock_worker_pair):
-        worker1, worker2 = mock_worker_pair
+    def test_proxy_load_balances(self, router_env: RouterEnv, mock_worker_factory):
+        worker1, worker2 = mock_worker_factory(), mock_worker_factory()
         requests.post(f"{router_env.url}/add_worker", params={"url": worker1.url}, timeout=5.0)
         requests.post(f"{router_env.url}/add_worker", params={"url": worker2.url}, timeout=5.0)
 
         for _ in range(4):
-            r = requests.post(
-                f"{router_env.url}/generate",
-                json={"input_ids": [1, 2, 3], "return_logprob": True},
-                timeout=10.0,
-            )
-            r.raise_for_status()
+            requests.post(
+                f"{router_env.url}/generate", json={"input_ids": [1, 2, 3], "return_logprob": True}, timeout=10.0
+            ).raise_for_status()
 
         assert len(worker1.request_log) == 2
         assert len(worker2.request_log) == 2
