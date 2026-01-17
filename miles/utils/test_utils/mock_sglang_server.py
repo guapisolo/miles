@@ -1,5 +1,4 @@
 import asyncio
-import re
 import time
 import uuid
 from collections.abc import Callable
@@ -8,6 +7,9 @@ from dataclasses import asdict, dataclass
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from pydantic import TypeAdapter
+from sglang.srt.entrypoints.openai.protocol import Tool
+from sglang.srt.function_call.function_call_parser import FunctionCallParser
 from transformers import AutoTokenizer
 
 from miles.utils.http_utils import find_available_port
