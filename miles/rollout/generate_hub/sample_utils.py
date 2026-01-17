@@ -36,32 +36,18 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
     )
 
 
-def _validate_samples(sample1: Sample, sample2: Sample):
-    assert sample2.tokens[: len(sample1.tokens)] == sample1.tokens, (
-        f"sample2.tokens must start with sample1.tokens. "
-        f"sample1.tokens: {sample1.tokens}, "
-        f"sample2.tokens prefix: {sample2.tokens[:len(sample1.tokens)]}"
-    )
+def _validate_samples(a: Sample, b: Sample):
+    a.validate()
+    b.validate()
 
-    assert sample1.loss_mask is not None, "sample1.loss_mask is None"
-    assert sample2.loss_mask is not None, "sample2.loss_mask is None"
-    assert len(sample1.loss_mask) == sample1.response_length, (
-        f"sample1.loss_mask length ({len(sample1.loss_mask)}) != "
-        f"sample1.response_length ({sample1.response_length})"
-    )
-    assert len(sample2.loss_mask) == sample2.response_length, (
-        f"sample2.loss_mask length ({len(sample2.loss_mask)}) != "
-        f"sample2.response_length ({sample2.response_length})"
-    )
+    assert a.loss_mask is not None, "a.loss_mask is None"
+    assert b.loss_mask is not None, "b.loss_mask is None"
+    assert a.rollout_log_probs is not None, "a.rollout_log_probs is None"
+    assert b.rollout_log_probs is not None, "b.rollout_log_probs is None"
 
-    assert sample1.rollout_log_probs is not None, "sample1.rollout_log_probs is None"
-    assert sample2.rollout_log_probs is not None, "sample2.rollout_log_probs is None"
-    assert len(sample1.rollout_log_probs) == sample1.response_length, (
-        f"sample1.rollout_log_probs length ({len(sample1.rollout_log_probs)}) != "
-        f"sample1.response_length ({sample1.response_length})"
-    )
-    assert len(sample2.rollout_log_probs) == sample2.response_length, (
-        f"sample2.rollout_log_probs length ({len(sample2.rollout_log_probs)}) != "
-        f"sample2.response_length ({sample2.response_length})"
+    assert b.tokens[: len(a.tokens)] == a.tokens, (
+        f"b.tokens must start with a.tokens. "
+        f"a.tokens: {a.tokens}, "
+        f"b.tokens prefix: {b.tokens[:len(a.tokens)]}"
     )
 
