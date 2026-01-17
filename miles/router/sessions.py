@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from transformers import AutoTokenizer
 
 if TYPE_CHECKING:
     from miles.router.router import MilesRouter
@@ -48,6 +49,9 @@ class SessionManager:
 
 def setup_session_routes(app, router: "MilesRouter"):
     manager = SessionManager()
+
+    # TODO temporary hack before @guapisolo implements TITO
+    tokenizer = AutoTokenizer.from_pretrained(router.args.hf_checkpoint, trust_remote_code=True)
 
     @app.post("/sessions")
     async def create_session():
