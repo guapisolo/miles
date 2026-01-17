@@ -10,10 +10,6 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
 
     a.validate()
     b.validate()
-    assert a.loss_mask is not None, "a.loss_mask is None"
-    assert b.loss_mask is not None, "b.loss_mask is None"
-    assert a.rollout_log_probs is not None
-    assert b.rollout_log_probs is not None
     assert b.tokens[: len(a.tokens)] == a.tokens, (
         f"b.tokens must start with a.tokens. "
         f"a.tokens: {a.tokens}, "
@@ -28,6 +24,11 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         f"b.response_length: {b.response_length}"
     )
 
+    a_loss_mask = a.loss_mask if a.loss_mask is not None else [1] * a.response_length
+    b_loss_mask = b.loss_mask if b.loss_mask is not None else [1] * b.response_length
+    a_log_probs = a.rollout_log_probs if a.rollout_log_probs is not None else [0.0] * a.response_length
+    b_log_probs = b.rollout_log_probs if b.rollout_log_probs is not None else [0.0] * b.response_length
+
     obs_tokens = b.tokens[len(a.tokens): len(a.tokens) + obs_len]
     obs_text = tokenizer.decode(obs_tokens)
 
@@ -40,7 +41,7 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         response_length=a.response_length + obs_len + b.response_length,
         label=_merge_equal_value("label"),
         reward=_merge_equal_value("reward"),
-        loss_mask=a.loss_mask + [0] * obs_len + b.loss_mask,
-        rollout_log_probs=a.rollout_log_probs + [0.0] * obs_len + b.rollout_log_probs,
+        loss_mask=a_loss_mask + [0] * obs_len + b_loss_mask,
+        rollout_log_probs=a_log_probs + [0.0] * obs_len + b_log_probs,
         status=b.status,
     )
