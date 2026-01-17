@@ -489,15 +489,14 @@ class TestThreeTurn:
             pytest.skip("TODO: implement agentic variant for 3-turn")
         generation_env.mock_server.process_fn = ThreeTurnStub.process_fn
 
-        result = _run_generate(variant, generation_env, make_sample(prompt=THREE_TURN_PROMPT))
+        S = ThreeTurnStub
+        result = _run_generate(variant, generation_env, make_sample(prompt=S.PROMPT))
 
         assert result.requests == [
-            expected_request(THREE_TURN_FIRST_PROMPT_TOKEN_IDS),
-            expected_request(THREE_TURN_SECOND_PROMPT_TOKEN_IDS),
-            expected_request(THREE_TURN_THIRD_PROMPT_TOKEN_IDS),
+            expected_request(S.FIRST_PROMPT_TOKEN_IDS),
+            expected_request(S.SECOND_PROMPT_TOKEN_IDS),
+            expected_request(S.THIRD_PROMPT_TOKEN_IDS),
         ]
-
-        S = ThreeTurnStub
         if variant == "multi_turn_single_sample":
             full_response = S.FIRST_RESPONSE + S.FIRST_TOOL_RESPONSE + S.SECOND_RESPONSE + S.SECOND_TOOL_RESPONSE + S.THIRD_RESPONSE
             expected = [

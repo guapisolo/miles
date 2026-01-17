@@ -184,6 +184,9 @@ def multi_turn_tool_call_process_fn(prompt: str) -> ProcessResult:
     raise ValueError(f"Unexpected {prompt=}")
 
 
+_TOKENIZER = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
+
+
 class ThreeTurnStub:
     """Stub for 3-turn: get_year + get_temperature(Mars) -> get_temperature(Earth) -> answer"""
 
@@ -253,7 +256,6 @@ class ThreeTurnStub:
 
     PROMPT = [{"role": "user", "content": USER_QUESTION}]
 
-    _TOKENIZER = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
     FIRST_PROMPT_TOKEN_IDS = _TOKENIZER(FIRST_PROMPT, add_special_tokens=False)["input_ids"]
     SECOND_PROMPT_TOKEN_IDS = _TOKENIZER(SECOND_PROMPT, add_special_tokens=False)["input_ids"]
     THIRD_PROMPT_TOKEN_IDS = _TOKENIZER(THIRD_PROMPT, add_special_tokens=False)["input_ids"]
