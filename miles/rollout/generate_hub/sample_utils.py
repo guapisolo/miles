@@ -19,7 +19,6 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
     _fill_default_loss_mask(a)
     _fill_default_loss_mask(b)
     obs_len = len(b.tokens) - len(a.tokens) - b.response_length
-    obs_tokens = b.tokens[len(a.tokens): len(a.tokens) + obs_len]
 
     try:
         a.validate()
