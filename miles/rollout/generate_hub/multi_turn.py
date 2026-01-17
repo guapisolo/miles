@@ -60,7 +60,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         await update_sample_from_response(args, sample, payload=payload, output=output, update_loss_mask=True)
 
         if args.generate_multi_samples:
-            multi_samples.append(sample)
+            multi_samples.append(deepcopy(sample))
 
         if output["meta_info"]["finish_reason"]["type"] in ("abort", "length"):
             break
