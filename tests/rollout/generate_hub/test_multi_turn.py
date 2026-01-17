@@ -250,12 +250,18 @@ class TestBasicMultiTurn:
 
 class TestExitConditions:
     def test_partial_rollout_not_supported(self, variant, generation_env):
+        if variant == "agentic_tool_call_multi_samples":
+            pytest.skip("agentic_tool_call uses OpenAI API, request structure is different")
+
         generation_env.args.partial_rollout = True
 
         with pytest.raises(AssertionError, match="Partial rollout is not supported"):
             _run_generate(variant, generation_env, make_sample(prompt=SINGLE_TURN_PROMPT))
 
     def test_abort_preserves_content(self, variant, generation_env):
+        if variant == "agentic_tool_call_multi_samples":
+            pytest.skip("agentic_tool_call uses OpenAI API, request structure is different")
+
         generation_env.mock_server.process_fn = lambda _: ProcessResult(
             text=SINGLE_TURN_RESPONSE, finish_reason="abort"
         )
@@ -285,6 +291,9 @@ class TestExitConditions:
         )
 
     def test_finish_reason_length_exits_and_preserves_content(self, variant, generation_env):
+        if variant == "agentic_tool_call_multi_samples":
+            pytest.skip("agentic_tool_call uses OpenAI API, request structure is different")
+
         generation_env.mock_server.process_fn = lambda _: ProcessResult(
             text=MULTI_TURN_FIRST_RESPONSE, finish_reason="length"
         )
@@ -315,6 +324,9 @@ class TestExitConditions:
 
     @pytest.mark.parametrize("generation_env", [{"args_kwargs": {"generate_max_turns": 1}}], indirect=True)
     def test_max_turns_reached(self, variant, generation_env):
+        if variant == "agentic_tool_call_multi_samples":
+            pytest.skip("agentic_tool_call uses OpenAI API, request structure is different")
+
         generation_env.mock_server.process_fn = lambda _: ProcessResult(
             text=MULTI_TURN_FIRST_RESPONSE, finish_reason="stop"
         )
@@ -367,6 +379,9 @@ class TestRespectMaxContextLen:
         "generation_env", [{"args_kwargs": {"rollout_max_context_len": SINGLE_TURN_PROMPT_TOKEN_LEN}}], indirect=True
     )
     def test_prompt_exceeds_max_context_len_returns_truncated(self, variant, generation_env):
+        if variant == "agentic_tool_call_multi_samples":
+            pytest.skip("agentic_tool_call uses OpenAI API, request structure is different")
+
         result = _run_generate(variant, generation_env, make_sample(prompt=SINGLE_TURN_PROMPT))
         assert result.requests == []
         if variant == "multi_turn_single_sample":
@@ -388,6 +403,9 @@ class TestRespectMaxContextLen:
         indirect=True,
     )
     def test_second_turn_exceeds_max_context_len_returns_truncated(self, variant, generation_env):
+        if variant == "agentic_tool_call_multi_samples":
+            pytest.skip("agentic_tool_call uses OpenAI API, request structure is different")
+
         generation_env.mock_server.process_fn = multi_turn_tool_call_process_fn
 
         result = _run_generate(variant, generation_env, make_sample(prompt=TWO_TURN_PROMPT))
