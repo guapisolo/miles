@@ -18,7 +18,7 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
     return Sample(
         group_index=_merge_equal_value(a.group_index, b.group_index, "group_index"),
         index=_merge_equal_value(a.index, b.index, "index"),
-        prompt=a.prompt,
+        prompt=_merge_equal_value(a.prompt, b.prompt, "prompt"),
         tokens=b.tokens,
         response=a.response + obs_text + b.response,
         response_length=a.response_length + obs_len + b.response_length,
@@ -31,10 +31,6 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
 
 
 def _validate_samples(sample1: Sample, sample2: Sample):
-    assert sample1.prompt == sample2.prompt, (
-        f"prompt mismatch: sample1.prompt={sample1.prompt}, sample2.prompt={sample2.prompt}"
-    )
-
     assert sample2.tokens[: len(sample1.tokens)] == sample1.tokens, (
         f"sample2.tokens must start with sample1.tokens. "
         f"sample1.tokens: {sample1.tokens}, "
