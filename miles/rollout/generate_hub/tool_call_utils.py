@@ -22,7 +22,7 @@ def create_tool_call_parser(tool_specs, tool_call_parser):
 
 
 async def execute_tool_calls(
-    tool_calls: list[ToolCallItem] | list[ChatCompletionMessageToolCall],
+    tool_calls: list[ToolCallItem | ChatCompletionMessageToolCall],
     execute_one: Callable,
 ) -> list[dict[str, Any]]:
     tool_messages = []
