@@ -68,6 +68,9 @@ def setup_session_routes(app, router: "MilesRouter"):
 
         result = await router._do_proxy(request, path)
 
+        # TODO: remove this hack when @guapisolo implements the real TITO
+        TODO
+
         record = SessionRecord(
             timestamp=time.time(),
             method=request.method,
