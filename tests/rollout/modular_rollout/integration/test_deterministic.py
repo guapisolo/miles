@@ -1,13 +1,13 @@
 import pytest
 
-from tests.rollout.modular_rollout.integration.utils import config, load_and_call_train
+from tests.rollout.modular_rollout.integration.utils import integration_env_config, load_and_call_train
 
 
 @pytest.mark.parametrize(
     "rollout_integration_env,expected_seeds",
     [
         pytest.param(
-            config(
+            integration_env_config(
                 [
                     "--sglang-enable-deterministic-inference",
                     "--rollout-seed",
@@ -22,7 +22,7 @@ from tests.rollout.modular_rollout.integration.utils import config, load_and_cal
             id="enabled",
         ),
         pytest.param(
-            config(["--n-samples-per-prompt", "2", "--rollout-batch-size", "1"]),
+            integration_env_config(["--n-samples-per-prompt", "2", "--rollout-batch-size", "1"]),
             {None},
             id="disabled",
         ),

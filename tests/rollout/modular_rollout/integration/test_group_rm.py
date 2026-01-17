@@ -1,13 +1,13 @@
 import pytest
 
-from tests.rollout.modular_rollout.integration.utils import config, load_and_call_train
+from tests.rollout.modular_rollout.integration.utils import integration_env_config, load_and_call_train
 
 
 @pytest.mark.parametrize(
     "rollout_integration_env",
     [
         pytest.param(
-            config(["--group-rm", "--n-samples-per-prompt", "2", "--rollout-batch-size", "1"]),
+            integration_env_config(["--group-rm", "--n-samples-per-prompt", "2", "--rollout-batch-size", "1"]),
             id="group_rm_enabled",
         ),
     ],

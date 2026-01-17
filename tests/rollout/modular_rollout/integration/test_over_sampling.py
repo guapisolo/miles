@@ -1,5 +1,9 @@
 import pytest
-from tests.rollout.modular_rollout.integration.utils import config, filter_by_reward, load_and_call_train
+from tests.rollout.modular_rollout.integration.utils import (
+    filter_by_reward,
+    integration_env_config,
+    load_and_call_train,
+)
 
 from miles.utils.misc import function_registry
 
@@ -19,7 +23,9 @@ _BASE_ARGV = [
 
 
 def _over_sampling_config(rollout_batch_size: int):
-    return config(["--rollout-batch-size", str(rollout_batch_size)] + _BASE_ARGV, data_rows=_DATA_ROWS)
+    return integration_env_config(
+        ["--rollout-batch-size", str(rollout_batch_size)] + _BASE_ARGV, data_rows=_DATA_ROWS
+    )
 
 
 @pytest.mark.parametrize(

@@ -3,8 +3,8 @@ from contextlib import nullcontext
 import pytest
 from tests.rollout.modular_rollout.integration.utils import (
     MIXED_DATA_ROWS,
-    config,
     filter_by_reward,
+    integration_env_config,
     load_and_call_train,
 )
 
@@ -15,13 +15,13 @@ from miles.utils.misc import function_registry
     "rollout_integration_env,use_filter,expect_all_correct",
     [
         pytest.param(
-            config(["--rollout-batch-size", "4"], data_rows=MIXED_DATA_ROWS),
+            integration_env_config(["--rollout-batch-size", "4"], data_rows=MIXED_DATA_ROWS),
             False,
             False,
             id="no_filter",
         ),
         pytest.param(
-            config(
+            integration_env_config(
                 ["--rollout-batch-size", "3", "--dynamic-sampling-filter-path", "test:filter_by_reward"],
                 data_rows=MIXED_DATA_ROWS,
             ),
