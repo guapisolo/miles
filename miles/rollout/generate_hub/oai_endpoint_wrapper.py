@@ -1,6 +1,6 @@
 class OpenAIEndpointTracer:
     def __init__(self):
-        TODO
+        self.base_url = TODO
 
     def collect(self):
         return TODO
