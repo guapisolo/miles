@@ -311,7 +311,6 @@ class TestExitConditions:
         else:
             assert result.requests == [expected_request(S.FIRST_PROMPT_TOKEN_IDS)]
         if variant == "multi_turn_single_sample":
-            partial_response = S.FIRST_RESPONSE + S.FIRST_TOOL_RESPONSE
             expected = [
                 ExpectedSampleInfo(
                     chunks=[
@@ -320,8 +319,8 @@ class TestExitConditions:
                     ],
                     partial_sample=expected_partial_sample(
                         prompt=S.PROMPT,
-                        response=partial_response,
-                        response_length=token_len(partial_response),
+                        response=S.FIRST_RESPONSE + S.FIRST_TOOL_RESPONSE,
+                        response_length=token_len(S.FIRST_RESPONSE + S.FIRST_TOOL_RESPONSE),
                     ),
                 ),
             ]
