@@ -77,7 +77,7 @@ MULTI_TURN_FIRST_RESPONSE = (
     "</tool_call>\n"
     "<tool_call>\n"
     '{"name": "get_temperature", "arguments": {"location": "Mars"}}\n'
-    "</tool_call>"
+    "</tool_call><|im_end|>\n"
 )
 
 MULTI_TURN_SECOND_PROMPT = (
@@ -105,7 +105,7 @@ MULTI_TURN_SECOND_PROMPT = (
     "</tool_call>\n"
     "<tool_call>\n"
     '{"name": "get_temperature", "arguments": {"location": "Mars"}}\n'
-    "</tool_call>"
+    "</tool_call><|im_end|>\n"
     "<|im_start|>user\n"
     "<tool_response>\n"
     '{"year": 2026}\n'
