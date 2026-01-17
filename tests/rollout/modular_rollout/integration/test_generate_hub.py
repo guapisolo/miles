@@ -5,6 +5,7 @@ from tests.rollout.modular_rollout.integration.utils import MODULAR_ROLLOUT_BASE
 
 from miles.utils.test_utils.mock_tools import TwoTurnStub
 from miles.utils.types import Sample
+from typing import Any
 
 TWO_TURN_DATA_ROWS = [{"input": TwoTurnStub.USER_QUESTION, "label": "2008"}]
 
@@ -50,18 +51,26 @@ def test_rollout(rollout_integration_env, request, test_type):
         _verify_samples(variant, samples)
 
 
-def _verify_samples(variant: str, samples: list[Sample]):
+def _verify_samples(variant: str, samples: list[Any]):
+    assert len(samples) == 2, f"n_samples_per_prompt=2, so group should have 2 samples, got {len(samples)}"
+    
     if variant in ("multi_turn_multi_samples", "agentic_tool_call_multi_samples"):
-        assert len(samples) == 2, f"multi_samples variant should return 2 samples (one per turn)"
-        for i, sample in enumerate(samples):
-            assert sample.status == Sample.Status.COMPLETED
-            assert sample.reward == 1, f"Sample {i} should have reward=1"
-        assert "2008" in samples[-1].response, "Last sample should contain final answer '2008'"
+        for group_sample in samples:
+            if isinstance(group_sample, list):
+                assert len(group_sample) == 2, f"multi_samples variant should return 2 samples per generate (one per turn)"
+                for i, sample in enumerate(group_sample):
+                    assert sample.status == Sample.Status.COMPLETED
+                    assert sample.reward == 1, f"Sample {i} should have reward=1"
+                assert "2008" in group_sample[-1].response, "Last sample should contain final answer '2008'"
+            else:
+                assert group_sample.status == Sample.Status.COMPLETED
+                assert group_sample.reward == 1
+                assert "2008" in group_sample.response
     else:
-        assert len(samples) == 1, f"single_sample variant should return 1 sample, got {len(samples)}"
-        assert samples[0].status == Sample.Status.COMPLETED
-        if variant == "single_turn":
-            assert samples[0].reward == 0, "single_turn only does first turn, reward should be 0"
-        else:
-            assert samples[0].reward == 1, "multi_turn_single_sample merges all turns, reward should be 1"
-            assert "2008" in samples[0].response, "Response should contain final answer '2008'"
+        for sample in samples:
+            assert sample.status == Sample.Status.COMPLETED
+            if variant == "single_turn":
+                assert sample.reward == 0, "single_turn only does first turn, reward should be 0"
+            else:
+                assert sample.reward == 1, "multi_turn_single_sample merges all turns, reward should be 1"
+                assert "2008" in sample.response, "Response should contain final answer '2008'"
