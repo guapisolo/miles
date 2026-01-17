@@ -32,11 +32,11 @@ def compute_samples_from_openai_records(input_sample: Sample, records: list[Sess
 
 # NOTE: Do not assign `loss_mask`, since here it is a single-turn
 def _compute_sample_from_openai_record(input_sample: Sample, record: SessionRecord) -> Sample:
+    # TODO may refine after @guapisolo's implementation
     choice = record.response["choices"][0]
     output_token_ids = [item["token_id"] for item in choice["logprobs"]["content"]]
     output_log_probs = [item["logprob"] for item in choice["logprobs"]["content"]]
 
-    # TODO refine after @guapisolo's implementation
     sample = deepcopy(input_sample)
     sample.tokens = record.request["input_ids"] + output_token_ids
     sample.rollout_log_probs = output_log_probs
