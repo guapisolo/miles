@@ -53,11 +53,13 @@ class TestTokenizeToolResponses:
         decoded = tokenizer.decode(token_ids)
 
         assert decoded == (
-            "<|tool▁calls▁begin|>call00000<|tool▁sep|>\n"
-            '{"year": 2026}'
-            "<|tool▁calls▁begin|>call00001<|tool▁sep|>\n"
-            '{"temperature": 25}'
-            "<|im_end|>\n"
+            "<|im_start|>user\n"
+            "<tool_response>\n"
+            '{"year": 2026}\n'
+            "</tool_response>\n"
+            "<tool_response>\n"
+            '{"temperature": 25}\n'
+            "</tool_response><|im_end|>\n"
             "<|im_start|>assistant\n"
         )
 
