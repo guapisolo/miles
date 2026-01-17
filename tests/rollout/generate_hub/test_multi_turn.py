@@ -30,7 +30,7 @@ FIRST_PROMPT_TOKEN_IDS = TOKENIZER(MULTI_TURN_FIRST_PROMPT, add_special_tokens=F
 SECOND_PROMPT_TOKEN_IDS = TOKENIZER(MULTI_TURN_SECOND_PROMPT, add_special_tokens=False)["input_ids"]
 
 
-@pytest.fixture(params=["multi_turn_single_sample", "multi_turn_multi_samples"])
+@pytest.fixture(params=["multi_turn_single_sample", "multi_turn_multi_samples", "agentic_tool_call_multi_samples"])
 def variant(request):
     return request.param
 
