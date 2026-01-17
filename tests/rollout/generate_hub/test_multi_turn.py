@@ -346,25 +346,17 @@ class TestRespectMaxContextLen:
         result = _run_generate(variant, generation_env, make_sample(prompt=TWO_TURN_PROMPT))
 
         assert result.requests == [expected_request(FIRST_PROMPT_TOKEN_IDS)]
-        expected = [
-            ExpectedSampleInfo(
-                chunks=FIRST_TURN_CHUNKS,
-                partial_sample=expected_partial_sample(
-                    prompt=TWO_TURN_PROMPT,
-                    response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
-                    response_length=45 + 31,
+        verify_samples(
+            result.sample,
+            [
+                ExpectedSampleInfo(
+                    chunks=FIRST_TURN_CHUNKS,
+                    partial_sample=expected_partial_sample(
+                        prompt=TWO_TURN_PROMPT,
+                        response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
+                        response_length=45 + 31,
+                        status=Sample.Status.TRUNCATED,
+                    ),
                 ),
-            ),
-            ExpectedSampleInfo(
-                chunks=FIRST_TURN_CHUNKS,
-                partial_sample=expected_partial_sample(
-                    prompt=TWO_TURN_PROMPT,
-                    response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
-                    response_length=45 + 31,
-                    status=Sample.Status.TRUNCATED,
-                ),
-            ),
-        ]
-        if variant == "multi_turn_single_sample":
-            expected = expected[-1:]
-        verify_samples(result.sample, expected)
+            ],
+        )

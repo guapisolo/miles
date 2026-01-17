@@ -45,17 +45,16 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     sample.tokens = prompt_tokens_ids.copy()
 
     for turn in range(args.generate_max_turns):
-        # ----------------------- Bookkeeping for multi-sample mode -------------------------
-
-        if args.generate_multi_samples and turn > 0:
-            extra_samples.append(deepcopy(sample))
-
         # ----------------------- Call inference endpoint -------------------------
 
         payload, halt_status = compute_request_payload(args, sample.tokens, input.sampling_params)
         if payload is None:
             sample.status = halt_status
             break
+
+        # Bookkeeping only for multi-sample mode
+        if args.generate_multi_samples and turn > 0:
+            extra_samples.append(deepcopy(sample))
 
         output = await post(url, payload)
         await update_sample_from_response(args, sample, payload=payload, output=output, update_loss_mask=True)
