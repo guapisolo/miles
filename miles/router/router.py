@@ -133,38 +133,41 @@ class MilesRouter:
 
     async def proxy(self, request: Request, path: str):
         """Proxy all other requests to the SGLang router"""
-        # Forward all other paths to SGLang router
+        result = await self._do_proxy(request, path)
+        return self._build_response(result)
+
+    async def _do_proxy(self, request: Request, path: str) -> dict:
+        """Core proxy logic. Returns dict with request_body, response_body, status_code, headers."""
         worker_url = self._use_url()
         url = f"{worker_url}/{path}"
 
-        # Get request body and headers
-        body = await request.body()
-        headers = dict(request.headers)
+        request_body = await request.body()
+        request_headers = dict(request.headers)
 
         try:
-            response = await self.client.request(request.method, url, content=body, headers=headers)
-            # Eagerly read content so we can return JSON (not streaming)
-            content = await response.aread()
-            content_type = response.headers.get("content-type", "")
-            try:
-                # Prefer parsing JSON if possible
-                data = json.loads(content)
-                return JSONResponse(
-                    content=data,
-                    status_code=response.status_code,
-                    headers=dict(response.headers),
-                )
-            except Exception:
-                # Fall back to raw body with original content type
-                return Response(
-                    content=content,
-                    status_code=response.status_code,
-                    headers=dict(response.headers),
-                    media_type=content_type or None,
-                )
-
+            response = await self.client.request(request.method, url, content=request_body, headers=request_headers)
+            response_body = await response.aread()
+            return {
+                "request_body": request_body,
+                "response_body": response_body,
+                "status_code": response.status_code,
+                "headers": dict(response.headers),
+            }
         finally:
             self._finish_url(worker_url)
+
+    def _build_response(self, result: dict) -> Response:
+        """Build HTTP response from proxy result."""
+        response_body = result["response_body"]
+        status_code = result["status_code"]
+        headers = result["headers"]
+        content_type = headers.get("content-type", "")
+
+        try:
+            data = json.loads(response_body)
+            return JSONResponse(content=data, status_code=status_code, headers=headers)
+        except Exception:
+            return Response(content=response_body, status_code=status_code, headers=headers, media_type=content_type or None)
 
     async def add_worker(self, request: Request):
         """Add a new worker to the router.
