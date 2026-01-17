@@ -44,6 +44,25 @@ SAMPLE_TOOL_RESPONSES = [
 
 
 class TestTokenizeToolResponses:
+    @pytest.mark.parametrize("model_name", ["Qwen/Qwen3-0.6B"])
+    def test_snapshot(self, model_name):
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        token_ids = tokenize_tool_responses(SAMPLE_TOOL_RESPONSES, tokenizer)
+        decoded = tokenizer.decode(token_ids)
+
+        assert decoded == (
+            "<|im_start|>user\n"
+            "<tool_response>\n"
+            '{"year": 2026}\n'
+            "</tool_response>\n"
+            "<tool_response>\n"
+            '{"temperature": 25}\n'
+            "</tool_response><|im_end|>\n"
+            "<|im_start|>assistant\n"
+        )
+
     @pytest.mark.parametrize("num_tools", [1, 2])
     @pytest.mark.parametrize("model_name", TOOL_CALL_TEST_MODELS)
     def test_tokenize_tool_responses(self, model_name, num_tools):

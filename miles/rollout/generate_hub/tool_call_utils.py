@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from openai.types.chat import ChatCompletionMessageToolCall
 from pydantic import TypeAdapter
 from sglang.srt.entrypoints.openai.protocol import Tool
 from sglang.srt.function_call.core_types import ToolCallItem
@@ -20,22 +21,34 @@ def create_tool_call_parser(tool_specs, tool_call_parser):
     )
 
 
-async def execute_tool_calls(tool_calls: list[ToolCallItem], execute_one: Callable) -> list[dict[str, Any]]:
+async def execute_tool_calls(
+    tool_calls: list[ToolCallItem | ChatCompletionMessageToolCall],
+    execute_one: Callable,
+) -> list[dict[str, Any]]:
     tool_messages = []
     for call in tool_calls:
-        params = json.loads(call.parameters) if call.parameters else {}
-        result = await execute_one(call.name, params)
-        assert isinstance(result, str)
-        tool_messages.append(
-            {
-                "role": "tool",
-                # src: serving_chat.py :: _process_tool_call_id
-                "tool_call_id": f"call_{uuid.uuid4().hex[:24]}",
-                "content": result,
-                "name": call.name,
-            }
-        )
+        tool_messages.append(await _execute_tool_call(call, execute_one))
     return tool_messages
+
+
+async def _execute_tool_call(
+    call: ToolCallItem | ChatCompletionMessageToolCall, execute_one: Callable
+) -> dict[str, Any]:
+    if isinstance(call, ChatCompletionMessageToolCall):
+        name = call.function.name
+        params = json.loads(call.function.arguments) if call.function.arguments else {}
+        tool_call_id = call.id
+    elif isinstance(call, ToolCallItem):
+        name = call.name
+        params = json.loads(call.parameters) if call.parameters else {}
+        tool_call_id = f"call_{uuid.uuid4().hex[:24]}"
+    else:
+        raise TypeError(f"Unsupported tool call type: {type(call)}")
+
+    result = await execute_one(name, params)
+    assert isinstance(result, str)
+
+    return {"role": "tool", "tool_call_id": tool_call_id, "content": result, "name": name}
 
 
 def update_sample_with_tool_responses(sample: Sample, tool_messages: list[dict[str, Any]], tokenizer):
