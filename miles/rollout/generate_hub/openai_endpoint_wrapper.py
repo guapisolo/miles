@@ -1,4 +1,5 @@
 from argparse import Namespace
+from copy import deepcopy
 
 from miles.router.sessions import DeleteSessionResponse, SessionRecord
 from miles.utils.http_utils import post
@@ -25,4 +26,67 @@ class OpenAIEndpointTracer:
 
 
 def compute_samples_from_openai_records(input_sample: Sample, records: list[SessionRecord]) -> list[Sample]:
-    return TODO
+    samples = []
+    sample = deepcopy(input_sample)
+    sample.tokens = []
+    sample.loss_mask = []
+    sample.rollout_log_probs = []
+    sample.response = ""
+    sample.response_length = 0
+
+    for record in records:
+        req, resp = record.request_json, record.response_json
+        if req is None or resp is None:
+            continue
+
+        prompt_ids = req.get("input_ids", [])
+        if not sample.tokens:
+            sample.tokens = list(prompt_ids)
+
+        gen_token_ids, gen_log_probs, gen_text = _extract_generation_from_oai_response(resp)
+
+        num_tool_response_tokens = len(prompt_ids) - len(sample.tokens)
+        if num_tool_response_tokens > 0:
+            sample.tokens += prompt_ids[-num_tool_response_tokens:]
+            sample.loss_mask += [0] * num_tool_response_tokens
+            sample.rollout_log_probs += [0.0] * num_tool_response_tokens
+            sample.response_length += num_tool_response_tokens
+
+        sample.tokens += gen_token_ids
+        sample.loss_mask += [1] * len(gen_token_ids)
+        sample.rollout_log_probs += gen_log_probs
+        sample.response += gen_text
+        sample.response_length += len(gen_token_ids)
+
+        _update_sample_status_from_oai_response(sample, resp)
+
+        samples.append(deepcopy(sample))
+
+    return samples
+
+
+def _extract_generation_from_oai_response(resp: dict) -> tuple[list[int], list[float], str]:
+    choice = resp.get("choices", [{}])[0]
+    message = choice.get("message", {})
+    text = message.get("content") or ""
+
+    logprobs_data = choice.get("logprobs", {})
+    content = logprobs_data.get("content") or []
+
+    token_ids = [item["token_id"] for item in content]
+    log_probs = [item["logprob"] for item in content]
+
+    return token_ids, log_probs, text
+
+
+def _update_sample_status_from_oai_response(sample: Sample, resp: dict):
+    choice = resp.get("choices", [{}])[0]
+    finish_reason = choice.get("finish_reason", "")
+
+    match finish_reason:
+        case "stop":
+            sample.status = Sample.Status.COMPLETED
+        case "length":
+            sample.status = Sample.Status.TRUNCATED
+        case "abort":
+            sample.status = Sample.Status.ABORTED
