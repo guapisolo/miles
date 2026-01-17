@@ -22,7 +22,14 @@ def _config_for_variant(variant: str) -> IntegrationEnvConfig:
     return IntegrationEnvConfig(
         extra_argv=MODULAR_ROLLOUT_BASE_ARGV
         + extra_argv_for_variant(variant)
-        + ["--rollout-batch-size", "2", "--n-samples-per-prompt", "2"],
+        + [
+            "--rollout-batch-size",
+            "2",
+            "--n-samples-per-prompt",
+            "2",
+            "--n-samples-per-eval-prompt",
+            "2",
+        ],
         data_rows=TWO_TURN_DATA_ROWS,
     )
 
