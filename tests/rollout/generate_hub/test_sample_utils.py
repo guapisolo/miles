@@ -129,7 +129,7 @@ class TestMergeSamplesValidation:
         with pytest.raises(AssertionError, match="must start with"):
             merge_samples(a, b, mock_tokenizer)
 
-    def test_loss_mask_none_raises(self, mock_tokenizer):
+    def test_loss_mask_none_defaults_to_all_ones(self, mock_tokenizer):
         a = make_sample(
             tokens=[1, 2, 10],
             response_length=1,
@@ -139,29 +139,13 @@ class TestMergeSamplesValidation:
         b = make_sample(
             tokens=[1, 2, 10, 20, 30],
             response_length=1,
-            loss_mask=[1],
-            rollout_log_probs=[-0.1],
-        )
-
-        with pytest.raises(AssertionError, match="loss_mask is None"):
-            merge_samples(a, b, mock_tokenizer)
-
-    def test_loss_mask_none_sample2_raises(self, mock_tokenizer):
-        a = make_sample(
-            tokens=[1, 2, 10],
-            response_length=1,
-            loss_mask=[1],
-            rollout_log_probs=[-0.1],
-        )
-        b = make_sample(
-            tokens=[1, 2, 10, 20, 30],
-            response_length=1,
             loss_mask=None,
             rollout_log_probs=[-0.1],
         )
 
-        with pytest.raises(AssertionError, match="loss_mask is None"):
-            merge_samples(a, b, mock_tokenizer)
+        merged = merge_samples(a, b, mock_tokenizer)
+
+        assert merged.loss_mask == [1, 0, 1]
 
     def test_loss_mask_length_mismatch_raises(self, mock_tokenizer):
         a = make_sample(
@@ -180,7 +164,7 @@ class TestMergeSamplesValidation:
         with pytest.raises(AssertionError, match="loss_mask length"):
             merge_samples(a, b, mock_tokenizer)
 
-    def test_rollout_log_probs_none_raises(self, mock_tokenizer):
+    def test_rollout_log_probs_none_defaults_to_zeros(self, mock_tokenizer):
         a = make_sample(
             tokens=[1, 2, 10],
             response_length=1,
@@ -191,11 +175,12 @@ class TestMergeSamplesValidation:
             tokens=[1, 2, 10, 20, 30],
             response_length=1,
             loss_mask=[1],
-            rollout_log_probs=[-0.1],
+            rollout_log_probs=None,
         )
 
-        with pytest.raises(AssertionError, match="rollout_log_probs is None"):
-            merge_samples(a, b, mock_tokenizer)
+        merged = merge_samples(a, b, mock_tokenizer)
+
+        assert merged.rollout_log_probs == [0.0, 0.0, 0.0]
 
     def test_rollout_log_probs_length_mismatch_raises(self, mock_tokenizer):
         a = make_sample(
@@ -348,7 +333,7 @@ class TestMergeSamplesEdgeCases:
         assert merged.response_length == 1 + 1 + 1
         assert merged.loss_mask == [1, 0, 1]
 
-    def test_reward_from_b(self, mock_tokenizer):
+    def test_reward_mismatch_raises(self, mock_tokenizer):
         a = make_sample(
             tokens=[1, 2, 10],
             response_length=1,
@@ -364,9 +349,8 @@ class TestMergeSamplesEdgeCases:
             reward=0.8,
         )
 
-        merged = merge_samples(a, b, mock_tokenizer)
-
-        assert merged.reward == 0.8
+        with pytest.raises(AssertionError, match="reward mismatch"):
+            merge_samples(a, b, mock_tokenizer)
 
     def test_status_from_b(self, mock_tokenizer):
         a = make_sample(
