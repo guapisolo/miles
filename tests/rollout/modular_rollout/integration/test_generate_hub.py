@@ -9,24 +9,6 @@ from miles.utils.test_utils.mock_tools import TwoTurnStub
 from miles.utils.types import Sample
 
 
-async def _simple_reward_function(args, samples: Sample | list[Sample]) -> float | list[float]:
-    """Simple reward function that checks if response contains the label."""
-    if isinstance(samples, list):
-        # For multi_samples variants, check if the last sample contains the label
-        # If so, all samples get reward=1
-        if getattr(args, "generate_multi_samples", False) and len(samples) > 0 and _check_reward(samples[-1]) == 1.0:
-            return [1.0] * len(samples)
-        # Otherwise, check each sample individually
-        return [_check_reward(sample) for sample in samples]
-    else:
-        return _check_reward(samples)
-
-
-def _check_reward(sample: Sample) -> float:
-    """Check if a single sample contains the label."""
-    return float(sample.response and (str(sample.label) in sample.response))
-
-
 TWO_TURN_DATA_ROWS = [{"input": [{"role": "user", "content": TwoTurnStub.USER_QUESTION}], "label": "2008"}]
 
 _VARIANT_NAMES = [
@@ -117,3 +99,20 @@ def _verify_sample(sample: Sample, expected_reward: float = 1.0, expect_answer: 
     if expect_answer:
         assert "2008" in sample.response, "Response should contain final answer '2008'"
 
+
+async def _simple_reward_function(args, samples: Sample | list[Sample]) -> float | list[float]:
+    """Simple reward function that checks if response contains the label."""
+    if isinstance(samples, list):
+        # For multi_samples variants, check if the last sample contains the label
+        # If so, all samples get reward=1
+        if getattr(args, "generate_multi_samples", False) and len(samples) > 0 and _check_reward(samples[-1]) == 1.0:
+            return [1.0] * len(samples)
+        # Otherwise, check each sample individually
+        return [_check_reward(sample) for sample in samples]
+    else:
+        return _check_reward(samples)
+
+
+def _check_reward(sample: Sample) -> float:
+    """Check if a single sample contains the label."""
+    return float(sample.response and (str(sample.label) in sample.response))
