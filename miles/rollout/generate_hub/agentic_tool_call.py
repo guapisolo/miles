@@ -7,6 +7,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from openai import AsyncOpenAI
+
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
 from miles.rollout.generate_hub.oai_endpoint_wrapper import OpenAIEndpointTracer
 from miles.rollout.generate_hub.tool_call_utils import execute_tool_calls
@@ -55,6 +57,7 @@ class _BlackboxToolCallAgent:
     async def run(self):
         # ----------------------- Setup -------------------------
 
+        client = AsyncOpenAI(base_url=self.base_url, api_key="empty")
         execute_tool_function = load_function(self.generate_execute_tool_function_path)
         tool_specs = load_function(self.generate_tool_specs_path)
 
@@ -65,12 +68,20 @@ class _BlackboxToolCallAgent:
         for turn in range(self.generate_max_turns):
             # ----------------------- Call inference endpoint -------------------------
 
-            output = await post(url, payload)
-            await update_sample_from_response(args, sample, payload=payload, output=output, update_loss_mask=True)
+            response = await client.chat.completions.create(
+                model="default",
+                messages=messages,
+                tools=tool_specs,
+            )
 
-            if output["meta_info"]["finish_reason"]["type"] in ("abort", "length"):
+            choice = response.choices[0]
+            assistant_msg = choice.message
+            messages.append(assistant_msg.model_dump())
+
+            if choice.finish_reason in ("stop", "length"):
                 break
 
             # ----------------------- Execute tools -------------------------
 
-            messages += await execute_tool_calls(tool_calls, execute_tool_function)
+            if assistant_msg.tool_calls:
+                messages += await execute_tool_calls(assistant_msg.tool_calls, execute_tool_function)
