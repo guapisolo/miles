@@ -20,13 +20,13 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
     _fill_default_loss_mask(b)
     obs_len = len(b.tokens) - len(a.tokens) - b.response_length
     obs_tokens = b.tokens[len(a.tokens): len(a.tokens) + obs_len]
-    # TODO: is this acceptable?
-    obs_text = tokenizer.decode(obs_tokens)
 
     try:
         a.validate()
         b.validate()
         assert b.tokens[: len(a.tokens)] == a.tokens
+        assert b.response.startswith(a.response)
+        assert b.response_length >= a.response_length
         assert obs_len > 0
     except AssertionError as e:
         e.add_note(f"{a=} {b=}")
@@ -37,8 +37,8 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         index=_merge_equal_value("index"),
         prompt=_merge_equal_value("prompt"),
         tokens=b.tokens,
-        response=a.response + obs_text + b.response,
-        response_length=a.response_length + obs_len + b.response_length,
+        response=b.response,
+        response_length=b.response_length,
         label=_merge_equal_value("label"),
         reward=_merge_equal_value("reward"),
         loss_mask=a.loss_mask + [0] * obs_len + b.loss_mask,
