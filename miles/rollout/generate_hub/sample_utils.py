@@ -8,7 +8,17 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         assert x == y, f"{field} mismatch: a.{field}={x}, b.{field}={y}"
         return x
 
-    _validate_samples(a, b)
+    a.validate()
+    b.validate()
+    assert a.loss_mask is not None, "a.loss_mask is None"
+    assert b.loss_mask is not None, "b.loss_mask is None"
+    assert a.rollout_log_probs is not None, "a.rollout_log_probs is None"
+    assert b.rollout_log_probs is not None, "b.rollout_log_probs is None"
+    assert b.tokens[: len(a.tokens)] == a.tokens, (
+        f"b.tokens must start with a.tokens. "
+        f"a.tokens: {a.tokens}, "
+        f"b.tokens prefix: {b.tokens[:len(a.tokens)]}"
+    )
 
     obs_len = len(b.tokens) - len(a.tokens) - b.response_length
     assert obs_len > 0, (
@@ -34,20 +44,3 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         rollout_log_probs=a.rollout_log_probs + [0.0] * obs_len + b.rollout_log_probs,
         status=b.status,
     )
-
-
-def _validate_samples(a: Sample, b: Sample):
-    a.validate()
-    b.validate()
-
-    assert a.loss_mask is not None, "a.loss_mask is None"
-    assert b.loss_mask is not None, "b.loss_mask is None"
-    assert a.rollout_log_probs is not None, "a.rollout_log_probs is None"
-    assert b.rollout_log_probs is not None, "b.rollout_log_probs is None"
-
-    assert b.tokens[: len(a.tokens)] == a.tokens, (
-        f"b.tokens must start with a.tokens. "
-        f"a.tokens: {a.tokens}, "
-        f"b.tokens prefix: {b.tokens[:len(a.tokens)]}"
-    )
-
