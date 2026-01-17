@@ -175,25 +175,26 @@ class TestProxyIntegration:
     def test_proxy_forwards_request(self, router_env: RouterEnv, mock_worker: MockSGLangServer):
         requests.post(f"{router_env.url}/add_worker", params={"url": mock_worker.url}, timeout=5.0).raise_for_status()
 
-        r = requests.post(
-            f"{router_env.url}/generate", json={"input_ids": [1, 2, 3], "return_logprob": True}, timeout=10.0
-        )
+        payload = {"input_ids": [1, 2, 3], "return_logprob": True}
+        r = requests.post(f"{router_env.url}/generate", json=payload, timeout=10.0)
         r.raise_for_status()
 
         assert "text" in r.json()
         assert len(mock_worker.request_log) == 1
+        assert mock_worker.request_log[0] == payload
 
     def test_proxy_multi_worker(self, router_env: RouterEnv, mock_worker_factory):
         worker1, worker2 = mock_worker_factory(), mock_worker_factory()
         requests.post(f"{router_env.url}/add_worker", params={"url": worker1.url}, timeout=5.0)
         requests.post(f"{router_env.url}/add_worker", params={"url": worker2.url}, timeout=5.0)
 
+        payload = {"input_ids": [1, 2, 3], "return_logprob": True}
         for _ in range(4):
-            requests.post(
-                f"{router_env.url}/generate", json={"input_ids": [1, 2, 3], "return_logprob": True}, timeout=10.0
-            ).raise_for_status()
+            requests.post(f"{router_env.url}/generate", json=payload, timeout=10.0).raise_for_status()
 
-        assert len(worker1.request_log) + len(worker2.request_log) == 4
+        all_requests = worker1.request_log + worker2.request_log
+        assert len(all_requests) == 4
+        assert all(req == payload for req in all_requests)
 
     def test_proxy_health_endpoint(self, router_env: RouterEnv, mock_worker: MockSGLangServer):
         requests.post(f"{router_env.url}/add_worker", params={"url": mock_worker.url}, timeout=5.0)
