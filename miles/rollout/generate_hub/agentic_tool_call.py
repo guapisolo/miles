@@ -31,7 +31,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 def _add_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--generate-max-turns", type=int, default=16)
     parser.add_argument("--generate-tool-specs-path", type=str)
-    parser.add_argument("--generate-tool-call-parser", type=str)
     parser.add_argument("--generate-execute-tool-function-path", type=str)
     parser.add_argument("--generate-multi-samples", action="store_true")
 
@@ -50,7 +49,6 @@ class _BlackboxToolCallAgent:
     prompt: list[dict[str, Any]]
     generate_max_turns: int
     generate_tool_specs_path: str
-    generate_tool_call_parser: str
     generate_execute_tool_function_path: str
     generate_multi_samples: bool
 
