@@ -530,7 +530,7 @@ class TestRoutedExpertsMultiTurn:
     )
     def test_two_turns_routed_experts(self, variant, generation_env):
         if is_agentic_variant(variant):
-            pytest.skip("agentic_tool_call uses different endpoint")
+            pytest.skip("TODO: implement")
 
         S = TwoTurnStub
         num_layers, moe_router_topk = 2, 4
