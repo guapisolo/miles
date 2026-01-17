@@ -71,25 +71,12 @@ def setup_session_routes(app, router: "MilesRouter"):
 
         result = await router._do_proxy(request, path)
 
-        request_json = None
-        if result["request_body"]:
-            try:
-                request_json = json.loads(result["request_body"])
-            except Exception:
-                pass
-
-        response_json = None
-        try:
-            response_json = json.loads(result["response_body"])
-        except Exception:
-            pass
-
         record = SessionRecord(
             timestamp=time.time(),
             method=request.method,
             path=path,
-            request_json=request_json,
-            response_json=response_json,
+            request_json=json.loads(result["request_body"]),
+            response_json=json.loads(result["response_body"]),
             status_code=result["status_code"],
         )
         manager.add_record(session_id, record)

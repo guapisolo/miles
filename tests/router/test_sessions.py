@@ -1,10 +1,11 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import httpx
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
+from starlette.responses import Response
 
 from miles.router.sessions import SessionManager, SessionRecord, setup_session_routes
 
@@ -12,9 +13,8 @@ from miles.router.sessions import SessionManager, SessionRecord, setup_session_r
 @pytest.fixture
 def mock_router():
     router = MagicMock()
-    router._use_url = MagicMock(return_value="http://mock-worker:8000")
-    router._finish_url = MagicMock()
-    router.client = AsyncMock(spec=httpx.AsyncClient)
+    router._do_proxy = AsyncMock()
+    router._build_response = MagicMock()
     return router
 
 
@@ -32,39 +32,39 @@ def client(app_with_sessions):
 
 
 class TestSessionManager:
-    def test_create_session(self, mock_router):
-        manager = SessionManager(mock_router)
+    def test_create_session(self):
+        manager = SessionManager()
         session_id = manager.create_session()
         assert session_id is not None
         assert len(session_id) == 32
         assert session_id in manager.sessions
         assert manager.sessions[session_id] == []
 
-    def test_get_session_exists(self, mock_router):
-        manager = SessionManager(mock_router)
+    def test_get_session_exists(self):
+        manager = SessionManager()
         session_id = manager.create_session()
         records = manager.get_session(session_id)
         assert records == []
 
-    def test_get_session_not_exists(self, mock_router):
-        manager = SessionManager(mock_router)
+    def test_get_session_not_exists(self):
+        manager = SessionManager()
         records = manager.get_session("nonexistent")
         assert records is None
 
-    def test_delete_session_exists(self, mock_router):
-        manager = SessionManager(mock_router)
+    def test_delete_session_exists(self):
+        manager = SessionManager()
         session_id = manager.create_session()
         records = manager.delete_session(session_id)
         assert records == []
         assert session_id not in manager.sessions
 
-    def test_delete_session_not_exists(self, mock_router):
-        manager = SessionManager(mock_router)
+    def test_delete_session_not_exists(self):
+        manager = SessionManager()
         records = manager.delete_session("nonexistent")
         assert records is None
 
-    def test_add_record(self, mock_router):
-        manager = SessionManager(mock_router)
+    def test_add_record(self):
+        manager = SessionManager()
         session_id = manager.create_session()
         record = SessionRecord(
             timestamp=1234567890.0,
@@ -78,8 +78,8 @@ class TestSessionManager:
         assert len(manager.sessions[session_id]) == 1
         assert manager.sessions[session_id][0] == record
 
-    def test_add_record_nonexistent_session(self, mock_router):
-        manager = SessionManager(mock_router)
+    def test_add_record_nonexistent_session(self):
+        manager = SessionManager()
         record = SessionRecord(
             timestamp=1234567890.0,
             method="POST",
@@ -88,7 +88,8 @@ class TestSessionManager:
             response_json={},
             status_code=200,
         )
-        manager.add_record("nonexistent", record)
+        with pytest.raises(KeyError):
+            manager.add_record("nonexistent", record)
 
 
 class TestSessionRoutes:
@@ -141,11 +142,15 @@ class TestSessionProxy:
         create_resp = client.post("/sessions")
         session_id = create_resp.json()["session_id"]
 
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-        mock_response.headers = {"content-type": "application/json"}
-        mock_response.aread = AsyncMock(return_value=json.dumps({"result": "ok"}).encode())
-        mock_router.client.request = AsyncMock(return_value=mock_response)
+        mock_router._do_proxy.return_value = {
+            "request_body": json.dumps({"prompt": "hello"}).encode(),
+            "response_body": json.dumps({"result": "ok"}).encode(),
+            "status_code": 200,
+            "headers": {"content-type": "application/json"},
+        }
+        mock_router._build_response.return_value = JSONResponse(
+            content={"result": "ok"}, status_code=200
+        )
 
         proxy_resp = client.post(
             f"/sessions/{session_id}/generate",
@@ -155,8 +160,7 @@ class TestSessionProxy:
         assert proxy_resp.status_code == 200
         assert proxy_resp.json() == {"result": "ok"}
 
-        mock_router._use_url.assert_called()
-        mock_router._finish_url.assert_called_with("http://mock-worker:8000")
+        mock_router._do_proxy.assert_called()
 
         get_resp = client.get(f"/sessions/{session_id}")
         records = get_resp.json()["records"]
@@ -174,11 +178,15 @@ class TestSessionProxy:
         create_resp = client.post("/sessions")
         session_id = create_resp.json()["session_id"]
 
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-        mock_response.headers = {"content-type": "text/plain"}
-        mock_response.aread = AsyncMock(return_value=b"plain text response")
-        mock_router.client.request = AsyncMock(return_value=mock_response)
+        mock_router._do_proxy.return_value = {
+            "request_body": b"",
+            "response_body": b"plain text response",
+            "status_code": 200,
+            "headers": {"content-type": "text/plain"},
+        }
+        mock_router._build_response.return_value = Response(
+            content=b"plain text response", status_code=200, media_type="text/plain"
+        )
 
         proxy_resp = client.post(f"/sessions/{session_id}/health")
 
@@ -202,11 +210,15 @@ class TestSessionProxy:
         session_id = create_resp.json()["session_id"]
 
         for i in range(3):
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_response.headers = {}
-            mock_response.aread = AsyncMock(return_value=json.dumps({"i": i}).encode())
-            mock_router.client.request = AsyncMock(return_value=mock_response)
+            mock_router._do_proxy.return_value = {
+                "request_body": json.dumps({"req": i}).encode(),
+                "response_body": json.dumps({"i": i}).encode(),
+                "status_code": 200,
+                "headers": {},
+            }
+            mock_router._build_response.return_value = JSONResponse(
+                content={"i": i}, status_code=200
+            )
 
             client.post(f"/sessions/{session_id}/test", json={"req": i})
 
@@ -226,11 +238,15 @@ class TestSessionProxy:
 
         methods = ["GET", "POST", "PUT", "DELETE", "PATCH"]
         for method in methods:
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_response.headers = {}
-            mock_response.aread = AsyncMock(return_value=json.dumps({"method": method}).encode())
-            mock_router.client.request = AsyncMock(return_value=mock_response)
+            mock_router._do_proxy.return_value = {
+                "request_body": b"",
+                "response_body": json.dumps({"method": method}).encode(),
+                "status_code": 200,
+                "headers": {},
+            }
+            mock_router._build_response.return_value = JSONResponse(
+                content={"method": method}, status_code=200
+            )
 
             resp = client.request(method, f"/sessions/{session_id}/test")
             assert resp.status_code == 200
