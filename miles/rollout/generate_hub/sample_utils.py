@@ -16,18 +16,25 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         if sample.loss_mask is None:
             sample.loss_mask = [1] * sample.response_length
 
+    def _fill_default_rollout_log_probs(sample: Sample):
+        if sample.rollout_log_probs is None:
+            sample.rollout_log_probs = [0.0] * sample.response_length
+
     _fill_default_loss_mask(a)
     _fill_default_loss_mask(b)
+    _fill_default_rollout_log_probs(a)
+    _fill_default_rollout_log_probs(b)
+
     obs_len = len(b.tokens) - len(a.tokens) - b.response_length
-    obs_tokens = b.tokens[len(a.tokens): len(a.tokens) + obs_len]
+    obs_tokens = b.tokens[len(a.tokens) : len(a.tokens) + obs_len]
     # TODO: is this acceptable?
     obs_text = tokenizer.decode(obs_tokens)
 
     try:
         a.validate()
         b.validate()
-        assert b.tokens[: len(a.tokens)] == a.tokens
-        assert obs_len > 0
+        assert b.tokens[: len(a.tokens)] == a.tokens, "b.tokens must start with a.tokens"
+        assert obs_len > 0, f"obs_len={obs_len} must be > 0"
     except AssertionError as e:
         e.add_note(f"{a=} {b=}")
         raise
