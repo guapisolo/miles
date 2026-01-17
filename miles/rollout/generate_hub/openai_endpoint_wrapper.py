@@ -34,7 +34,7 @@ def compute_samples_from_openai_records(input_sample: Sample, records: list[Sess
 def _compute_sample_from_openai_record(input_sample: Sample, record: SessionRecord) -> Sample:
     sample = deepcopy(input_sample)
     sample.tokens = record.extras.input_ids + TODO
-    sample.loss_mask = TODO
+    sample.loss_mask = record.extras.loss_mask
     sample.rollout_log_probs = TODO
     sample.response = TODO
     sample.response_length = TODO
