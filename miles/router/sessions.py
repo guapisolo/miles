@@ -68,13 +68,13 @@ def setup_session_routes(app, router: "MilesRouter"):
         records = manager.delete_session(session_id)
         return DeleteSessionResponse(session_id=session_id, records=records)
 
-    @app.api_route("/sessions/{session_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
-    async def session_proxy(request: Request, session_id: str, path: str):
+    @app.post("/sessions/{session_id}/v1/chat/completions")
+    async def session_chat_completions(request: Request, session_id: str):
         if session_id not in manager.sessions:
             return JSONResponse(status_code=404, content={"error": "session not found"})
 
         # TODO may need to pass `session_id` for token-id-consistent oai endpoint processing
-        result = await router._do_proxy(request, path)
+        result = await router._do_proxy(request, "v1/chat/completions")
 
         record = SessionRecord(
             timestamp=time.time(),
