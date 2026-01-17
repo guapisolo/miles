@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
 from miles.rollout.generate_hub.oai_endpoint_wrapper import OpenAIEndpointTracer
+from miles.utils.misc import load_function
 
 
 async def generate(input: GenerateFnInput) -> GenerateFnOutput:
@@ -47,21 +48,10 @@ class _BlackboxToolCallAgent:
     generate_multi_samples: bool
 
     async def run(self):
-        # ----------------------- Setup -------------------------
+        execute_tool_function = load_function(self.generate_execute_tool_function_path)
+        tool_specs = load_function(self.generate_tool_specs_path)
 
-        args = input.args
-        sample = input.sample
-        tokenizer = input.state.tokenizer
-        assert not args.partial_rollout, "Partial rollout is not supported"
-
-        url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
-
-        execute_tool_function = load_function(args.generate_execute_tool_function_path)
-
-        tool_specs = load_function(args.generate_tool_specs_path)
-        tool_call_parser = create_tool_call_parser(tool_specs, args.generate_tool_call_parser)
-
-        extra_samples = []
+        messages = []
 
         # ----------------------- Initial prompts -------------------------
 
