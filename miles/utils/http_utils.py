@@ -166,7 +166,11 @@ async def _post(client, url, payload, max_retries=60, action="post"):
     retry_count = 0
     while retry_count < max_retries:
         try:
-            response = await getattr(client, action)(url, json=payload or {})
+            if action in ("delete", "get"):
+                assert not payload
+                response = await getattr(client, action)(url)
+            else:
+                response = await getattr(client, action)(url, json=payload or {})
             response.raise_for_status()
             try:
                 output = response.json()
