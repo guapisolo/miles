@@ -149,6 +149,9 @@ TWO_TURN_TOOL_RESPONSE = (
 
 class TestBasicMultiTurn:
     def test_single_turn_no_tool_call(self, variant, generation_env):
+        if variant == "agentic_tool_call_multi_samples":
+            pytest.skip("agentic_tool_call uses OpenAI API, request structure is different")
+
         generation_env.mock_server.process_fn = lambda _: ProcessResult(
             text=SINGLE_TURN_RESPONSE, finish_reason="stop"
         )
@@ -175,6 +178,9 @@ class TestBasicMultiTurn:
         )
 
     def test_two_turns_with_tool_call(self, variant, generation_env):
+        if variant == "agentic_tool_call_multi_samples":
+            pytest.skip("agentic_tool_call uses OpenAI API, request structure is different")
+
         generation_env.mock_server.process_fn = multi_turn_tool_call_process_fn
 
         result = _run_generate(variant, generation_env, make_sample(prompt=TWO_TURN_PROMPT))

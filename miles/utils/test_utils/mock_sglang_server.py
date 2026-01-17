@@ -100,9 +100,7 @@ class MockSGLangServer:
         async def abort_request(_request: Request):
             return JSONResponse(content={"status": "ok"})
 
-    async def _handle_generate_like_request(
-        self, request: Request, compute_fn: Callable[[dict], dict]
-    ):
+    async def _handle_generate_like_request(self, request: Request, compute_fn: Callable[[dict], dict]):
         payload = await request.json()
         self.request_log.append(payload)
         with self._concurrency.track():

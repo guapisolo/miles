@@ -41,7 +41,11 @@ class TestProcessResultMetaInfo:
 
     def test_to_dict_all_fields(self):
         assert ProcessResultMetaInfo(
-            weight_version="v1", routed_experts="abc", spec_accept_token_num=10, spec_draft_token_num=15, spec_verify_ct=3
+            weight_version="v1",
+            routed_experts="abc",
+            spec_accept_token_num=10,
+            spec_draft_token_num=15,
+            spec_verify_ct=3,
         ).to_dict() == {
             "weight_version": "v1",
             "routed_experts": "abc",
@@ -293,9 +297,7 @@ class TestChatCompletionsEndpoint:
             assert item["logprob"] == -1 / 128 * i
 
     def test_with_tool_calls(self):
-        tool_call_response = (
-            'Let me check for you.\n<tool_call>\n{"name": "get_year", "arguments": {}}\n</tool_call>'
-        )
+        tool_call_response = 'Let me check for you.\n<tool_call>\n{"name": "get_year", "arguments": {}}\n</tool_call>'
 
         def process_fn(_: str) -> ProcessResult:
             return ProcessResult(text=tool_call_response, finish_reason="stop")
@@ -317,7 +319,9 @@ class TestChatCompletionsEndpoint:
                 "message": {
                     "role": "assistant",
                     "content": None,
-                    "tool_calls": [{"id": "call00000", "type": "function", "function": {"name": "get_year", "arguments": "{}"}}],
+                    "tool_calls": [
+                        {"id": "call00000", "type": "function", "function": {"name": "get_year", "arguments": "{}"}}
+                    ],
                 },
                 "logprobs": {"content": expected_logprobs(server.tokenizer, tool_call_response)},
                 "finish_reason": "tool_calls",
@@ -377,7 +381,11 @@ class TestChatCompletionsEndpoint:
                     "content": None,
                     "tool_calls": [
                         {"id": "call00000", "type": "function", "function": {"name": "get_year", "arguments": "{}"}},
-                        {"id": "call00001", "type": "function", "function": {"name": "get_temperature", "arguments": '{"location": "Shanghai"}'}},
+                        {
+                            "id": "call00001",
+                            "type": "function",
+                            "function": {"name": "get_temperature", "arguments": '{"location": "Shanghai"}'},
+                        },
                     ],
                 },
                 "logprobs": {"content": expected_logprobs(server.tokenizer, multi_tool_response)},

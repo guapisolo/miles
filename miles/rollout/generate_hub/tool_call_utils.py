@@ -32,7 +32,9 @@ async def execute_tool_calls(
     return tool_messages
 
 
-async def _execute_tool_call(call: ToolCallItem | ChatCompletionMessageToolCall, execute_one: Callable) -> dict[str, Any]:
+async def _execute_tool_call(
+    call: ToolCallItem | ChatCompletionMessageToolCall, execute_one: Callable
+) -> dict[str, Any]:
     if isinstance(call, ChatCompletionMessageToolCall):
         name = call.function.name
         params = json.loads(call.function.arguments) if call.function.arguments else {}
