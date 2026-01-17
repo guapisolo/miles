@@ -21,6 +21,11 @@ class SessionRecord(BaseModel):
     status_code: int
 
 
+class DeleteSessionResponse(BaseModel):
+    session_id: str
+    records: list[SessionRecord]
+
+
 class SessionManager:
     def __init__(self):
         self.sessions: dict[str, list[SessionRecord]] = {}
