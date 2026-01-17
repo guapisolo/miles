@@ -170,6 +170,7 @@ class TestLoadBalancing:
             router._finish_url("http://unknown:8000")
 
 
+# TODO: extract main body inside `_health_check_loop`, then can test that function
 class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_check_worker_health_success(self, router_factory, mock_worker: MockSGLangServer):
@@ -184,40 +185,6 @@ class TestHealthCheck:
         url, healthy = await router._check_worker_health("http://127.0.0.1:59999")
         assert url == "http://127.0.0.1:59999"
         assert healthy is False
-
-    @pytest.mark.asyncio
-    async def test_health_check_marks_dead_worker(self, router_factory):
-        router = router_factory(miles_router_health_check_failure_threshold=2)
-        bad_url = "http://127.0.0.1:59998"
-        router.worker_request_counts[bad_url] = 0
-        router.worker_failure_counts[bad_url] = 0
-
-        with patch.object(router, "_check_worker_health", new_callable=AsyncMock) as mock_check:
-            mock_check.return_value = (bad_url, False)
-
-            await router._check_worker_health(bad_url)
-            router.worker_failure_counts[bad_url] += 1
-            assert bad_url not in router.dead_workers
-
-            await router._check_worker_health(bad_url)
-            router.worker_failure_counts[bad_url] += 1
-            if router.worker_failure_counts[bad_url] >= router.args.miles_router_health_check_failure_threshold:
-                router.dead_workers.add(bad_url)
-            assert bad_url in router.dead_workers
-
-    @pytest.mark.asyncio
-    async def test_health_check_resets_on_success(self, router_factory):
-        router = router_factory()
-        url = "http://127.0.0.1:59997"
-        router.worker_request_counts[url] = 0
-        router.worker_failure_counts[url] = 2
-
-        with patch.object(router, "_check_worker_health", new_callable=AsyncMock) as mock_check:
-            mock_check.return_value = (url, True)
-            _, is_healthy = await router._check_worker_health(url)
-            if is_healthy:
-                router.worker_failure_counts[url] = 0
-            assert router.worker_failure_counts[url] == 0
 
 
 class TestProxyIntegration:
