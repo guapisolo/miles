@@ -2,10 +2,6 @@ from miles.utils.types import Sample
 
 
 def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
-    def _merge_equal_value(x, y, name):
-        assert x == y, f"{name} mismatch: a.{name}={x}, b.{name}={y}"
-        return x
-
     _validate_samples(a, b)
 
     obs_len = len(b.tokens) - len(a.tokens) - b.response_length
@@ -66,3 +62,8 @@ def _validate_samples(sample1: Sample, sample2: Sample):
         f"sample2.rollout_log_probs length ({len(sample2.rollout_log_probs)}) != "
         f"sample2.response_length ({sample2.response_length})"
     )
+
+
+def _merge_equal_value(x, y, name):
+    assert x == y, f"{name} mismatch: a.{name}={x}, b.{name}={y}"
+    return x
