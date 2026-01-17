@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from miles.rollout.generate_hub.sample_utils import merge_samples
 from miles.utils.types import Sample

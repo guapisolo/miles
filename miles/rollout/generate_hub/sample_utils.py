@@ -93,8 +93,7 @@ def _merge_prefix_cache_info(a: Sample.PrefixCacheInfo, b: Sample.PrefixCacheInf
 def _create_with_all_fields(cls, **kwargs):
     expected = {f.name for f in fields(cls)}
     actual = set(kwargs.keys())
-    assert expected == actual, (
-        f"{cls.__name__} field mismatch. Missing: {expected - actual}, Extra: {actual - expected}"
-    )
+    assert (
+        expected == actual
+    ), f"{cls.__name__} field mismatch. Missing: {expected - actual}, Extra: {actual - expected}"
     return cls(**kwargs)
-

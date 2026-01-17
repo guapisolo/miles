@@ -7,7 +7,6 @@ from copy import deepcopy
 
 from miles.router.sessions import DeleteSessionResponse, SessionRecord
 from miles.utils.http_utils import post
-from miles.utils.mask_utils import get_response_lengths
 from miles.utils.types import Sample
 
 
