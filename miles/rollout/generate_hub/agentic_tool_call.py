@@ -15,7 +15,7 @@ from miles.utils.misc import load_function
 
 
 async def generate(input: GenerateFnInput) -> GenerateFnOutput:
-    tracer = OpenAIEndpointTracer(args)
+    tracer = await OpenAIEndpointTracer.create(args)
 
     await _run_blackbox_tool_call_agent(
         base_url=tracer.base_url,

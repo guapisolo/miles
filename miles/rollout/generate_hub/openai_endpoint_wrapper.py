@@ -2,15 +2,20 @@ from argparse import Namespace
 
 import requests
 
+from miles.utils.http_utils import post
+
 
 class OpenAIEndpointTracer:
-    def __init__(self, args: Namespace):
-        router_url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}"
-        response = requests.post(f"{router_url}/sessions")
-        response.raise_for_status()
-        self.session_id = response.json()["session_id"]
-        self.base_url = f"{router_url}/sessions/{self.session_id}"
+    def __init__(self, router_url: str, session_id: str):
         self.router_url = router_url
+        self.session_id = session_id
+        self.base_url = f"{router_url}/sessions/{session_id}"
+
+    @staticmethod
+    async def create(args: Namespace):
+        router_url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}"
+        session_id = (await post(f"{router_url}/sessions", {}))["session_id"]
+        return OpenAIEndpointTracer(router_url=router_url, session_id=session_id)
 
     def collect(self):
         response = requests.delete(f"{self.router_url}/sessions/{self.session_id}")
