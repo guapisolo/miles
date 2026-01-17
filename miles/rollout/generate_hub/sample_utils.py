@@ -33,6 +33,8 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         assert b.prompt.startswith(a.prompt)
         assert b.tokens[: len(a.tokens)] == a.tokens
         assert obs_len > 0
+        # Lean towards safety, may support other statuses if needed
+        assert a.status == Sample.Status.COMPLETED
     except AssertionError as e:
         e.add_note(f"{a=} {b=}")
         raise
