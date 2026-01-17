@@ -185,7 +185,7 @@ def multi_turn_tool_call_process_fn(prompt: str) -> ProcessResult:
 class ThreeTurnStub:
     """Stub for 3-turn: get_year + get_temperature(Mars) -> get_temperature(Earth) -> answer"""
 
-    _SYSTEM_PROMPT = (
+    SYSTEM_PROMPT = (
         "<|im_start|>system\n"
         "# Tools\n"
         "\n"
@@ -224,7 +224,7 @@ class ThreeTurnStub:
 
     THIRD_RESPONSE = "The answer is: 42 + 2026 + -60 + 15 = 2023."
 
-    FIRST_PROMPT = _SYSTEM_PROMPT + "<|im_start|>user\n" + USER_QUESTION + "<|im_end|>\n" + "<|im_start|>assistant\n"
+    FIRST_PROMPT = SYSTEM_PROMPT + "<|im_start|>user\n" + USER_QUESTION + "<|im_end|>\n" + "<|im_start|>assistant\n"
 
     FIRST_TOOL_RESPONSE = (
         "<|im_start|>user\n"
