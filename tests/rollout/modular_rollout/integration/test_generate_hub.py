@@ -37,7 +37,6 @@ def test_rollout(rollout_integration_env, request, test_type):
     env.mock_server.process_fn = TwoTurnStub.process_fn
 
     out = load_and_call_rollout(env.args, env.data_source, mode=test_type)
-    print(f"{out=}")
 
     if test_type == "train":
         assert len(out.samples) == env.args.rollout_batch_size
@@ -50,10 +49,17 @@ def test_rollout(rollout_integration_env, request, test_type):
 
 
 def _verify_samples(variant: str, samples: list[Sample]):
-    for sample in samples:
-        assert sample.status == Sample.Status.COMPLETED
+    if variant in ("multi_turn_multi_samples", "agentic_tool_call_multi_samples"):
+        assert len(samples) == 2, f"multi_samples variant should return 2 samples (one per turn), got {len(samples)}"
+        for sample in samples:
+            assert sample.status == Sample.Status.COMPLETED
+        assert samples[-1].reward == 1, "Last sample should have reward=1 (contains final answer)"
+        assert "2008" in samples[-1].response, "Last sample should contain final answer '2008'"
+    else:
+        assert len(samples) == 1, f"single_sample variant should return 1 sample, got {len(samples)}"
+        assert samples[0].status == Sample.Status.COMPLETED
         if variant == "single_turn":
-            assert sample.reward == 0
+            assert samples[0].reward == 0, "single_turn only does first turn, reward should be 0"
         else:
-            assert sample.reward == 1
-            assert "2008" in sample.response
+            assert samples[0].reward == 1, "multi_turn_single_sample merges all turns, reward should be 1"
+            assert "2008" in samples[0].response, "Response should contain final answer '2008'"
