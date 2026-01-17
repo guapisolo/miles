@@ -46,6 +46,14 @@ class SampleParsedChunk:
     rollout_log_probs: list[float]
 
 
+@dataclass
+class ExpectedSampleInfo:
+    chunks: list[SampleParsedChunk]
+    response: str
+    response_length: int
+    status: Sample.Status = Sample.Status.COMPLETED
+
+
 def parse_sample_into_chunks(sample: Sample, tokenizer) -> list[SampleParsedChunk]:
     prompt_len = len(sample.tokens) - sample.response_length
     response_tokens = sample.tokens[prompt_len:]
@@ -68,18 +76,12 @@ def parse_sample_into_chunks(sample: Sample, tokenizer) -> list[SampleParsedChun
     return chunks
 
 
-def expected_partial_sample(
-    *,
-    prompt: list[dict],
-    response: str,
-    response_length: int,
-    status: Sample.Status = Sample.Status.COMPLETED,
-) -> Sample:
+def _make_expected_partial_sample(prompt: list[dict], info: ExpectedSampleInfo) -> Sample:
     return Sample(
         prompt=prompt,
-        response=response,
-        response_length=response_length,
-        status=status,
+        response=info.response,
+        response_length=info.response_length,
+        status=info.status,
         tokens=[],
         loss_mask=[],
         rollout_log_probs=[],
@@ -89,23 +91,26 @@ def expected_partial_sample(
     )
 
 
-def verify_sample(
-    actual: Sample,
-    *,
-    expected_chunks: list[SampleParsedChunk],
-    expected_partial_sample: Sample,
+def verify_samples(
+    actual: Sample | list[Sample],
+    prompt: list[dict],
+    expected: list[ExpectedSampleInfo],
 ):
-    actual_chunks = parse_sample_into_chunks(actual, TOKENIZER)
-    assert actual_chunks == expected_chunks
+    samples = listify(actual)
+    assert len(samples) == len(expected), f"Expected {len(expected)} samples, got {len(samples)}"
 
-    actual_partial = replace(
-        deepcopy(actual),
-        tokens=[],
-        loss_mask=[],
-        rollout_log_probs=[],
-        prefix_cache_info=Sample.PrefixCacheInfo(),
-    )
-    assert actual_partial == expected_partial_sample
+    for sample, info in zip(samples, expected):
+        actual_chunks = parse_sample_into_chunks(sample, TOKENIZER)
+        assert actual_chunks == info.chunks
+
+        actual_partial = replace(
+            deepcopy(sample),
+            tokens=[],
+            loss_mask=[],
+            rollout_log_probs=[],
+            prefix_cache_info=Sample.PrefixCacheInfo(),
+        )
+        assert actual_partial == _make_expected_partial_sample(prompt, info)
 
 
 def _run_generate(variant: str, env: GenerateEnv, sample: Sample, sampling_params: dict | None = None):
@@ -146,6 +151,27 @@ TWO_TURN_TOOL_RESPONSE = (
 # ------------------------------------ tests ----------------------------------------
 
 
+FIRST_TURN_CHUNKS = [
+    SampleParsedChunk(
+        tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
+        loss_mask_value=1,
+        rollout_log_probs=[-1 / 128 * i for i in range(45)],
+    ),
+    SampleParsedChunk(
+        tokens_decoded_str=TWO_TURN_TOOL_RESPONSE,
+        loss_mask_value=0,
+        rollout_log_probs=[0.0] * 31,
+    ),
+]
+FINAL_TURN_CHUNKS = FIRST_TURN_CHUNKS + [
+    SampleParsedChunk(
+        tokens_decoded_str=MULTI_TURN_SECOND_RESPONSE,
+        loss_mask_value=1,
+        rollout_log_probs=[-1 / 128 * i for i in range(24)],
+    ),
+]
+
+
 class TestBasicMultiTurn:
     def test_single_turn_no_tool_call(self, variant, generation_env):
         generation_env.mock_server.process_fn = lambda _: ProcessResult(
@@ -155,22 +181,22 @@ class TestBasicMultiTurn:
         result = _run_generate(variant, generation_env, make_sample(prompt=SINGLE_TURN_PROMPT))
 
         assert result.requests == [expected_request(SINGLE_TURN_PROMPT_TOKEN_IDS)]
-        samples = listify(result.sample)
-        assert len(samples) == 1
-        verify_sample(
-            samples[-1],
-            expected_chunks=[
-                SampleParsedChunk(
-                    tokens_decoded_str=SINGLE_TURN_RESPONSE,
-                    loss_mask_value=1,
-                    rollout_log_probs=[-1 / 128 * i for i in range(6)],
+        verify_samples(
+            result.sample,
+            SINGLE_TURN_PROMPT,
+            [
+                ExpectedSampleInfo(
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=SINGLE_TURN_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(6)],
+                        ),
+                    ],
+                    response=SINGLE_TURN_RESPONSE,
+                    response_length=6,
                 ),
             ],
-            expected_partial_sample=expected_partial_sample(
-                prompt=SINGLE_TURN_PROMPT,
-                response=SINGLE_TURN_RESPONSE,
-                response_length=6,
-            ),
         )
 
     def test_two_turns_with_tool_call(self, variant, generation_env):
@@ -182,54 +208,21 @@ class TestBasicMultiTurn:
             expected_request(FIRST_PROMPT_TOKEN_IDS),
             expected_request(SECOND_PROMPT_TOKEN_IDS),
         ]
-        samples = listify(result.sample)
-        assert len(samples) == 2 if variant == "multi_turn_multi_samples" else len(samples) == 1
-        if len(samples) == 2:
-            verify_sample(
-                samples[0],
-                expected_chunks=[
-                    SampleParsedChunk(
-                        tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
-                        loss_mask_value=1,
-                        rollout_log_probs=[-1 / 128 * i for i in range(45)],
-                    ),
-                    SampleParsedChunk(
-                        tokens_decoded_str=TWO_TURN_TOOL_RESPONSE,
-                        loss_mask_value=0,
-                        rollout_log_probs=[0.0] * 31,
-                    ),
-                ],
-                expected_partial_sample=expected_partial_sample(
-                    prompt=TWO_TURN_PROMPT,
-                    response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
-                    response_length=45 + 31,
-                ),
-            )
-        verify_sample(
-            samples[-1],
-            expected_chunks=[
-                SampleParsedChunk(
-                    tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
-                    loss_mask_value=1,
-                    rollout_log_probs=[-1 / 128 * i for i in range(45)],
-                ),
-                SampleParsedChunk(
-                    tokens_decoded_str=TWO_TURN_TOOL_RESPONSE,
-                    loss_mask_value=0,
-                    rollout_log_probs=[0.0] * 31,
-                ),
-                SampleParsedChunk(
-                    tokens_decoded_str=MULTI_TURN_SECOND_RESPONSE,
-                    loss_mask_value=1,
-                    rollout_log_probs=[-1 / 128 * i for i in range(24)],
-                ),
-            ],
-            expected_partial_sample=expected_partial_sample(
-                prompt=TWO_TURN_PROMPT,
+        expected = [
+            ExpectedSampleInfo(
+                chunks=FIRST_TURN_CHUNKS,
+                response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
+                response_length=45 + 31,
+            ),
+            ExpectedSampleInfo(
+                chunks=FINAL_TURN_CHUNKS,
                 response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE + MULTI_TURN_SECOND_RESPONSE,
                 response_length=45 + 31 + 24,
             ),
-        )
+        ]
+        if variant == "multi_turn_single_sample":
+            expected = expected[-1:]
+        verify_samples(result.sample, TWO_TURN_PROMPT, expected)
 
 
 class TestExitConditions:
