@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -6,7 +7,9 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
+from miles.router.router import MilesRouter
 from miles.router.sessions import SessionManager, SessionRecord, setup_session_routes
+from miles.utils.test_utils.mock_sglang_server import ProcessResult, with_mock_server
 
 
 @pytest.fixture
@@ -168,3 +171,42 @@ class TestSessionProxy:
         records = client.delete(f"/sessions/{session_id}").json()["records"]
         assert len(records) == 3
         assert [r["request_json"]["i"] for r in records] == [0, 1, 2]
+
+
+class TestSessionProxyIntegration:
+    @pytest.fixture
+    def real_router_client(self):
+        def process_fn(prompt: str) -> ProcessResult:
+            return ProcessResult(text=f"echo: {prompt}", finish_reason="stop")
+
+        with with_mock_server(process_fn=process_fn) as server:
+            args = SimpleNamespace(
+                miles_router_max_connections=10,
+                miles_router_timeout=30,
+                miles_router_middleware_paths=[],
+                rollout_health_check_interval=60,
+                miles_router_health_check_failure_threshold=3,
+            )
+            router = MilesRouter(args)
+            router.worker_request_counts[server.url] = 0
+            router.worker_failure_counts[server.url] = 0
+            yield TestClient(router.app), server
+
+    def test_real_proxy_records_request_response(self, real_router_client):
+        client, server = real_router_client
+
+        session_id = client.post("/sessions").json()["session_id"]
+
+        resp = client.post(
+            f"/sessions/{session_id}/generate",
+            json={"input_ids": [1, 2, 3], "sampling_params": {}, "return_logprob": True},
+        )
+        assert resp.status_code == 200
+        assert "text" in resp.json()
+
+        records = client.delete(f"/sessions/{session_id}").json()["records"]
+        assert len(records) == 1
+        assert records[0]["method"] == "POST"
+        assert records[0]["path"] == "generate"
+        assert records[0]["request_json"]["input_ids"] == [1, 2, 3]
+        assert "text" in records[0]["response_json"]
