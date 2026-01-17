@@ -72,17 +72,16 @@ def expected_sample(
     spec_info: Sample.SpecInfo | None = None,
     multimodal_inputs: dict | None = None,
     multimodal_train_inputs: dict | None = None,
-    loss_mask_override: list[int] | None | _Unset = _UNSET,
+    loss_mask: list[int] | None | _Unset = _UNSET,
 ) -> Sample:
     actual_response_length = response_length if response_length is not None else len(RESPONSE_TOKENS)
-    if isinstance(loss_mask_override, _Unset):
+    if isinstance(loss_mask, _Unset):
         loss_mask = (
             [1] * actual_response_length
             if variant in ("multi_turn_single_sample", "multi_turn_multi_samples")
             else None
         )
-    else:
-        loss_mask = loss_mask_override
+
     return Sample(
         group_index=None,
         index=None,
@@ -327,7 +326,7 @@ class TestBoundaryConditions:
                 rollout_log_probs=None,
                 status=Sample.Status.TRUNCATED,
                 prompt_tokens=0,
-                loss_mask_override=None if variant == "multi_turn_single_sample" else _UNSET,
+                loss_mask=None if variant == "multi_turn_single_sample" else _UNSET,
             )
         ]
 
