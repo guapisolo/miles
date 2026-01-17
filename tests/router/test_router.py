@@ -14,12 +14,9 @@ def make_router_args(router_port: int, **overrides) -> Namespace:
     defaults = dict(
         sglang_router_ip="127.0.0.1",
         sglang_router_port=router_port,
-        sglang_server_concurrency=10,
-        rollout_num_gpus=1,
-        rollout_num_gpus_per_engine=1,
         rollout_health_check_interval=1.0,
         miles_router_health_check_failure_threshold=3,
-        miles_router_max_connections=None,
+        miles_router_max_connections=100,
         miles_router_timeout=None,
         miles_router_middleware_paths=[],
     )
@@ -157,17 +154,6 @@ class TestLoadBalancing:
 
         with pytest.raises(RuntimeError, match="No healthy workers"):
             router._use_url()
-
-    def test_finish_url_decrements_count(self, router_factory):
-        router = router_factory()
-        router.worker_request_counts = {"http://w1:8000": 5}
-        router._finish_url("http://w1:8000")
-        assert router.worker_request_counts["http://w1:8000"] == 4
-
-    def test_finish_url_raises_on_unknown(self, router_factory):
-        router = router_factory()
-        with pytest.raises(AssertionError, match="not recognized"):
-            router._finish_url("http://unknown:8000")
 
 
 # TODO: extract main body inside `_health_check_loop`, then can test that function
