@@ -20,6 +20,8 @@ from miles.utils.misc import load_function
 
 
 async def generate(input: GenerateFnInput) -> GenerateFnOutput:
+    # ----------------------- Setup -------------------------
+
     args = input.args
     sample = input.sample
     tokenizer = input.state.tokenizer
@@ -36,6 +38,8 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         tools=TypeAdapter(list[Tool]).validate_python(tool_specs),
         tool_call_parser=args.generate_tool_call_parser,
     )
+
+    # ----------------------- Initial prompts -------------------------
 
     prompt_tokens_ids = compute_prompt_ids_from_sample(input.state, sample, tools=tool_specs)
 
