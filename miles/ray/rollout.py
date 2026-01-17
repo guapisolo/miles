@@ -156,8 +156,6 @@ class RolloutManager:
         self.health_monitoring_resume()
 
         if self.use_experimental_refactor:
-            from miles.rollout.modular_rollout.compatibility import call_rollout_function
-
             result = call_rollout_function(self.eval_generate_rollout, RolloutFnEvalInput(rollout_id=rollout_id))
             data = result.data
             metrics = result.metrics
