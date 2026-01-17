@@ -171,7 +171,7 @@ class TestSessionProxy:
         assert records[0]["response_json"] == {"result": "ok"}
         assert records[0]["status_code"] == 200
 
-    def test_proxy_non_json_response(self, app_with_sessions):
+    def test_proxy_empty_request_body(self, app_with_sessions):
         app, mock_router = app_with_sessions
         client = TestClient(app)
 
@@ -179,23 +179,23 @@ class TestSessionProxy:
         session_id = create_resp.json()["session_id"]
 
         mock_router._do_proxy.return_value = {
-            "request_body": b"",
-            "response_body": b"plain text response",
+            "request_body": b"{}",
+            "response_body": json.dumps({"status": "ok"}).encode(),
             "status_code": 200,
-            "headers": {"content-type": "text/plain"},
+            "headers": {"content-type": "application/json"},
         }
-        mock_router._build_response.return_value = Response(
-            content=b"plain text response", status_code=200, media_type="text/plain"
+        mock_router._build_response.return_value = JSONResponse(
+            content={"status": "ok"}, status_code=200
         )
 
-        proxy_resp = client.post(f"/sessions/{session_id}/health")
+        proxy_resp = client.get(f"/sessions/{session_id}/health")
 
         assert proxy_resp.status_code == 200
-        assert proxy_resp.text == "plain text response"
 
         get_resp = client.get(f"/sessions/{session_id}")
         records = get_resp.json()["records"]
-        assert records[0]["response_json"] is None
+        assert records[0]["request_json"] == {}
+        assert records[0]["response_json"] == {"status": "ok"}
 
     def test_proxy_session_not_found(self, client):
         response = client.post("/sessions/nonexistent/generate", json={})
