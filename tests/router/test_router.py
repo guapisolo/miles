@@ -173,13 +173,13 @@ class TestLoadBalancing:
 class TestHealthCheck:
     def test_check_worker_health_success(self, router_factory, mock_worker: MockSGLangServer):
         router = router_factory()
-        url, healthy = asyncio.get_event_loop().run_until_complete(router._check_worker_health(mock_worker.url))
+        url, healthy = asyncio.run(router._check_worker_health(mock_worker.url))
         assert url == mock_worker.url
         assert healthy is True
 
     def test_check_worker_health_failure(self, router_factory):
         router = router_factory()
-        url, healthy = asyncio.get_event_loop().run_until_complete(router._check_worker_health("http://127.0.0.1:59999"))
+        url, healthy = asyncio.run(router._check_worker_health("http://127.0.0.1:59999"))
         assert url == "http://127.0.0.1:59999"
         assert healthy is False
 
