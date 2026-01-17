@@ -36,7 +36,7 @@ SECOND_PROMPT_TOKEN_IDS = TOKENIZER(MULTI_TURN_SECOND_PROMPT, add_special_tokens
     params=[
         "multi_turn_single_sample",
         "multi_turn_multi_samples",
-        "agentic_tool_call_single_samples",
+        "agentic_tool_call_single_sample",
         "agentic_tool_call_multi_samples",
     ]
 )

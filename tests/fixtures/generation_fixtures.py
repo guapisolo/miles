@@ -32,7 +32,7 @@ VARIANT_TO_GENERATE_FN_PATH = {
     "single_turn": "miles.rollout.generate_hub.single_turn.generate",
     "multi_turn_single_sample": "miles.rollout.generate_hub.multi_turn.generate",
     "multi_turn_multi_samples": "miles.rollout.generate_hub.multi_turn.generate",
-    "agentic_tool_call_single_samples": "miles.rollout.generate_hub.agentic_tool_call.generate",
+    "agentic_tool_call_single_sample": "miles.rollout.generate_hub.agentic_tool_call.generate",
     "agentic_tool_call_multi_samples": "miles.rollout.generate_hub.agentic_tool_call.generate",
 }
 
@@ -157,7 +157,7 @@ def make_args(
     if variant in (
         "multi_turn_single_sample",
         "multi_turn_multi_samples",
-        "agentic_tool_call_single_samples",
+        "agentic_tool_call_single_sample",
         "agentic_tool_call_multi_samples",
     ):
         argv.extend(["--generate-max-turns", str(generate_max_turns)])
