@@ -24,5 +24,5 @@ class OpenAIEndpointTracer:
         return response.records
 
 
-def compute_samples_from_openai_records(input_sample: Sample, records: list[SessionRecord]) -> Sample:
+def compute_samples_from_openai_records(input_sample: Sample, records: list[SessionRecord]) -> list[Sample]:
     return TODO
