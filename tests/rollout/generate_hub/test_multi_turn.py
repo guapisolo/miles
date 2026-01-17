@@ -554,11 +554,10 @@ class TestRoutedExpertsMultiTurn:
                 text, routed_experts = S.SECOND_RESPONSE, second_routed_experts
             else:
                 raise ValueError(f"Unexpected prompt: {prompt}")
-            routed_experts_str = pybase64.b64encode(routed_experts.tobytes()).decode("ascii")
             return ProcessResult(
                 text=text,
                 finish_reason="stop",
-                meta_info=ProcessResultMetaInfo(routed_experts=routed_experts_str),
+                meta_info=ProcessResultMetaInfo(routed_experts=pybase64.b64encode(routed_experts.tobytes()).decode("ascii")),
             )
 
         generation_env.mock_server.process_fn = process_fn
