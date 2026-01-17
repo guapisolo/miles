@@ -22,8 +22,7 @@ class SessionRecord:
 
 
 class SessionManager:
-    def __init__(self, router: "MilesRouter"):
-        self.router = router
+    def __init__(self):
         self.sessions: dict[str, list[SessionRecord]] = {}
 
     def create_session(self) -> str:
@@ -38,12 +37,13 @@ class SessionManager:
         return self.sessions.pop(session_id, None)
 
     def add_record(self, session_id: str, record: SessionRecord):
-        if session_id in self.sessions:
-            self.sessions[session_id].append(record)
+        if session_id not in self.sessions:
+            raise KeyError(f"session not found: {session_id}")
+        self.sessions[session_id].append(record)
 
 
 def setup_session_routes(app, router: "MilesRouter"):
-    manager = SessionManager(router)
+    manager = SessionManager()
 
     @app.post("/sessions")
     async def create_session():

@@ -99,7 +99,7 @@ def verify_samples(actual: Sample | list[Sample], expected: list[ExpectedSampleI
     samples = listify(actual)
     assert len(samples) == len(expected), f"Expected {len(expected)} samples, got {len(samples)}"
 
-    for sample, info in zip(samples, expected):
+    for sample, info in zip(samples, expected, strict=True):
         actual_chunks = parse_sample_into_chunks(sample, TOKENIZER)
         assert actual_chunks == info.chunks
 
