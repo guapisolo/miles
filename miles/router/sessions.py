@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from miles.router.router import MilesRouter
 
 
-@dataclass
-class SessionRecord:
+class SessionRecord(BaseModel):
     timestamp: float
     method: str
     path: str
