@@ -72,7 +72,6 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         tool_messages = await execute_tool_calls(tool_calls, execute_tool_function)
         update_sample_with_tool_responses(sample, tool_messages, tokenizer=tokenizer)
 
-
     return GenerateFnOutput(samples=(extra_samples + [sample]) if args.generate_multi_samples else sample)
 
 
