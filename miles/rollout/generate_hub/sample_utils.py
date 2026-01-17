@@ -5,6 +5,7 @@ from miles.utils.types import Sample
 
 
 def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
+    """Merge two samples generated from sibling inference engine calls."""
     a, b = deepcopy(a), deepcopy(b)
 
     def _merge_equal_value(field):
