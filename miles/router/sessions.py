@@ -62,7 +62,7 @@ def setup_session_routes(app, router: "MilesRouter"):
         return {"session_id": session_id}
 
     @app.delete("/sessions/{session_id}")
-    async def delete_session(session_id: str) -> DeleteSessionResponse:
+    async def delete_session(session_id: str) -> JSONResponse | DeleteSessionResponse:
         if session_id not in manager.sessions:
             return JSONResponse(status_code=404, content={"error": "session not found"})
         records = manager.delete_session(session_id)
@@ -85,7 +85,6 @@ def setup_session_routes(app, router: "MilesRouter"):
             extras=SessionRecordChatCompletionsExtras(
                 input_ids=TODO,
                 output_ids=TODO,
-                loss_mask=TODO,
             ),
             status_code=result["status_code"],
         )
