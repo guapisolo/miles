@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from miles.router.router import MilesRouter
 
 
-class SessionRecordExtras(BaseModel):
+class SessionRecordChatCompletionsExtras(BaseModel):
     input_ids: list[int]
 
 
@@ -22,7 +22,7 @@ class SessionRecord(BaseModel):
     path: str
     request: dict
     response: dict
-    extras: SessionRecordExtras | None
+    extras: SessionRecordChatCompletionsExtras | None
     status_code: int
 
 
