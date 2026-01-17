@@ -9,7 +9,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
-from miles.rollout.generate_hub.openai_endpoint_wrapper import (
+from miles.rollout.generate_hub.openai_endpoint_utils import (
     OpenAIEndpointTracer,
     compute_samples_from_openai_records,
 )

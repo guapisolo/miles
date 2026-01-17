@@ -1,3 +1,7 @@
+"""
+Utilities for the OpenAI endpoint
+"""
+
 from argparse import Namespace
 from copy import deepcopy
 
