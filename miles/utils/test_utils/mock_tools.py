@@ -266,7 +266,3 @@ class ThreeTurnStub:
                 return ProcessResult(text=response, finish_reason="stop")
 
         raise ValueError(f"Unexpected {prompt=}")
-
-
-# Export function for backward compatibility with tests
-multi_turn_tool_call_process_fn = TwoTurnStub.process_fn
