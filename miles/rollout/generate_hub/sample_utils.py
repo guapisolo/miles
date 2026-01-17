@@ -4,7 +4,14 @@ from dataclasses import fields
 from miles.utils.types import Sample
 
 
-def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
+def merge_samples(samples: list[Sample], tokenizer) -> Sample:
+    acc = samples[0]
+    for sample in samples[1:]:
+        acc = merge_sample_pair(acc, sample, tokenizer=tokenizer)
+    return acc
+
+
+def merge_sample_pair(a: Sample, b: Sample, tokenizer) -> Sample:
     """Merge two samples generated from sibling inference engine calls."""
     a, b = deepcopy(a), deepcopy(b)
 
@@ -31,8 +38,8 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
     try:
         a.validate()
         b.validate()
-        assert b.prompt.startswith(a.prompt), "b.prompt must start with a.prompt"
-        assert b.tokens[: len(a.tokens)] == a.tokens, "b.tokens must start with a.tokens"
+        assert _startswith(short=a.prompt, long=b.prompt), "b.prompt must start with a.prompt"
+        assert _startswith(short=a.tokens, long=b.tokens), "b.tokens must start with a.tokens"
         assert obs_len > 0, f"obs_len must be > 0, got {obs_len}"
         assert a.status == Sample.Status.COMPLETED, f"a.status must be COMPLETED, got {a.status}"
 
@@ -97,3 +104,11 @@ def _create_with_all_fields(cls, **kwargs):
         expected == actual
     ), f"{cls.__name__} field mismatch. Missing: {expected - actual}, Extra: {actual - expected}"
     return cls(**kwargs)
+
+
+def _startswith(*, short, long) -> bool:
+    if isinstance(short, str) and isinstance(long, str):
+        return long.startswith(short)
+    if isinstance(short, list) and isinstance(long, list):
+        return (len(long) >= len(short)) and (long[: len(short)] == short)
+    raise NotImplementedError
