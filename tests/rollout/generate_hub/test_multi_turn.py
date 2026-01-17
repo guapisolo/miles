@@ -187,9 +187,19 @@ class TestBasicMultiTurn:
             expected = [
                 ExpectedSampleInfo(
                     chunks=[
-                        SampleParsedChunk(tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE, loss_mask_value=1, rollout_log_probs=[-1 / 128 * i for i in range(45)]),
-                        SampleParsedChunk(tokens_decoded_str=TWO_TURN_TOOL_RESPONSE, loss_mask_value=0, rollout_log_probs=[0.0] * 31),
-                        SampleParsedChunk(tokens_decoded_str=MULTI_TURN_SECOND_RESPONSE, loss_mask_value=1, rollout_log_probs=[-1 / 128 * i for i in range(24)]),
+                        SampleParsedChunk(
+                            tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                        ),
+                        SampleParsedChunk(
+                            tokens_decoded_str=TWO_TURN_TOOL_RESPONSE, loss_mask_value=0, rollout_log_probs=[0.0] * 31
+                        ),
+                        SampleParsedChunk(
+                            tokens_decoded_str=MULTI_TURN_SECOND_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(24)],
+                        ),
                     ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
@@ -201,7 +211,13 @@ class TestBasicMultiTurn:
         else:
             expected = [
                 ExpectedSampleInfo(
-                    chunks=[SampleParsedChunk(tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE, loss_mask_value=1, rollout_log_probs=[-1 / 128 * i for i in range(45)])],
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                        )
+                    ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
@@ -209,7 +225,13 @@ class TestBasicMultiTurn:
                     ),
                 ),
                 ExpectedSampleInfo(
-                    chunks=[SampleParsedChunk(tokens_decoded_str=MULTI_TURN_SECOND_RESPONSE, loss_mask_value=1, rollout_log_probs=[-1 / 128 * i for i in range(24)])],
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=MULTI_TURN_SECOND_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(24)],
+                        )
+                    ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_SECOND_RESPONSE,
@@ -268,7 +290,13 @@ class TestExitConditions:
             result.sample,
             [
                 ExpectedSampleInfo(
-                    chunks=[SampleParsedChunk(tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE, loss_mask_value=1, rollout_log_probs=[-1 / 128 * i for i in range(45)])],
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                        )
+                    ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
@@ -292,8 +320,14 @@ class TestExitConditions:
             expected = [
                 ExpectedSampleInfo(
                     chunks=[
-                        SampleParsedChunk(tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE, loss_mask_value=1, rollout_log_probs=[-1 / 128 * i for i in range(45)]),
-                        SampleParsedChunk(tokens_decoded_str=TWO_TURN_TOOL_RESPONSE, loss_mask_value=0, rollout_log_probs=[0.0] * 31),
+                        SampleParsedChunk(
+                            tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                        ),
+                        SampleParsedChunk(
+                            tokens_decoded_str=TWO_TURN_TOOL_RESPONSE, loss_mask_value=0, rollout_log_probs=[0.0] * 31
+                        ),
                     ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
@@ -305,7 +339,13 @@ class TestExitConditions:
         else:
             expected = [
                 ExpectedSampleInfo(
-                    chunks=[SampleParsedChunk(tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE, loss_mask_value=1, rollout_log_probs=[-1 / 128 * i for i in range(45)])],
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                        )
+                    ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
@@ -351,8 +391,14 @@ class TestRespectMaxContextLen:
             expected = [
                 ExpectedSampleInfo(
                     chunks=[
-                        SampleParsedChunk(tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE, loss_mask_value=1, rollout_log_probs=[-1 / 128 * i for i in range(45)]),
-                        SampleParsedChunk(tokens_decoded_str=TWO_TURN_TOOL_RESPONSE, loss_mask_value=0, rollout_log_probs=[0.0] * 31),
+                        SampleParsedChunk(
+                            tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                        ),
+                        SampleParsedChunk(
+                            tokens_decoded_str=TWO_TURN_TOOL_RESPONSE, loss_mask_value=0, rollout_log_probs=[0.0] * 31
+                        ),
                     ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
@@ -365,7 +411,13 @@ class TestRespectMaxContextLen:
         else:
             expected = [
                 ExpectedSampleInfo(
-                    chunks=[SampleParsedChunk(tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE, loss_mask_value=1, rollout_log_probs=[-1 / 128 * i for i in range(45)])],
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                        )
+                    ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
