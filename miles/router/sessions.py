@@ -1,7 +1,7 @@
 import json
 import time
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fastapi import Request
@@ -55,7 +55,7 @@ def setup_session_routes(app, router: "MilesRouter"):
         if session_id not in manager.sessions:
             return JSONResponse(status_code=404, content={"error": "session not found"})
         records = manager.delete_session(session_id)
-        return {"session_id": session_id, "records": [asdict(r) for r in records]}
+        return {"session_id": session_id, "records": records}
 
     @app.api_route("/sessions/{session_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def session_proxy(request: Request, session_id: str, path: str):
