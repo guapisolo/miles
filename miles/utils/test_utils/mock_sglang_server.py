@@ -181,7 +181,7 @@ class MockSGLangServer:
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": process_result.text if not tool_calls else None,
+                        "content": process_result.text,  # Always include content for alignment
                         "tool_calls": tool_calls,
                     },
                     "logprobs": {"content": logprobs_content},
