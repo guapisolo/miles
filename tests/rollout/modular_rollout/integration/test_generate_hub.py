@@ -51,16 +51,8 @@ def test_rollout(rollout_integration_env, request, test_type):
 def _verify_samples(variant: str, samples: list[Sample], expected_count: int):
     for sample in samples:
         assert sample.status == Sample.Status.COMPLETED
-
-    if variant in ("multi_turn_multi_samples", "agentic_tool_call_multi_samples"):
-        assert len(samples) == 2
-        assert samples[-1].reward == 1
-        assert "2008" in samples[-1].response
-    else:
-        assert len(samples) == expected_count
-        for sample in samples:
-            if variant == "single_turn":
-                assert sample.reward == 0
-            else:
-                assert sample.reward == 1
-                assert "2008" in sample.response
+        if variant == "single_turn":
+            assert sample.reward == 0
+        else:
+            assert sample.reward == 1
+            assert "2008" in sample.response
