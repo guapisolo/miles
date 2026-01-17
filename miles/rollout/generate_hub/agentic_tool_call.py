@@ -68,11 +68,7 @@ class _BlackboxToolCallAgent:
         for turn in range(self.generate_max_turns):
             # ----------------------- Call inference endpoint -------------------------
 
-            response = await client.chat.completions.create(
-                model="default",
-                messages=messages,
-                tools=tool_specs,
-            )
+            response = await client.chat.completions.create(model="default", messages=messages, tools=tool_specs)
 
             choice = response.choices[0]
             messages.append(choice.message.model_dump())
