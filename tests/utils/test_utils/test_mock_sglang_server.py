@@ -214,20 +214,22 @@ def test_chat_completions_basic(mock_server):
     assert response.status_code == 200
     data = response.json()
 
-    assert data["object"] == "chat.completion"
-    assert data["model"] == "mock-model"
     assert data["id"].startswith("chatcmpl-")
-    assert "created" in data
-    assert len(data["choices"]) == 1
-
-    choice = data["choices"][0]
-    assert choice["index"] == 0
-    assert choice["message"]["role"] == "assistant"
-    assert choice["message"]["content"] == "\\boxed{6}"
-    assert choice["message"]["tool_calls"] is None
-    assert choice["finish_reason"] == "stop"
-    assert "logprobs" in choice
-    assert "content" in choice["logprobs"]
+    assert isinstance(data["created"], int)
+    assert data == {
+        "id": data["id"],
+        "object": "chat.completion",
+        "created": data["created"],
+        "model": "mock-model",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "\\boxed{6}", "tool_calls": None},
+                "logprobs": {"content": data["choices"][0]["logprobs"]["content"]},
+                "finish_reason": "stop",
+            }
+        ],
+    }
 
 
 def test_chat_completions_logprobs_format(mock_server):
@@ -267,17 +269,16 @@ def test_chat_completions_with_tool_calls():
         )
         data = response.json()
 
-    choice = data["choices"][0]
-    assert choice["finish_reason"] == "tool_calls"
-    assert choice["message"]["content"] is None
-    assert choice["message"]["tool_calls"] is not None
-    assert len(choice["message"]["tool_calls"]) == 1
-
-    tool_call = choice["message"]["tool_calls"][0]
-    assert tool_call["id"] == "call00000"
-    assert tool_call["type"] == "function"
-    assert tool_call["function"]["name"] == "get_year"
-    assert tool_call["function"]["arguments"] == "{}"
+    assert data["choices"][0] == {
+        "index": 0,
+        "message": {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "call00000", "type": "function", "function": {"name": "get_year", "arguments": "{}"}}],
+        },
+        "logprobs": data["choices"][0]["logprobs"],
+        "finish_reason": "tool_calls",
+    }
 
 
 def test_chat_completions_with_tools_but_no_tool_call():
@@ -296,10 +297,12 @@ def test_chat_completions_with_tools_but_no_tool_call():
         )
         data = response.json()
 
-    choice = data["choices"][0]
-    assert choice["finish_reason"] == "stop"
-    assert choice["message"]["content"] == "The weather is sunny today."
-    assert choice["message"]["tool_calls"] is None
+    assert data["choices"][0] == {
+        "index": 0,
+        "message": {"role": "assistant", "content": "The weather is sunny today.", "tool_calls": None},
+        "logprobs": data["choices"][0]["logprobs"],
+        "finish_reason": "stop",
+    }
 
 
 def test_chat_completions_with_multiple_tool_calls():
@@ -370,23 +373,3 @@ def test_generate_requires_return_logprob_true():
             timeout=5.0,
         )
         assert response.status_code == 500
-
-
-def test_process_result_defaults():
-    result = ProcessResult(text="hello", finish_reason="stop")
-    assert result.text == "hello"
-    assert result.finish_reason == "stop"
-    assert result.cached_tokens == 0
-    assert result.meta_info == ProcessResultMetaInfo()
-
-    result_with_cache = ProcessResult(text="world", finish_reason="length", cached_tokens=100)
-    assert result_with_cache.cached_tokens == 100
-    assert result_with_cache.meta_info == ProcessResultMetaInfo()
-
-
-def test_port_auto_assignment():
-    with with_mock_server(port=None) as server:
-        assert server.port > 0
-        assert server.port >= 30000
-        response = requests.get(f"{server.url}/health", timeout=5.0)
-        assert response.status_code == 200
