@@ -166,7 +166,7 @@ class MilesRouter:
             data = json.loads(content)
             return JSONResponse(content=data, status_code=status_code, headers=headers)
         except Exception:
-            return Response(content=content, status_code=status_code, headers=headers, media_type=content_type or None)
+            return Response(content=content, status_code=status_code, headers=headers, media_type=content_type)
 
     async def add_worker(self, request: Request):
         """Add a new worker to the router.
