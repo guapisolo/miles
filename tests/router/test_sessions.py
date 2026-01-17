@@ -49,8 +49,8 @@ class TestSessionManager:
             timestamp=1234567890.0,
             method="POST",
             path="generate",
-            request_json={"prompt": "hello"},
-            response_json={"text": "world"},
+            request={"prompt": "hello"},
+            response={"text": "world"},
             status_code=200,
         )
         manager.add_record(session_id, record)
@@ -63,8 +63,8 @@ class TestSessionManager:
             timestamp=1234567890.0,
             method="POST",
             path="generate",
-            request_json={},
-            response_json={},
+            request={},
+            response={},
             status_code=200,
         )
         with pytest.raises(AssertionError):

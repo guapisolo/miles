@@ -40,9 +40,9 @@ def _compute_sample_from_openai_record(input_sample: Sample, record: SessionReco
     sample.response_length = 0
 
     # TODO handle this in generation side
-    sample.tokens = record.request_json["input_ids"]
+    sample.tokens = record.request["input_ids"]
 
-    gen_token_ids, gen_log_probs, gen_text = _extract_generation_from_oai_response(record.response_json)
+    gen_token_ids, gen_log_probs, gen_text = _extract_generation_from_oai_response(record.response)
 
     num_tool_response_tokens = len(prompt_ids) - len(sample.tokens)
     if num_tool_response_tokens > 0:
@@ -57,7 +57,7 @@ def _compute_sample_from_openai_record(input_sample: Sample, record: SessionReco
     sample.response += gen_text
     sample.response_length += len(gen_token_ids)
 
-    _update_sample_status_from_oai_response(sample, record.response_json)
+    _update_sample_status_from_oai_response(sample, record.response)
 
     return sample
 

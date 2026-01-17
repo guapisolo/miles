@@ -16,8 +16,8 @@ class SessionRecord(BaseModel):
     timestamp: float
     method: str
     path: str
-    request_json: dict | None
-    response_json: dict | None
+    request: dict | None
+    response: dict | None
     status_code: int
 
 
@@ -74,8 +74,8 @@ def setup_session_routes(app, router: "MilesRouter"):
             timestamp=time.time(),
             method=request.method,
             path=path,
-            request_json=json.loads(result["request_body"]),
-            response_json=json.loads(result["response_body"]),
+            request=json.loads(result["request_body"]),
+            response=json.loads(result["response_body"]),
             status_code=result["status_code"],
         )
         manager.add_record(session_id, record)
