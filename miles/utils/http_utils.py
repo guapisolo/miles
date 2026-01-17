@@ -288,20 +288,9 @@ async def post(url, payload, max_retries=60, action="post"):
     return await _post(_http_client, url, payload, max_retries, action=action)
 
 
+# TODO unify w/ `post` to add retries and remote-execution
 async def get(url):
-    if _http_client is None:
-        import httpx
-
-        async_client = httpx.AsyncClient(timeout=httpx.Timeout(None))
-        try:
-            response = await async_client.get(url)
-            response.raise_for_status()
-            output = response.json()
-            return output
-        finally:
-            await async_client.aclose()
-    else:
-        response = await _http_client.get(url)
-        response.raise_for_status()
-        output = response.json()
-        return output
+    response = await _http_client.get(url)
+    response.raise_for_status()
+    output = response.json()
+    return output
