@@ -288,7 +288,18 @@ async def post(url, payload, max_retries=60, action="post"):
 
 
 async def get(url):
-    response = await _http_client.get(url)
-    response.raise_for_status()
-    output = response.json()
-    return output
+    if _http_client is None:
+        import httpx
+        async_client = httpx.AsyncClient(timeout=httpx.Timeout(None))
+        try:
+            response = await async_client.get(url)
+            response.raise_for_status()
+            output = response.json()
+            return output
+        finally:
+            await async_client.aclose()
+    else:
+        response = await _http_client.get(url)
+        response.raise_for_status()
+        output = response.json()
+        return output

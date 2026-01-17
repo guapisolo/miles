@@ -206,9 +206,6 @@ class TestRoutedExperts:
         indirect=True,
     )
     def test_routed_experts_enabled_and_parsed(self, variant, generation_env):
-        if variant in ("multi_turn_single_sample", "multi_turn_multi_samples"):
-            pytest.skip("TODO: support")
-
         num_layers, moe_router_topk = 2, 4
         num_tokens = len(PROMPT_TOKENS) + len(RESPONSE_TOKENS)
         routed_experts_array = np.arange((num_tokens - 1) * num_layers * moe_router_topk, dtype=np.int32).reshape(
@@ -310,6 +307,46 @@ class TestBoundaryConditions:
 
     @pytest.mark.parametrize("generation_env", [{"args_kwargs": {"rollout_max_context_len": 5}}], indirect=True)
     def test_prompt_exceeds_max_context_len_returns_truncated(self, variant, generation_env):
+        if variant == "old_sglang_rollout":
+            pytest.skip("old_sglang_rollout does not support rollout_max_context_len")
+        if variant == "multi_turn_multi_samples":
+            pytest.skip("multi_turn_multi_samples returns empty list when first turn fails")
+        result = _run_generate(variant, generation_env)
+        assert result.requests == []
+        tokens = PROMPT_TOKENS if variant in ("multi_turn_single_sample", "multi_turn_multi_samples") else []
+        assert listify(result.sample) == [
+            expected_sample(
+                variant,
+                response="",
+                response_length=0,
+                tokens=tokens,
+                rollout_log_probs=None,
+                status=Sample.Status.TRUNCATED,
+                prompt_tokens=0,
+                loss_mask=None if variant == "multi_turn_single_sample" else _UNSET,
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "generation_env,expected_max_new_tokens",
+        [
+            ({"args_kwargs": {"rollout_max_context_len": 10}}, 3),
+            ({"args_kwargs": {"rollout_max_context_len": 8}}, 1),
+            ({"args_kwargs": {"rollout_max_context_len": 100}}, 16),
+        ],
+        indirect=["generation_env"],
+    )
+    def test_moderate_length_input_adjusts_max_new_tokens(self, variant, generation_env, expected_max_new_tokens):
+        if variant == "old_sglang_rollout":
+            pytest.skip("old_sglang_rollout does not support rollout_max_context_len")
+        result = _run_generate(variant, generation_env)
+        assert len(result.requests) == 1
+        assert result.requests[0]["sampling_params"]["max_new_tokens"] == expected_max_new_tokens
+        assert result.requests[0]["sampling_params"]["temperature"] == SAMPLING_PARAMS["temperature"]
+        assert listify(result.sample) == [expected_sample(variant)]
+
+    @pytest.mark.parametrize("generation_env", [{"args_kwargs": {"rollout_max_context_len": 7}}], indirect=True)
+    def test_adjusted_max_new_tokens_zero_returns_truncated(self, variant, generation_env):
         if variant == "old_sglang_rollout":
             pytest.skip("old_sglang_rollout does not support rollout_max_context_len")
         if variant == "multi_turn_multi_samples":

@@ -158,6 +158,14 @@ class Sample:
             assert (
                 len(self.rollout_log_probs) == self.response_length
             ), f"rollout_log_probs length ({len(self.rollout_log_probs)}) != response_length ({self.response_length})"
+        if self.rollout_routed_experts is not None:
+            import numpy as np
+
+            routed_experts = np.asarray(self.rollout_routed_experts)
+            expected_len = len(self.tokens) - 1
+            assert (
+                routed_experts.shape[0] == expected_len
+            ), f"rollout_routed_experts length ({routed_experts.shape[0]}) != len(tokens) - 1 ({expected_len})"
 
     def update_from_meta_info(self, args, meta_info: dict):
         """

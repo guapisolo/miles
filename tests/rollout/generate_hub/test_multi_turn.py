@@ -2,11 +2,13 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from itertools import groupby
 
+import numpy as np
+import pybase64
 import pytest
 from tests.fixtures.generation_fixtures import GenerateEnv, generation_env, listify, make_sample, run_generate
 from transformers import AutoTokenizer
 
-from miles.utils.test_utils.mock_sglang_server import ProcessResult
+from miles.utils.test_utils.mock_sglang_server import ProcessResult, ProcessResultMetaInfo
 from miles.utils.test_utils.mock_tools import SAMPLE_TOOLS, ThreeTurnStub, TwoTurnStub
 from miles.utils.types import Sample
 
@@ -412,6 +414,40 @@ class TestRespectMaxContextLen:
             ]
         verify_samples(result.sample, expected)
 
+    @pytest.mark.parametrize(
+        "generation_env,expected_max_new_tokens",
+        [
+            (
+                {
+                    "args_kwargs": {
+                        "rollout_max_context_len": len(TwoTurnStub.SECOND_PROMPT_TOKEN_IDS) + 10
+                    }
+                },
+                10,
+            ),
+            (
+                {
+                    "args_kwargs": {
+                        "rollout_max_context_len": len(TwoTurnStub.SECOND_PROMPT_TOKEN_IDS) + 100
+                    }
+                },
+                64,
+            ),
+        ],
+        indirect=["generation_env"],
+    )
+    def test_second_turn_adjusts_max_new_tokens(self, variant, generation_env, expected_max_new_tokens):
+        if is_agentic_variant(variant):
+            pytest.skip("TODO: implement")
+        S = TwoTurnStub
+        generation_env.mock_server.process_fn = S.process_fn
+
+        result = _run_generate(variant, generation_env, make_sample(prompt=S.PROMPT))
+
+        assert len(result.requests) >= 2
+        assert result.requests[1]["sampling_params"]["max_new_tokens"] == expected_max_new_tokens
+        assert result.requests[1]["sampling_params"]["temperature"] == DEFAULT_SAMPLING_PARAMS["temperature"]
+
 
 class TestThreeTurn:
     """Need to test 3-turn case besides 2-turn, because e.g. merge_samples may behave differently."""
@@ -486,3 +522,84 @@ class TestThreeTurn:
                 ),
             ]
         verify_samples(result.sample, expected)
+
+
+class TestRoutedExpertsMultiTurn:
+    @pytest.mark.parametrize(
+        "generation_env",
+        [
+            {
+                "args_kwargs": {
+                    "use_rollout_routing_replay": True,
+                }
+            }
+        ],
+        indirect=True,
+    )
+    def test_two_turns_routed_experts(self, variant, generation_env):
+        """测试两轮对话中，最后一轮的路由信息包含整个序列"""
+        if is_agentic_variant(variant):
+            pytest.skip("agentic_tool_call uses different endpoint")
+
+        S = TwoTurnStub
+        num_layers, moe_router_topk = 2, 4
+        generation_env.args.num_layers = num_layers
+        generation_env.args.moe_router_topk = moe_router_topk
+
+        # 计算各轮次的 tokens 长度
+        first_prompt_len = len(S.FIRST_PROMPT_TOKEN_IDS)
+        first_response_len = token_len(S.FIRST_RESPONSE)
+        first_tool_response_len = token_len(S.FIRST_TOOL_RESPONSE)
+        second_response_len = token_len(S.SECOND_RESPONSE)
+
+        # 第二轮：整个序列（prompt + first_response + tool_response + second_response）
+        second_total_tokens = first_prompt_len + first_response_len + first_tool_response_len + second_response_len
+        second_routed_experts_len = second_total_tokens - 1
+
+        # 构造第二轮的路由信息数组（包含整个序列）
+        second_routed_experts = np.arange(
+            second_routed_experts_len * num_layers * moe_router_topk, dtype=np.int32
+        ).reshape(second_routed_experts_len, num_layers, moe_router_topk)
+
+        # 设置 mock server 的 process_fn
+        def process_fn(prompt: str) -> ProcessResult:
+            if prompt == S.FIRST_PROMPT:
+                # 第一轮返回空的路由信息（会被覆盖）
+                return ProcessResult(
+                    text=S.FIRST_RESPONSE,
+                    finish_reason="stop",
+                    meta_info=ProcessResultMetaInfo(routed_experts=None),
+                )
+            elif prompt == S.SECOND_PROMPT:
+                # 第二轮返回包含整个序列的路由信息
+                routed_experts_str = pybase64.b64encode(second_routed_experts.tobytes()).decode("ascii")
+                return ProcessResult(
+                    text=S.SECOND_RESPONSE,
+                    finish_reason="stop",
+                    meta_info=ProcessResultMetaInfo(routed_experts=routed_experts_str),
+                )
+            raise ValueError(f"Unexpected prompt: {prompt}")
+
+        generation_env.mock_server.process_fn = process_fn
+
+        # 运行生成
+        result = _run_generate(variant, generation_env, make_sample(prompt=S.PROMPT))
+
+        # 验证结果
+        if variant == "multi_turn_single_sample":
+            # 对于 single_sample，应该使用最后一轮的路由信息
+            sample = result.sample
+            assert sample.rollout_routed_experts is not None
+            assert sample.rollout_routed_experts.shape == (second_routed_experts_len, num_layers, moe_router_topk)
+            # 验证使用的是第二轮的路由信息（包含整个序列）
+            np.testing.assert_array_equal(sample.rollout_routed_experts, second_routed_experts)
+            # 验证路由信息长度与 tokens 长度匹配
+            assert len(sample.tokens) - 1 == second_routed_experts_len
+        elif variant == "multi_turn_multi_samples":
+            # 对于 multi_samples，最后一个 sample 应该有路由信息
+            samples = listify(result.sample)
+            assert len(samples) >= 1
+            last_sample = samples[-1]
+            assert last_sample.rollout_routed_experts is not None
+            assert last_sample.rollout_routed_experts.shape == (second_routed_experts_len, num_layers, moe_router_topk)
+            np.testing.assert_array_equal(last_sample.rollout_routed_experts, second_routed_experts)

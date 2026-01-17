@@ -266,3 +266,17 @@ class ThreeTurnStub:
                 return ProcessResult(text=response, finish_reason="stop")
 
         raise ValueError(f"Unexpected {prompt=}")
+
+
+# Export constants for backward compatibility with tests
+MULTI_TURN_FIRST_PROMPT = TwoTurnStub.FIRST_PROMPT
+MULTI_TURN_FIRST_RESPONSE = TwoTurnStub.FIRST_RESPONSE
+MULTI_TURN_FIRST_RESPONSE_CONTENT = TwoTurnStub.FIRST_RESPONSE_CONTENT
+MULTI_TURN_FIRST_TOOL_CALLS = TwoTurnStub.FIRST_TOOL_CALLS_OPENAI_FORMAT
+MULTI_TURN_OPENAI_MESSAGES_FIRST_TURN = TwoTurnStub.OPENAI_MESSAGES_FIRST_TURN
+MULTI_TURN_OPENAI_MESSAGES_SECOND_TURN = TwoTurnStub.OPENAI_MESSAGES_SECOND_TURN_FROM_CLIENT
+MULTI_TURN_SECOND_PROMPT = TwoTurnStub.SECOND_PROMPT
+MULTI_TURN_SECOND_RESPONSE = TwoTurnStub.SECOND_RESPONSE
+
+# Export function for backward compatibility with tests
+multi_turn_tool_call_process_fn = TwoTurnStub.process_fn

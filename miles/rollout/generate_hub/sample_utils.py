@@ -1,6 +1,8 @@
 from copy import deepcopy
 from dataclasses import fields
 
+import numpy as np
+
 from miles.utils.types import Sample
 
 
@@ -58,8 +60,7 @@ def merge_sample_pair(a: Sample, b: Sample, tokenizer) -> Sample:
             loss_mask=a.loss_mask + [0] * obs_len + b.loss_mask,
             weight_versions=a.weight_versions + b.weight_versions,
             rollout_log_probs=a.rollout_log_probs + [0.0] * obs_len + b.rollout_log_probs,
-            # TODO should support concat
-            rollout_routed_experts=_merge_equal_value("rollout_routed_experts"),
+            rollout_routed_experts=_merge_routed_experts(a, b),
             remove_sample=_merge_equal_value("remove_sample"),
             status=b.status,
             metadata=_merge_equal_value("metadata"),
@@ -104,6 +105,27 @@ def _create_with_all_fields(cls, **kwargs):
         expected == actual
     ), f"{cls.__name__} field mismatch. Missing: {expected - actual}, Extra: {actual - expected}"
     return cls(**kwargs)
+
+
+def _merge_routed_experts(a: Sample, b: Sample):
+    """Merge rollout_routed_experts: use b if it's longer, otherwise use the non-None one."""
+    a_experts = a.rollout_routed_experts
+    b_experts = b.rollout_routed_experts
+
+    if a_experts is None and b_experts is None:
+        return None
+    if a_experts is None:
+        return b_experts
+    if b_experts is None:
+        return a_experts
+
+    # Both are not None, verify a is shorter than b and use b
+    a_array = np.asarray(a_experts)
+    b_array = np.asarray(b_experts)
+    assert (
+        a_array.shape[0] < b_array.shape[0]
+    ), f"a.rollout_routed_experts length ({a_array.shape[0]}) must be < b.rollout_routed_experts length ({b_array.shape[0]})"
+    return b_experts
 
 
 def _startswith(*, short, long) -> bool:
