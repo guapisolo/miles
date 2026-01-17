@@ -12,7 +12,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     endpoint_tracer = TODO()
     agent = _BlackboxToolCallAgent(
         base_url=endpoint_tracer.base_url,
-        **{k: v for k, v in vars(input.args).items() if k.startswith("generate_")},
+        **{k[9:]: v for k, v in vars(input.args).items() if k.startswith("generate_")},
     )
     await agent.run()
     return endpoint_tracer.collect()
@@ -41,6 +41,7 @@ class _BlackboxToolCallAgent:
     tool_specs_path: str
     tool_call_parser: str
     execute_tool_function_path: str
+    multi_samples: bool
 
     async def run(self):
         TODO
