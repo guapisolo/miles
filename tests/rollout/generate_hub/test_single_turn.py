@@ -18,10 +18,12 @@ _ = generation_env
 MODEL_NAME = "Qwen/Qwen3-0.6B"
 PROMPT = "What is 1+7?"
 PROMPT_TOKENS = [3838, 374, 220, 16, 10, 22, 30]
+PROMPT_TOKEN_LEN = len(PROMPT_TOKENS)
 RESPONSE_TOKENS = [59, 79075, 90, 23, 92]
 RESPONSE_TEXT = "\\boxed{8}"
 RESPONSE_LOG_PROBS = [-0.0, -0.0078125, -0.015625, -0.0234375, -0.03125]
 SAMPLING_PARAMS = {"max_new_tokens": 16, "temperature": 0.7}
+DEFAULT_MAX_NEW_TOKENS = SAMPLING_PARAMS["max_new_tokens"]
 
 
 @pytest.fixture(params=["old_sglang_rollout", "single_turn", "multi_turn_single_sample", "multi_turn_multi_samples"])
@@ -206,9 +208,6 @@ class TestRoutedExperts:
         indirect=True,
     )
     def test_routed_experts_enabled_and_parsed(self, variant, generation_env):
-        if variant in ("multi_turn_single_sample", "multi_turn_multi_samples"):
-            pytest.skip("TODO: support")
-
         num_layers, moe_router_topk = 2, 4
         num_tokens = len(PROMPT_TOKENS) + len(RESPONSE_TOKENS)
         routed_experts_array = np.arange((num_tokens - 1) * num_layers * moe_router_topk, dtype=np.int32).reshape(
@@ -226,9 +225,10 @@ class TestRoutedExperts:
 
         result = _run_generate(variant, generation_env)
         assert result.requests == [expected_request(variant, return_routed_experts=True)]
-        assert result.sample.rollout_routed_experts is not None
-        assert result.sample.rollout_routed_experts.shape == (num_tokens - 1, num_layers, moe_router_topk)
-        np.testing.assert_array_equal(result.sample.rollout_routed_experts, routed_experts_array)
+        sample = result.sample[0] if isinstance(result.sample, list) else result.sample
+        assert sample.rollout_routed_experts is not None
+        assert sample.rollout_routed_experts.shape == (num_tokens - 1, num_layers, moe_router_topk)
+        np.testing.assert_array_equal(sample.rollout_routed_experts, routed_experts_array)
 
 
 class TestMetaInfo:

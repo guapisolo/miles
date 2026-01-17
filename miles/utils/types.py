@@ -158,6 +158,10 @@ class Sample:
             assert (
                 len(self.rollout_log_probs) == self.response_length
             ), f"rollout_log_probs length ({len(self.rollout_log_probs)}) != response_length ({self.response_length})"
+        if self.rollout_routed_experts is not None:
+            actual = len(self.rollout_routed_experts)
+            expect = len(self.tokens) - 1
+            assert actual == expect, f"rollout_routed_experts length ({actual}) != len(tokens) - 1 ({expect})"
 
     def update_from_meta_info(self, args, meta_info: dict):
         """

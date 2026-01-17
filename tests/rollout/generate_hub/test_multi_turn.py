@@ -2,11 +2,13 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from itertools import groupby
 
+import numpy as np
+import pybase64
 import pytest
 from tests.fixtures.generation_fixtures import GenerateEnv, generation_env, listify, make_sample, run_generate
 from transformers import AutoTokenizer
 
-from miles.utils.test_utils.mock_sglang_server import ProcessResult
+from miles.utils.test_utils.mock_sglang_server import ProcessResult, ProcessResultMetaInfo
 from miles.utils.test_utils.mock_tools import SAMPLE_TOOLS, ThreeTurnStub, TwoTurnStub
 from miles.utils.types import Sample
 
@@ -486,3 +488,59 @@ class TestThreeTurn:
                 ),
             ]
         verify_samples(result.sample, expected)
+
+
+class TestRoutedExpertsMultiTurn:
+    @pytest.mark.parametrize(
+        "generation_env",
+        [
+            {
+                "args_kwargs": {
+                    "use_rollout_routing_replay": True,
+                }
+            }
+        ],
+        indirect=True,
+    )
+    def test_two_turns_routed_experts(self, variant, generation_env):
+        if is_agentic_variant(variant):
+            pytest.skip("TODO: implement")
+
+        S = TwoTurnStub
+        num_layers, moe_router_topk = 2, 4
+        generation_env.args.num_layers = num_layers
+        generation_env.args.moe_router_topk = moe_router_topk
+
+        def make_routed_experts(prompt_token_ids, response_text):
+            total_tokens = len(prompt_token_ids) + token_len(response_text)
+            routed_experts_len = total_tokens - 1
+            return np.arange(routed_experts_len * num_layers * moe_router_topk, dtype=np.int32).reshape(
+                routed_experts_len, num_layers, moe_router_topk
+            )
+
+        first_routed_experts = make_routed_experts(S.FIRST_PROMPT_TOKEN_IDS, S.FIRST_RESPONSE)
+        second_routed_experts = make_routed_experts(S.SECOND_PROMPT_TOKEN_IDS, S.SECOND_RESPONSE)
+
+        def process_fn(prompt: str) -> ProcessResult:
+            if prompt == S.FIRST_PROMPT:
+                text, routed_experts = S.FIRST_RESPONSE, first_routed_experts
+            elif prompt == S.SECOND_PROMPT:
+                text, routed_experts = S.SECOND_RESPONSE, second_routed_experts
+            else:
+                raise ValueError(f"Unexpected prompt: {prompt}")
+            return ProcessResult(
+                text=text,
+                finish_reason="stop",
+                meta_info=ProcessResultMetaInfo(
+                    routed_experts=pybase64.b64encode(routed_experts.tobytes()).decode("ascii")
+                ),
+            )
+
+        generation_env.mock_server.process_fn = process_fn
+        result = _run_generate(variant, generation_env, make_sample(prompt=S.PROMPT), DEFAULT_SAMPLING_PARAMS)
+
+        sample = result.sample[-1] if isinstance(result.sample, list) else result.sample
+        assert sample.rollout_routed_experts is not None
+        assert sample.rollout_routed_experts.shape == second_routed_experts.shape
+        np.testing.assert_array_equal(sample.rollout_routed_experts, second_routed_experts)
+        assert len(sample.tokens) - 1 == second_routed_experts.shape[0]
