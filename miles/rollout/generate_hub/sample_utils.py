@@ -29,7 +29,7 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         response=a.response + obs_text + b.response,
         response_length=a.response_length + obs_len + b.response_length,
         label=_merge_equal_value("label"),
-        reward=b.reward,
+        reward=_merge_equal_value("reward"),
         loss_mask=a.loss_mask + [0] * obs_len + b.loss_mask,
         rollout_log_probs=a.rollout_log_probs + [0.0] * obs_len + b.rollout_log_probs,
         status=b.status,
