@@ -225,10 +225,6 @@ class ThreeTurnStub:
         "</tool_call><|im_end|>\n"
     )
 
-    THIRD_RESPONSE = "The answer is: 42 + 2026 + -60 + 15 = 2023."
-
-    FIRST_PROMPT = SYSTEM_PROMPT + "<|im_start|>user\n" + USER_QUESTION + "<|im_end|>\n" + "<|im_start|>assistant\n"
-
     FIRST_TOOL_RESPONSE = (
         "<|im_start|>user\n"
         "<tool_response>\n"
@@ -240,8 +236,6 @@ class ThreeTurnStub:
         "<|im_start|>assistant\n"
     )
 
-    SECOND_PROMPT = FIRST_PROMPT + FIRST_RESPONSE + FIRST_TOOL_RESPONSE
-
     SECOND_TOOL_RESPONSE = (
         "<|im_start|>user\n"
         "<tool_response>\n"
@@ -250,6 +244,10 @@ class ThreeTurnStub:
         "<|im_start|>assistant\n"
     )
 
+    THIRD_RESPONSE = "The answer is: 42 + 2026 + -60 + 15 = 2023."
+
+    FIRST_PROMPT = SYSTEM_PROMPT + "<|im_start|>user\n" + USER_QUESTION + "<|im_end|>\n" + "<|im_start|>assistant\n"
+    SECOND_PROMPT = FIRST_PROMPT + FIRST_RESPONSE + FIRST_TOOL_RESPONSE
     THIRD_PROMPT = SECOND_PROMPT + SECOND_RESPONSE + SECOND_TOOL_RESPONSE
 
     PROMPT = [{"role": "user", "content": USER_QUESTION}]
