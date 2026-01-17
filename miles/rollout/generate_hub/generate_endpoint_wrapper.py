@@ -3,7 +3,6 @@
 Wrapper to integrate SGLang's `/generate` endpoint with RL things like Sample.
 """
 
-from copy import copy, deepcopy
 from typing import Any
 
 import numpy as np

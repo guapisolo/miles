@@ -2,10 +2,9 @@
 Utilities for the OpenAI endpoint
 """
 
+import logging
 from argparse import Namespace
 from copy import deepcopy
-
-import logging
 
 from miles.router.sessions import GetSessionResponse, SessionRecord
 from miles.utils.http_utils import get, post

@@ -98,7 +98,10 @@ def setup_session_routes(app, router: "MilesRouter"):
                 add_special_tokens=False,
                 tools=request_body.get("tools"),
             )
-        if "logprobs" in response_body.get("choices", [{}])[0] and "content" in response_body["choices"][0]["logprobs"]:
+        if (
+            "logprobs" in response_body.get("choices", [{}])[0]
+            and "content" in response_body["choices"][0]["logprobs"]
+        ):
             logprobs_content = response_body["choices"][0]["logprobs"]["content"]
             for item in logprobs_content:
                 if "token" in item and "token_id" not in item:

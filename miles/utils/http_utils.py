@@ -290,6 +290,7 @@ async def post(url, payload, max_retries=60, action="post"):
 async def get(url):
     if _http_client is None:
         import httpx
+
         async_client = httpx.AsyncClient(timeout=httpx.Timeout(None))
         try:
             response = await async_client.get(url)
