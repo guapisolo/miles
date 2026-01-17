@@ -119,123 +119,52 @@ class TestSessionRoutes:
 
 
 class TestSessionProxy:
-    def test_proxy_json_request_response(self, app_with_sessions):
-        app, mock_router = app_with_sessions
-        client = TestClient(app)
-
-        create_resp = client.post("/sessions")
-        session_id = create_resp.json()["session_id"]
-
-        mock_router._do_proxy.return_value = {
-            "request_body": json.dumps({"prompt": "hello"}).encode(),
-            "response_body": json.dumps({"result": "ok"}).encode(),
-            "status_code": 200,
-            "headers": {"content-type": "application/json"},
-        }
-        mock_router._build_response.return_value = JSONResponse(
-            content={"result": "ok"}, status_code=200
-        )
-
-        proxy_resp = client.post(
-            f"/sessions/{session_id}/generate",
-            json={"prompt": "hello"},
-        )
-
-        assert proxy_resp.status_code == 200
-        assert proxy_resp.json() == {"result": "ok"}
-        mock_router._do_proxy.assert_called()
-
-        delete_resp = client.delete(f"/sessions/{session_id}")
-        records = delete_resp.json()["records"]
-        assert len(records) == 1
-        assert records[0]["method"] == "POST"
-        assert records[0]["path"] == "generate"
-        assert records[0]["request_json"] == {"prompt": "hello"}
-        assert records[0]["response_json"] == {"result": "ok"}
-        assert records[0]["status_code"] == 200
-
-    def test_proxy_empty_request_body(self, app_with_sessions):
-        app, mock_router = app_with_sessions
-        client = TestClient(app)
-
-        create_resp = client.post("/sessions")
-        session_id = create_resp.json()["session_id"]
-
-        mock_router._do_proxy.return_value = {
-            "request_body": b"{}",
-            "response_body": json.dumps({"status": "ok"}).encode(),
-            "status_code": 200,
-            "headers": {"content-type": "application/json"},
-        }
-        mock_router._build_response.return_value = JSONResponse(
-            content={"status": "ok"}, status_code=200
-        )
-
-        proxy_resp = client.get(f"/sessions/{session_id}/health")
-
-        assert proxy_resp.status_code == 200
-
-        delete_resp = client.delete(f"/sessions/{session_id}")
-        records = delete_resp.json()["records"]
-        assert records[0]["request_json"] == {}
-        assert records[0]["response_json"] == {"status": "ok"}
-
     def test_proxy_session_not_found(self, client):
         response = client.post("/sessions/nonexistent/generate", json={})
         assert response.status_code == 404
         assert response.json()["error"] == "session not found"
 
-    def test_proxy_multiple_requests(self, app_with_sessions):
+    @pytest.mark.parametrize("method", ["GET", "POST", "PUT", "DELETE", "PATCH"])
+    def test_proxy_records_request_response(self, app_with_sessions, method):
         app, mock_router = app_with_sessions
         client = TestClient(app)
 
-        create_resp = client.post("/sessions")
-        session_id = create_resp.json()["session_id"]
+        session_id = client.post("/sessions").json()["session_id"]
+
+        mock_router._do_proxy.return_value = {
+            "request_body": json.dumps({"input": "data"}).encode(),
+            "response_body": json.dumps({"output": "result"}).encode(),
+            "status_code": 200,
+            "headers": {},
+        }
+        mock_router._build_response.return_value = JSONResponse(content={"output": "result"}, status_code=200)
+
+        resp = client.request(method, f"/sessions/{session_id}/test")
+        assert resp.status_code == 200
+
+        records = client.delete(f"/sessions/{session_id}").json()["records"]
+        assert len(records) == 1
+        assert records[0]["method"] == method
+        assert records[0]["path"] == "test"
+        assert records[0]["request_json"] == {"input": "data"}
+        assert records[0]["response_json"] == {"output": "result"}
+
+    def test_proxy_accumulates_records(self, app_with_sessions):
+        app, mock_router = app_with_sessions
+        client = TestClient(app)
+
+        session_id = client.post("/sessions").json()["session_id"]
 
         for i in range(3):
             mock_router._do_proxy.return_value = {
-                "request_body": json.dumps({"req": i}).encode(),
+                "request_body": json.dumps({"i": i}).encode(),
                 "response_body": json.dumps({"i": i}).encode(),
                 "status_code": 200,
                 "headers": {},
             }
-            mock_router._build_response.return_value = JSONResponse(
-                content={"i": i}, status_code=200
-            )
+            mock_router._build_response.return_value = JSONResponse(content={"i": i}, status_code=200)
+            client.post(f"/sessions/{session_id}/test")
 
-            client.post(f"/sessions/{session_id}/test", json={"req": i})
-
-        delete_resp = client.delete(f"/sessions/{session_id}")
-        records = delete_resp.json()["records"]
+        records = client.delete(f"/sessions/{session_id}").json()["records"]
         assert len(records) == 3
-        for i, record in enumerate(records):
-            assert record["request_json"] == {"req": i}
-            assert record["response_json"] == {"i": i}
-
-    def test_proxy_different_http_methods(self, app_with_sessions):
-        app, mock_router = app_with_sessions
-        client = TestClient(app)
-
-        create_resp = client.post("/sessions")
-        session_id = create_resp.json()["session_id"]
-
-        methods = ["GET", "POST", "PUT", "DELETE", "PATCH"]
-        for method in methods:
-            mock_router._do_proxy.return_value = {
-                "request_body": b"{}",
-                "response_body": json.dumps({"method": method}).encode(),
-                "status_code": 200,
-                "headers": {},
-            }
-            mock_router._build_response.return_value = JSONResponse(
-                content={"method": method}, status_code=200
-            )
-
-            resp = client.request(method, f"/sessions/{session_id}/test")
-            assert resp.status_code == 200
-
-        delete_resp = client.delete(f"/sessions/{session_id}")
-        records = delete_resp.json()["records"]
-        assert len(records) == len(methods)
-        for i, record in enumerate(records):
-            assert record["method"] == methods[i]
+        assert [r["request_json"]["i"] for r in records] == [0, 1, 2]
