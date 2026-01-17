@@ -9,11 +9,6 @@ from miles.utils.test_utils.mock_tools import TwoTurnStub
 from miles.utils.types import Sample
 
 
-def _check_reward(sample: Sample) -> float:
-    """Check if a single sample contains the label."""
-    return float(sample.response and (str(sample.label) in sample.response))
-
-
 async def _simple_reward_function(args, samples: Sample | list[Sample]) -> float | list[float]:
     """Simple reward function that checks if response contains the label."""
     if isinstance(samples, list):
@@ -25,6 +20,11 @@ async def _simple_reward_function(args, samples: Sample | list[Sample]) -> float
         return [_check_reward(sample) for sample in samples]
     else:
         return _check_reward(samples)
+
+
+def _check_reward(sample: Sample) -> float:
+    """Check if a single sample contains the label."""
+    return float(sample.response and (str(sample.label) in sample.response))
 
 
 TWO_TURN_DATA_ROWS = [{"input": [{"role": "user", "content": TwoTurnStub.USER_QUESTION}], "label": "2008"}]
