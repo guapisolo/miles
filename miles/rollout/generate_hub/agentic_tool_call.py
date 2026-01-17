@@ -9,13 +9,15 @@ from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
 
 
 async def generate(input: GenerateFnInput) -> GenerateFnOutput:
-    endpoint_tracer = TODO()
+    tracer = TODO()
+
     agent = _BlackboxToolCallAgent(
-        base_url=endpoint_tracer.base_url,
+        base_url=tracer.base_url,
         **{k: v for k, v in vars(input.args).items() if k.startswith("generate_")},
     )
     await agent.run()
-    return endpoint_tracer.collect()
+
+    return tracer.collect()
 
 
 def _add_arguments(parser: argparse.ArgumentParser):
