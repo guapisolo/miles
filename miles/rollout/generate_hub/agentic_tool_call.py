@@ -25,7 +25,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         execute_tool_function_path=input.args.generate_execute_tool_function_path,
     )
 
-    return tracer.collect()
+    return await tracer.collect()
 
 
 def _add_arguments(parser: argparse.ArgumentParser):

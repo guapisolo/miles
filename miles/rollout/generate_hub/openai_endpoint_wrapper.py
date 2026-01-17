@@ -17,7 +17,6 @@ class OpenAIEndpointTracer:
         session_id = (await post(f"{router_url}/sessions", {}))["session_id"]
         return OpenAIEndpointTracer(router_url=router_url, session_id=session_id)
 
-    def collect(self):
-        response = requests.delete(f"{self.router_url}/sessions/{self.session_id}")
-        response.raise_for_status()
-        return response.json()["records"]
+    async def collect(self):
+        response = await post(f"{self.router_url}/sessions/{self.session_id}", {}, action="delete")
+        return response["records"]
