@@ -46,7 +46,7 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
     prefix_cache_info.cached_tokens = a.prefix_cache_info.cached_tokens + b.prefix_cache_info.cached_tokens
     prefix_cache_info.total_prompt_tokens = a.prefix_cache_info.total_prompt_tokens + b.prefix_cache_info.total_prompt_tokens
 
-    return Sample(
+    merged_fields = dict(
         group_index=_merge_equal_value("group_index"),
         index=_merge_equal_value("index"),
         prompt=b.prompt,
@@ -69,3 +69,11 @@ def merge_samples(a: Sample, b: Sample, tokenizer) -> Sample:
         spec_info=spec_info,
         prefix_cache_info=prefix_cache_info,
     )
+
+    expected_fields = set(Sample.__dataclass_fields__.keys())
+    actual_fields = set(merged_fields.keys())
+    assert expected_fields == actual_fields, (
+        f"Field mismatch. Missing: {expected_fields - actual_fields}, Extra: {actual_fields - expected_fields}"
+    )
+
+    return Sample(**merged_fields)
