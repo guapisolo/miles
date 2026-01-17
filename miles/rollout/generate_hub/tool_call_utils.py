@@ -27,8 +27,7 @@ async def execute_tool_calls(
 ) -> list[dict[str, Any]]:
     tool_messages = []
     for call in tool_calls:
-        result = await _execute_tool_call(call, execute_one)
-        tool_messages.append(result)
+        tool_messages.append(await _execute_tool_call(call, execute_one))
     return tool_messages
 
 
