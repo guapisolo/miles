@@ -15,11 +15,12 @@ from miles.utils.test_utils.mock_tools import (
     MULTI_TURN_SECOND_PROMPT,
     MULTI_TURN_SECOND_RESPONSE,
     SAMPLE_TOOLS,
+    ThreeTurnStub,
     multi_turn_tool_call_process_fn,
 )
 from miles.utils.types import Sample
 
-_ = generation_env, SAMPLE_TOOLS, multi_turn_tool_call_process_fn
+_ = generation_env, SAMPLE_TOOLS, multi_turn_tool_call_process_fn, ThreeTurnStub
 
 
 def is_agentic_variant(variant: str) -> bool:
@@ -159,6 +160,11 @@ TWO_TURN_TOOL_RESPONSE = (
     "</tool_response><|im_end|>\n"
     "<|im_start|>assistant\n"
 )
+
+THREE_TURN_PROMPT = [{"role": "user", "content": ThreeTurnStub.USER_QUESTION}]
+THREE_TURN_FIRST_PROMPT_TOKEN_IDS = TOKENIZER(ThreeTurnStub.FIRST_PROMPT, add_special_tokens=False)["input_ids"]
+THREE_TURN_SECOND_PROMPT_TOKEN_IDS = TOKENIZER(ThreeTurnStub.SECOND_PROMPT, add_special_tokens=False)["input_ids"]
+THREE_TURN_THIRD_PROMPT_TOKEN_IDS = TOKENIZER(ThreeTurnStub.THIRD_PROMPT, add_special_tokens=False)["input_ids"]
 
 
 # ------------------------------------ tests ----------------------------------------
@@ -463,6 +469,117 @@ class TestRespectMaxContextLen:
                         response=MULTI_TURN_FIRST_RESPONSE,
                         response_length=47,
                         status=Sample.Status.TRUNCATED,
+                    ),
+                ),
+            ]
+        verify_samples(result.sample, expected)
+
+
+class TestThreeTurn:
+    def test_three_turns_with_sequential_tool_calls(self, variant, generation_env):
+        if is_agentic_variant(variant):
+            pytest.skip("TODO: implement agentic variant for 3-turn")
+        generation_env.mock_server.process_fn = ThreeTurnStub.process_fn
+
+        result = _run_generate(variant, generation_env, make_sample(prompt=THREE_TURN_PROMPT))
+
+        assert result.requests == [
+            expected_request(THREE_TURN_FIRST_PROMPT_TOKEN_IDS),
+            expected_request(THREE_TURN_SECOND_PROMPT_TOKEN_IDS),
+            expected_request(THREE_TURN_THIRD_PROMPT_TOKEN_IDS),
+        ]
+
+        if variant == "multi_turn_single_sample":
+            expected = [
+                ExpectedSampleInfo(
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=ThreeTurnStub.FIRST_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(len(TOKENIZER(ThreeTurnStub.FIRST_RESPONSE, add_special_tokens=False)["input_ids"]))],
+                        ),
+                        SampleParsedChunk(
+                            tokens_decoded_str=ThreeTurnStub.FIRST_TOOL_RESPONSE,
+                            loss_mask_value=0,
+                            rollout_log_probs=[0.0] * len(TOKENIZER(ThreeTurnStub.FIRST_TOOL_RESPONSE, add_special_tokens=False)["input_ids"]),
+                        ),
+                        SampleParsedChunk(
+                            tokens_decoded_str=ThreeTurnStub.SECOND_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(len(TOKENIZER(ThreeTurnStub.SECOND_RESPONSE, add_special_tokens=False)["input_ids"]))],
+                        ),
+                        SampleParsedChunk(
+                            tokens_decoded_str=ThreeTurnStub.SECOND_TOOL_RESPONSE,
+                            loss_mask_value=0,
+                            rollout_log_probs=[0.0] * len(TOKENIZER(ThreeTurnStub.SECOND_TOOL_RESPONSE, add_special_tokens=False)["input_ids"]),
+                        ),
+                        SampleParsedChunk(
+                            tokens_decoded_str=ThreeTurnStub.THIRD_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(len(TOKENIZER(ThreeTurnStub.THIRD_RESPONSE, add_special_tokens=False)["input_ids"]))],
+                        ),
+                    ],
+                    partial_sample=expected_partial_sample(
+                        prompt=THREE_TURN_PROMPT,
+                        response=(
+                            ThreeTurnStub.FIRST_RESPONSE
+                            + ThreeTurnStub.FIRST_TOOL_RESPONSE
+                            + ThreeTurnStub.SECOND_RESPONSE
+                            + ThreeTurnStub.SECOND_TOOL_RESPONSE
+                            + ThreeTurnStub.THIRD_RESPONSE
+                        ),
+                        response_length=(
+                            len(TOKENIZER(ThreeTurnStub.FIRST_RESPONSE, add_special_tokens=False)["input_ids"])
+                            + len(TOKENIZER(ThreeTurnStub.FIRST_TOOL_RESPONSE, add_special_tokens=False)["input_ids"])
+                            + len(TOKENIZER(ThreeTurnStub.SECOND_RESPONSE, add_special_tokens=False)["input_ids"])
+                            + len(TOKENIZER(ThreeTurnStub.SECOND_TOOL_RESPONSE, add_special_tokens=False)["input_ids"])
+                            + len(TOKENIZER(ThreeTurnStub.THIRD_RESPONSE, add_special_tokens=False)["input_ids"])
+                        ),
+                    ),
+                ),
+            ]
+        else:
+            expected = [
+                ExpectedSampleInfo(
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=ThreeTurnStub.FIRST_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(len(TOKENIZER(ThreeTurnStub.FIRST_RESPONSE, add_special_tokens=False)["input_ids"]))],
+                        )
+                    ],
+                    partial_sample=expected_partial_sample(
+                        prompt=THREE_TURN_PROMPT,
+                        response=ThreeTurnStub.FIRST_RESPONSE,
+                        response_length=len(TOKENIZER(ThreeTurnStub.FIRST_RESPONSE, add_special_tokens=False)["input_ids"]),
+                    ),
+                ),
+                ExpectedSampleInfo(
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=ThreeTurnStub.SECOND_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(len(TOKENIZER(ThreeTurnStub.SECOND_RESPONSE, add_special_tokens=False)["input_ids"]))],
+                        )
+                    ],
+                    partial_sample=expected_partial_sample(
+                        prompt=THREE_TURN_PROMPT,
+                        response=ThreeTurnStub.SECOND_RESPONSE,
+                        response_length=len(TOKENIZER(ThreeTurnStub.SECOND_RESPONSE, add_special_tokens=False)["input_ids"]),
+                    ),
+                ),
+                ExpectedSampleInfo(
+                    chunks=[
+                        SampleParsedChunk(
+                            tokens_decoded_str=ThreeTurnStub.THIRD_RESPONSE,
+                            loss_mask_value=1,
+                            rollout_log_probs=[-1 / 128 * i for i in range(len(TOKENIZER(ThreeTurnStub.THIRD_RESPONSE, add_special_tokens=False)["input_ids"]))],
+                        )
+                    ],
+                    partial_sample=expected_partial_sample(
+                        prompt=THREE_TURN_PROMPT,
+                        response=ThreeTurnStub.THIRD_RESPONSE,
+                        response_length=len(TOKENIZER(ThreeTurnStub.THIRD_RESPONSE, add_special_tokens=False)["input_ids"]),
                     ),
                 ),
             ]
