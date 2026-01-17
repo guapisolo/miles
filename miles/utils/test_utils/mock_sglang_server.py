@@ -159,7 +159,7 @@ class MockSGLangServer:
                 tools=TypeAdapter(list[Tool]).validate_python(tools),
                 tool_call_parser="qwen25",
             )
-            _, parsed_calls = parser.parse_non_stream(process_result.text)
+            message_content, parsed_calls = parser.parse_non_stream(process_result.text)
             if parsed_calls:
                 finish_reason = "tool_calls"
                 tool_calls = [
@@ -170,6 +170,8 @@ class MockSGLangServer:
                     }
                     for i, call in enumerate(parsed_calls)
                 ]
+        else:
+            message_content = process_result.text
 
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
@@ -181,7 +183,7 @@ class MockSGLangServer:
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": process_result.text,  # Always include content for alignment
+                        "content": message_content,
                         "tool_calls": tool_calls,
                     },
                     "logprobs": {"content": logprobs_content},
