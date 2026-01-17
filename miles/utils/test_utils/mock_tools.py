@@ -1,5 +1,7 @@
 import json
 
+from transformers import AutoTokenizer
+
 from miles.utils.test_utils.mock_sglang_server import ProcessResult
 
 SAMPLE_TOOLS = [
@@ -248,6 +250,13 @@ class ThreeTurnStub:
     )
 
     THIRD_PROMPT = SECOND_PROMPT + SECOND_RESPONSE + SECOND_TOOL_RESPONSE
+
+    PROMPT = [{"role": "user", "content": USER_QUESTION}]
+
+    _TOKENIZER = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
+    FIRST_PROMPT_TOKEN_IDS = _TOKENIZER(FIRST_PROMPT, add_special_tokens=False)["input_ids"]
+    SECOND_PROMPT_TOKEN_IDS = _TOKENIZER(SECOND_PROMPT, add_special_tokens=False)["input_ids"]
+    THIRD_PROMPT_TOKEN_IDS = _TOKENIZER(THIRD_PROMPT, add_special_tokens=False)["input_ids"]
 
     @staticmethod
     def process_fn(prompt: str) -> ProcessResult:
