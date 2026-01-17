@@ -21,7 +21,9 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
     agent = _BlackboxToolCallAgent(
         base_url=tracer.base_url,
         prompt=input.sample.prompt,
-        **{k: v for k, v in vars(input.args).items() if k.startswith("generate_")},
+        max_turns=input.args.generate_max_turns,
+        tool_specs_path=input.args.generate_tool_specs_path,
+        execute_tool_function_path=input.args.generate_execute_tool_function_path,
     )
     await agent.run()
 
@@ -47,22 +49,22 @@ class _BlackboxToolCallAgent:
 
     base_url: str
     prompt: list[dict[str, Any]]
-    generate_max_turns: int
-    generate_tool_specs_path: str
-    generate_execute_tool_function_path: str
+    max_turns: int
+    tool_specs_path: str
+    execute_tool_function_path: str
 
     async def run(self):
         # ----------------------- Setup -------------------------
 
         client = AsyncOpenAI(base_url=self.base_url, api_key="empty")
-        execute_tool_function = load_function(self.generate_execute_tool_function_path)
-        tool_specs = load_function(self.generate_tool_specs_path)
+        execute_tool_function = load_function(self.execute_tool_function_path)
+        tool_specs = load_function(self.tool_specs_path)
 
         # ----------------------- Initial prompts -------------------------
 
         messages = deepcopy(self.prompt)
 
-        for turn in range(self.generate_max_turns):
+        for turn in range(self.max_turns):
             # ----------------------- Call inference endpoint -------------------------
 
             response = await client.chat.completions.create(model="default", messages=messages, tools=tool_specs)
