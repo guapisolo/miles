@@ -34,13 +34,11 @@ class SessionManager:
         return self.sessions.get(session_id)
 
     def delete_session(self, session_id: str) -> list[SessionRecord]:
-        if session_id not in self.sessions:
-            raise KeyError(f"session not found: {session_id}")
+        assert session_id in self.sessions
         return self.sessions.pop(session_id)
 
     def add_record(self, session_id: str, record: SessionRecord):
-        if session_id not in self.sessions:
-            raise KeyError(f"session not found: {session_id}")
+        assert session_id in self.sessions
         self.sessions[session_id].append(record)
 
 
@@ -61,10 +59,9 @@ def setup_session_routes(app, router: "MilesRouter"):
 
     @app.delete("/sessions/{session_id}")
     async def delete_session(session_id: str):
-        try:
-            records = manager.delete_session(session_id)
-        except KeyError:
+        if session_id not in manager.sessions:
             return JSONResponse(status_code=404, content={"error": "session not found"})
+        records = manager.delete_session(session_id)
         return {"session_id": session_id, "records": [asdict(r) for r in records]}
 
     @app.api_route("/sessions/{session_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])

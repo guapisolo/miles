@@ -5,7 +5,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
-from starlette.responses import Response
 
 from miles.router.sessions import SessionManager, SessionRecord, setup_session_routes
 
@@ -239,7 +238,7 @@ class TestSessionProxy:
         methods = ["GET", "POST", "PUT", "DELETE", "PATCH"]
         for method in methods:
             mock_router._do_proxy.return_value = {
-                "request_body": b"",
+                "request_body": b"{}",
                 "response_body": json.dumps({"method": method}).encode(),
                 "status_code": 200,
                 "headers": {},
