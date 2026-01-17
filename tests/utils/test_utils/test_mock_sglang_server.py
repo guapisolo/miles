@@ -401,9 +401,16 @@ class TestChatCompletionsEndpoint:
 
 
 class TestMultiTurnToolCallProcessFn:
-    def test_generate_endpoint_first_turn(self):
+    @pytest.mark.parametrize(
+        "prompt,expected_response",
+        [
+            pytest.param(MULTI_TURN_FIRST_PROMPT, MULTI_TURN_FIRST_RESPONSE, id="first_turn"),
+            pytest.param(MULTI_TURN_SECOND_PROMPT, MULTI_TURN_SECOND_RESPONSE, id="second_turn"),
+        ],
+    )
+    def test_generate_endpoint(self, prompt, expected_response):
         with with_mock_server(process_fn=multi_turn_tool_call_process_fn) as server:
-            input_ids = server.tokenizer.encode(MULTI_TURN_FIRST_PROMPT, add_special_tokens=False)
+            input_ids = server.tokenizer.encode(prompt, add_special_tokens=False)
             response = requests.post(
                 f"{server.url}/generate",
                 json={"input_ids": input_ids, "sampling_params": {}, "return_logprob": True},
@@ -411,20 +418,7 @@ class TestMultiTurnToolCallProcessFn:
             )
             assert response.status_code == 200
             data = response.json()
-            assert data["text"] == MULTI_TURN_FIRST_RESPONSE
-            assert data["meta_info"]["finish_reason"] == {"type": "stop"}
-
-    def test_generate_endpoint_second_turn(self):
-        with with_mock_server(process_fn=multi_turn_tool_call_process_fn) as server:
-            input_ids = server.tokenizer.encode(MULTI_TURN_SECOND_PROMPT, add_special_tokens=False)
-            response = requests.post(
-                f"{server.url}/generate",
-                json={"input_ids": input_ids, "sampling_params": {}, "return_logprob": True},
-                timeout=5.0,
-            )
-            assert response.status_code == 200
-            data = response.json()
-            assert data["text"] == MULTI_TURN_SECOND_RESPONSE
+            assert data["text"] == expected_response
             assert data["meta_info"]["finish_reason"] == {"type": "stop"}
 
     def test_chat_completions_endpoint_first_turn(self):
