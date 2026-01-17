@@ -44,8 +44,9 @@ def compute_request_payload(
     sampling_params: dict,
     multimodal_inputs: dict | None = None,
 ) -> tuple[dict[str, Any] | None, Sample.Status | None]:
-    max_context_length = args.rollout_max_context_len or float("inf")
-    max_new_tokens = min(sampling_params.pop("max_new_tokens"), max_context_length - len(input_ids))
+    max_new_tokens = sampling_params.pop("max_new_tokens", args.rollout_max_response_len)
+    if x := args.rollout_max_context_len:
+        max_new_tokens = min(max_new_tokens, x - len(input_ids))
     if max_new_tokens <= 0:
         return None, Sample.Status.TRUNCATED
 
