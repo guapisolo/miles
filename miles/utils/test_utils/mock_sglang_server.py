@@ -83,6 +83,34 @@ class MockSGLangServer:
     def url(self) -> str:
         return f"http://{self.host}:{self.port}"
 
+    def _setup_routes(self):
+        @self.app.post("/generate")
+        async def generate(request: Request):
+            payload = await request.json()
+            self.request_log.append(payload)
+            with self._concurrency.track():
+                if self.latency > 0:
+                    await asyncio.sleep(self.latency)
+                response = self._compute_generate_response(payload)
+            return JSONResponse(content=response)
+
+        @self.app.get("/health")
+        async def health():
+            return JSONResponse(content={"status": "ok"})
+
+        @self.app.post("/abort_request")
+        async def abort_request(_request: Request):
+            return JSONResponse(content={"status": "ok"})
+
+        @self.app.post("/v1/chat/completions")
+        async def chat_completions(request: Request):
+            payload = await request.json()
+            with self._concurrency.track():
+                if self.latency > 0:
+                    await asyncio.sleep(self.latency)
+                response = self._compute_chat_completions_response(payload)
+            return JSONResponse(content=response)
+
     def _compute_generate_response(self, payload: dict) -> dict:
         assert payload.get("return_logprob", True) is True, "MockSGLangServer requires return_logprob=True"
         input_ids = payload.get("input_ids", [])
@@ -164,34 +192,6 @@ class MockSGLangServer:
                 }
             ],
         }
-
-    def _setup_routes(self):
-        @self.app.post("/generate")
-        async def generate(request: Request):
-            payload = await request.json()
-            self.request_log.append(payload)
-            with self._concurrency.track():
-                if self.latency > 0:
-                    await asyncio.sleep(self.latency)
-                response = self._compute_generate_response(payload)
-            return JSONResponse(content=response)
-
-        @self.app.get("/health")
-        async def health():
-            return JSONResponse(content={"status": "ok"})
-
-        @self.app.post("/abort_request")
-        async def abort_request(_request: Request):
-            return JSONResponse(content={"status": "ok"})
-
-        @self.app.post("/v1/chat/completions")
-        async def chat_completions(request: Request):
-            payload = await request.json()
-            with self._concurrency.track():
-                if self.latency > 0:
-                    await asyncio.sleep(self.latency)
-                response = self._compute_chat_completions_response(payload)
-            return JSONResponse(content=response)
 
 
 class Counter:
