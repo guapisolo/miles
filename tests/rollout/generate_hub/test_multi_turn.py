@@ -190,7 +190,7 @@ class TestBasicMultiTurn:
                         SampleParsedChunk(
                             tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
                             loss_mask_value=1,
-                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                            rollout_log_probs=[-1 / 128 * i for i in range(47)],
                         ),
                         SampleParsedChunk(
                             tokens_decoded_str=TWO_TURN_TOOL_RESPONSE, loss_mask_value=0, rollout_log_probs=[0.0] * 31
@@ -204,7 +204,7 @@ class TestBasicMultiTurn:
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE + MULTI_TURN_SECOND_RESPONSE,
-                        response_length=45 + 31 + 24,
+                        response_length=47 + 31 + 24,
                     ),
                 ),
             ]
@@ -215,13 +215,13 @@ class TestBasicMultiTurn:
                         SampleParsedChunk(
                             tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
                             loss_mask_value=1,
-                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                            rollout_log_probs=[-1 / 128 * i for i in range(47)],
                         )
                     ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
-                        response_length=45,
+                        response_length=47,
                     ),
                 ),
                 ExpectedSampleInfo(
@@ -294,13 +294,13 @@ class TestExitConditions:
                         SampleParsedChunk(
                             tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
                             loss_mask_value=1,
-                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                            rollout_log_probs=[-1 / 128 * i for i in range(47)],
                         )
                     ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
-                        response_length=45,
+                        response_length=47,
                         status=Sample.Status.TRUNCATED,
                     ),
                 ),
@@ -323,7 +323,7 @@ class TestExitConditions:
                         SampleParsedChunk(
                             tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
                             loss_mask_value=1,
-                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                            rollout_log_probs=[-1 / 128 * i for i in range(47)],
                         ),
                         SampleParsedChunk(
                             tokens_decoded_str=TWO_TURN_TOOL_RESPONSE, loss_mask_value=0, rollout_log_probs=[0.0] * 31
@@ -332,7 +332,7 @@ class TestExitConditions:
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
-                        response_length=45 + 31,
+                        response_length=47 + 31,
                     ),
                 ),
             ]
@@ -343,13 +343,13 @@ class TestExitConditions:
                         SampleParsedChunk(
                             tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
                             loss_mask_value=1,
-                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                            rollout_log_probs=[-1 / 128 * i for i in range(47)],
                         )
                     ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
-                        response_length=45,
+                        response_length=47,
                     ),
                 ),
             ]
@@ -378,7 +378,7 @@ class TestRespectMaxContextLen:
 
     @pytest.mark.parametrize(
         "generation_env",
-        [{"args_kwargs": {"rollout_max_context_len": len(FIRST_PROMPT_TOKEN_IDS) + 45 + 31}}],
+        [{"args_kwargs": {"rollout_max_context_len": len(FIRST_PROMPT_TOKEN_IDS) + 47 + 31}}],
         indirect=True,
     )
     def test_second_turn_exceeds_max_context_len_returns_truncated(self, variant, generation_env):
@@ -394,7 +394,7 @@ class TestRespectMaxContextLen:
                         SampleParsedChunk(
                             tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
                             loss_mask_value=1,
-                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                            rollout_log_probs=[-1 / 128 * i for i in range(47)],
                         ),
                         SampleParsedChunk(
                             tokens_decoded_str=TWO_TURN_TOOL_RESPONSE, loss_mask_value=0, rollout_log_probs=[0.0] * 31
@@ -403,7 +403,7 @@ class TestRespectMaxContextLen:
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE + TWO_TURN_TOOL_RESPONSE,
-                        response_length=45 + 31,
+                        response_length=47 + 31,
                         status=Sample.Status.TRUNCATED,
                     ),
                 ),
@@ -415,13 +415,13 @@ class TestRespectMaxContextLen:
                         SampleParsedChunk(
                             tokens_decoded_str=MULTI_TURN_FIRST_RESPONSE,
                             loss_mask_value=1,
-                            rollout_log_probs=[-1 / 128 * i for i in range(45)],
+                            rollout_log_probs=[-1 / 128 * i for i in range(47)],
                         )
                     ],
                     partial_sample=expected_partial_sample(
                         prompt=TWO_TURN_PROMPT,
                         response=MULTI_TURN_FIRST_RESPONSE,
-                        response_length=45,
+                        response_length=47,
                         status=Sample.Status.TRUNCATED,
                     ),
                 ),
