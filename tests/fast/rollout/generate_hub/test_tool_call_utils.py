@@ -7,7 +7,7 @@ TOOL_CALL_TEST_MODELS = [
     "Qwen/Qwen3-0.6B",
     "Qwen/Qwen3-4B-Instruct-2507",
     "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-    "meta-llama/Llama-3.2-1B-Instruct",
+    # "meta-llama/Llama-3.2-1B-Instruct",  # Skipped: gated repo, requires HF_TOKEN in CI
     "mistralai/Mistral-7B-Instruct-v0.3",
     "deepseek-ai/DeepSeek-V3",
     "stepfun-ai/step3",
@@ -19,7 +19,7 @@ TOOL_CALL_TEST_MODELS = [
 ]
 
 SINGLE_TOOL_CALL_ONLY_MODELS = [
-    "meta-llama/Llama-3.2-1B-Instruct",
+    # "meta-llama/Llama-3.2-1B-Instruct",  # Skipped: gated repo
 ]
 
 # Models where tokenize->decode produces extra whitespace vs direct string diff
