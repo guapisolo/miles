@@ -19,7 +19,7 @@ def main():
         _execute_print_only(args)
         return
 
-    if args.count == 0 and not args.device:
+    if args.count == 0 and not args.devices:
         print("[gpu_lock_exec] Do not acquire GPU since count=0", flush=True)
     else:
         fd_locks = _try_acquire(args)
