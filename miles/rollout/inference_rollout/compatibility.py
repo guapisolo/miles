@@ -31,9 +31,6 @@ class LegacyRolloutFnAdapter:
         return output
 
 
-assert issubclass(LegacyRolloutFnAdapter, RolloutFnProtocol)
-
-
 def load_rollout_function(input: RolloutFnConstructorInput, path: str):
     fn = load_function(path)
 
@@ -43,7 +40,7 @@ def load_rollout_function(input: RolloutFnConstructorInput, path: str):
         return LegacyRolloutFnAdapter(input, fn)
 
 
-def call_rollout_function(fn: RolloutFnProtocol, input: RolloutFnInput) -> RolloutFnOutput:
+def call_rollout_function(fn, input: RolloutFnInput) -> RolloutFnOutput:
     output = fn(input)
 
     if inspect.iscoroutine(output):
