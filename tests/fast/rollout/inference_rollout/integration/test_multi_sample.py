@@ -1,6 +1,6 @@
 import pytest
 from tests.fast.fixtures.rollout_fixtures import DEFAULT_DATA_ROWS, RolloutEnvConfig
-from tests.fast.rollout import MODULAR_ROLLOUT_BASE_ARGV, load_and_call_train
+from tests.fast.rollout.inference_rollout.integration.utils import MODULAR_ROLLOUT_BASE_ARGV, load_and_call_train
 
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
 from miles.utils.misc import function_registry

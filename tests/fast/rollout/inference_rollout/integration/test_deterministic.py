@@ -1,6 +1,6 @@
 import pytest
 
-from tests.fast.rollout import integration_env_config, load_and_call_train
+from tests.fast.rollout.inference_rollout.integration.utils import integration_env_config, load_and_call_train
 
 
 @pytest.mark.parametrize(
