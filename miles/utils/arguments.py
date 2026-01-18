@@ -207,9 +207,9 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 "--rollout-function-path",
                 type=str,
                 default=(
-                    TODO
-                    if enable_experimental_rollout_refactor() else
-                    "miles.rollout.sglang_rollout.generate_rollout"
+                    "miles.rollout.inference_rollout.inference_rollout_common.InferenceRolloutFn"
+                    if enable_experimental_rollout_refactor()
+                    else "miles.rollout.sglang_rollout.generate_rollout"
                 ),
                 help=(
                     "Path to the rollout generation function."
