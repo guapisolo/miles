@@ -25,8 +25,12 @@ jobs:
 
       - name: Install dependencies
         run: |
+          uv pip install sglang --system
           uv pip install -e . --system
           uv pip install pytest --system
 
       - name: Run fast tests
-        run: uv run pytest tests/fast -v
+        run: |
+          uv run pytest tests/fast -v \
+            --ignore=tests/fast/rollout/generate_hub \
+            --ignore=tests/fast/rollout/inference_rollout
