@@ -7,11 +7,11 @@ from miles.utils.types import Sample
 def merge_samples(samples: list[Sample], tokenizer) -> Sample:
     acc = samples[0]
     for sample in samples[1:]:
-        acc = merge_sample_pair(acc, sample, tokenizer=tokenizer)
+        acc = _merge_sample_pair(acc, sample, tokenizer=tokenizer)
     return acc
 
 
-def merge_sample_pair(a: Sample, b: Sample, tokenizer) -> Sample:
+def _merge_sample_pair(a: Sample, b: Sample, tokenizer) -> Sample:
     """Merge two samples generated from sibling inference engine calls."""
     a, b = deepcopy(a), deepcopy(b)
 
