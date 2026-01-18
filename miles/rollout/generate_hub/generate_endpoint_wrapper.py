@@ -2,7 +2,7 @@
 """
 Wrapper to integrate SGLang's `/generate` endpoint with RL things like Sample.
 """
-
+from copy import deepcopy
 from typing import Any
 
 import numpy as np
@@ -44,6 +44,7 @@ def compute_request_payload(
     sampling_params: dict,
     multimodal_inputs: dict | None = None,
 ) -> tuple[dict[str, Any] | None, Sample.Status | None]:
+    sampling_params = deepcopy(sampling_params)
     max_new_tokens = sampling_params.pop("max_new_tokens", args.rollout_max_response_len)
     if x := args.rollout_max_context_len:
         max_new_tokens = min(max_new_tokens, x - len(input_ids))
