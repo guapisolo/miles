@@ -20,7 +20,7 @@ _FILTER_TEST_DATA_ROWS = [
 
 
 @pytest.mark.parametrize(
-    "rollout_integration_env",
+    "rollout_env",
     [
         pytest.param(
             integration_env_config(
@@ -43,8 +43,8 @@ _FILTER_TEST_DATA_ROWS = [
     ],
     indirect=True,
 )
-def test_sample_filter_and_all_samples_process(rollout_integration_env):
-    env = rollout_integration_env
+def test_sample_filter_and_all_samples_process(rollout_env):
+    env = rollout_env
     sample_filter_mock = Mock()
     all_samples_process_mock = Mock()
 

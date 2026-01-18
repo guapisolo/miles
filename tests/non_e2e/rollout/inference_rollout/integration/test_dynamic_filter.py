@@ -12,7 +12,7 @@ from miles.utils.misc import function_registry
 
 
 @pytest.mark.parametrize(
-    "rollout_integration_env,use_filter,expect_all_correct",
+    "rollout_env,use_filter,expect_all_correct",
     [
         pytest.param(
             integration_env_config(["--rollout-batch-size", "4"], data_rows=MIXED_DATA_ROWS),
@@ -30,10 +30,10 @@ from miles.utils.misc import function_registry
             id="with_filter",
         ),
     ],
-    indirect=["rollout_integration_env"],
+    indirect=["rollout_env"],
 )
-def test_filter_effect(rollout_integration_env, use_filter, expect_all_correct):
-    env = rollout_integration_env
+def test_filter_effect(rollout_env, use_filter, expect_all_correct):
+    env = rollout_env
     ctx = function_registry.temporary("test:filter_by_reward", filter_by_reward) if use_filter else nullcontext()
 
     with ctx:

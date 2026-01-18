@@ -1,6 +1,6 @@
 import pytest
 from tests.non_e2e.fixtures.generation_fixtures import extra_argv_for_variant
-from tests.non_e2e.fixtures.rollout_fixtures import IntegrationEnvConfig
+from tests.non_e2e.fixtures.rollout_fixtures import RolloutEnvConfig
 from tests.non_e2e.rollout import (
     MODULAR_ROLLOUT_BASE_ARGV,
     expected_sample,
@@ -12,7 +12,7 @@ from miles.rollout.modular_rollout.compatibility import call_rollout_function, l
 
 _VARIANTS = [
     pytest.param(
-        IntegrationEnvConfig(
+        RolloutEnvConfig(
             extra_argv=[
                 "--rollout-function-path",
                 "miles.rollout.sglang_rollout.generate_rollout",
@@ -25,7 +25,7 @@ _VARIANTS = [
         id="old_rollout_old_generate",
     ),
     pytest.param(
-        IntegrationEnvConfig(
+        RolloutEnvConfig(
             extra_argv=[
                 "--rollout-function-path",
                 "miles.rollout.modular_rollout.orchestration_train.SimpleTrainRolloutFn",
@@ -38,7 +38,7 @@ _VARIANTS = [
         id="new_rollout_old_generate",
     ),
     pytest.param(
-        IntegrationEnvConfig(extra_argv=MODULAR_ROLLOUT_BASE_ARGV + extra_argv_for_variant("single_turn")),
+        RolloutEnvConfig(extra_argv=MODULAR_ROLLOUT_BASE_ARGV + extra_argv_for_variant("single_turn")),
         id="new_rollout_new_generate",
     ),
 ]

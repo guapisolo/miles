@@ -7,7 +7,7 @@ _BASE_ARGV = ["--rollout-batch-size", "4", "--n-samples-per-prompt", "2"]
 
 
 @pytest.mark.parametrize(
-    "rollout_integration_env,expected_range",
+    "rollout_env,expected_range",
     [
         pytest.param(
             integration_env_config(
@@ -24,10 +24,10 @@ _BASE_ARGV = ["--rollout-batch-size", "4", "--n-samples-per-prompt", "2"]
             id="no_limit",
         ),
     ],
-    indirect=["rollout_integration_env"],
+    indirect=["rollout_env"],
 )
-def test_max_concurrent(rollout_integration_env, expected_range):
-    env = rollout_integration_env
+def test_max_concurrent(rollout_env, expected_range):
+    env = rollout_env
     load_and_call_train(env.args, env.data_source)
     min_expected, max_expected = expected_range
     assert min_expected <= env.mock_server.max_concurrent <= max_expected

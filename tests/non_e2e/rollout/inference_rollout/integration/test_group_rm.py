@@ -4,7 +4,7 @@ from tests.non_e2e.rollout import integration_env_config, load_and_call_train
 
 
 @pytest.mark.parametrize(
-    "rollout_integration_env",
+    "rollout_env",
     [
         pytest.param(
             integration_env_config(["--group-rm", "--n-samples-per-prompt", "2", "--rollout-batch-size", "1"]),
@@ -13,8 +13,8 @@ from tests.non_e2e.rollout import integration_env_config, load_and_call_train
     ],
     indirect=True,
 )
-def test_group_rm_rewards_set(rollout_integration_env):
-    env = rollout_integration_env
+def test_group_rm_rewards_set(rollout_env):
+    env = rollout_env
     out = load_and_call_train(env.args, env.data_source)
 
     assert len(out.samples) == env.args.rollout_batch_size

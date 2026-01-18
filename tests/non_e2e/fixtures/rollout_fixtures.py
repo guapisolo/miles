@@ -2,7 +2,6 @@
 Fixtures to test rollout-function
 """
 
-# TODO may rename to rollout_fixutres.py to be aligned
 import json
 from argparse import Namespace
 from collections.abc import Iterator
@@ -24,15 +23,14 @@ from miles.utils.test_utils.uvicorn_thread_server import UvicornThreadServer
 
 
 @dataclass(frozen=True)
-class IntegrationEnvConfig:
+class RolloutEnvConfig:
     extra_argv: list[str] | None = None
     data_rows: list[dict] | None = None
     latency: float = 0.0
 
 
-# TODO may rename to RolloutEnv
 @dataclass(frozen=True)
-class IntegrationEnv:
+class RolloutEnv:
     args: Namespace
     data_source: DataSource
     mock_server: MockSGLangServer
@@ -99,11 +97,10 @@ def _write_jsonl(path: str, rows: list[dict]) -> None:
 DEFAULT_DATA_ROWS = [{"input": "What is 1+7?", "label": "8"}]
 
 
-# TODO may rename to rollout_env
 @pytest.fixture
-def rollout_integration_env(tmp_path, request) -> IntegrationEnv:
+def rollout_env(tmp_path, request) -> RolloutEnv:
     config = request.param
-    assert isinstance(config, IntegrationEnvConfig)
+    assert isinstance(config, RolloutEnvConfig)
 
     data_rows = config.data_rows or DEFAULT_DATA_ROWS
 
@@ -125,6 +122,6 @@ def rollout_integration_env(tmp_path, request) -> IntegrationEnv:
             r.raise_for_status()
 
             data_source = RolloutDataSourceWithBuffer(args)
-            yield IntegrationEnv(args=args, data_source=data_source, mock_server=mock_server)
+            yield RolloutEnv(args=args, data_source=data_source, mock_server=mock_server)
 
     SingletonMeta.clear_all_instances()

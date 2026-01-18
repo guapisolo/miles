@@ -1,5 +1,5 @@
 import pytest
-from tests.non_e2e.fixtures.rollout_fixtures import DEFAULT_DATA_ROWS, IntegrationEnvConfig
+from tests.non_e2e.fixtures.rollout_fixtures import DEFAULT_DATA_ROWS, RolloutEnvConfig
 from tests.non_e2e.rollout import MODULAR_ROLLOUT_BASE_ARGV, load_and_call_train
 
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
@@ -34,7 +34,7 @@ async def _multi_sample_generate(input: GenerateFnInput) -> GenerateFnOutput:
     "rollout_env",
     [
         pytest.param(
-            IntegrationEnvConfig(
+            RolloutEnvConfig(
                 extra_argv=MODULAR_ROLLOUT_BASE_ARGV
                 + [
                     "--custom-generate-function-path",

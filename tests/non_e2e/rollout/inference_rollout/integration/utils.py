@@ -1,5 +1,5 @@
 from tests.non_e2e.fixtures.generation_fixtures import extra_argv_for_variant
-from tests.non_e2e.fixtures.rollout_fixtures import IntegrationEnvConfig
+from tests.non_e2e.fixtures.rollout_fixtures import RolloutEnvConfig
 
 from miles.rollout.base_types import (
     RolloutFnConstructorInput,
@@ -61,7 +61,7 @@ def integration_env_config(
     latency: float = 0.0,
     variant: str = "single_turn",
 ):
-    return IntegrationEnvConfig(
+    return RolloutEnvConfig(
         extra_argv=MODULAR_ROLLOUT_BASE_ARGV + extra_argv_for_variant(variant) + extra_argv,
         data_rows=data_rows,
         latency=latency,

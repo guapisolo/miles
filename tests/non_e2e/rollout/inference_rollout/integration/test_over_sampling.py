@@ -27,15 +27,15 @@ def _over_sampling_config(rollout_batch_size: int):
 
 
 @pytest.mark.parametrize(
-    "rollout_integration_env,expected_rounds",
+    "rollout_env,expected_rounds",
     [
         pytest.param(_over_sampling_config(1), 1, id="one_round"),
         pytest.param(_over_sampling_config(2), 2, id="two_rounds"),
     ],
-    indirect=["rollout_integration_env"],
+    indirect=["rollout_env"],
 )
-def test_over_sampling_rounds(rollout_integration_env, expected_rounds):
-    env = rollout_integration_env
+def test_over_sampling_rounds(rollout_env, expected_rounds):
+    env = rollout_env
 
     with function_registry.temporary("test:filter_by_reward", filter_by_reward):
         out = load_and_call_train(env.args, env.data_source)

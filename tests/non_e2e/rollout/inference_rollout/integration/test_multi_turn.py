@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 from tests.non_e2e.fixtures.generation_fixtures import extra_argv_for_variant
-from tests.non_e2e.fixtures.rollout_fixtures import IntegrationEnvConfig
+from tests.non_e2e.fixtures.rollout_fixtures import RolloutEnvConfig
 from tests.non_e2e.rollout import MODULAR_ROLLOUT_BASE_ARGV, load_and_call_rollout
 
 from miles.utils.test_utils.mock_tools import TwoTurnStub
@@ -30,8 +30,8 @@ _BASE_EXTRA_ARGV = [
 ]
 
 
-def _config_for_variant(variant: str) -> IntegrationEnvConfig:
-    return IntegrationEnvConfig(
+def _config_for_variant(variant: str) -> RolloutEnvConfig:
+    return RolloutEnvConfig(
         extra_argv=MODULAR_ROLLOUT_BASE_ARGV + extra_argv_for_variant(variant) + _BASE_EXTRA_ARGV,
         data_rows=TWO_TURN_DATA_ROWS,
     )

@@ -4,7 +4,7 @@ from tests.non_e2e.rollout import integration_env_config, load_and_call_train
 
 
 @pytest.mark.parametrize(
-    "rollout_integration_env,expected_seeds",
+    "rollout_env,expected_seeds",
     [
         pytest.param(
             integration_env_config(
@@ -27,10 +27,10 @@ from tests.non_e2e.rollout import integration_env_config, load_and_call_train
             id="disabled",
         ),
     ],
-    indirect=["rollout_integration_env"],
+    indirect=["rollout_env"],
 )
-def test_sampling_seeds(rollout_integration_env, expected_seeds):
-    env = rollout_integration_env
+def test_sampling_seeds(rollout_env, expected_seeds):
+    env = rollout_env
     load_and_call_train(env.args, env.data_source)
 
     seeds = {req.get("sampling_params", {}).get("sampling_seed") for req in env.mock_server.request_log}
