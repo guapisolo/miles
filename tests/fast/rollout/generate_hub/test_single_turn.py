@@ -3,7 +3,7 @@ import pybase64
 import pytest
 import torch
 from PIL import Image
-from tests.non_e2e.fixtures.generation_fixtures import GenerateEnv, generation_env, listify, make_sample, run_generate
+from tests.fast.fixtures.generation_fixtures import GenerateEnv, generation_env, listify, make_sample, run_generate
 from transformers import AutoProcessor
 
 from miles.utils.processing_utils import encode_image_for_rollout_engine

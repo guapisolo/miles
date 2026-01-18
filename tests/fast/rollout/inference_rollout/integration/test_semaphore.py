@@ -1,6 +1,6 @@
 import pytest
 
-from tests.non_e2e.rollout import integration_env_config, load_and_call_train
+from tests.fast.rollout import integration_env_config, load_and_call_train
 
 _DATA_ROWS = [{"input": f"What is 1+{i}?", "label": str(1 + i)} for i in range(10)]
 _BASE_ARGV = ["--rollout-batch-size", "4", "--n-samples-per-prompt", "2"]

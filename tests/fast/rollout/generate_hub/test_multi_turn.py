@@ -5,7 +5,7 @@ from itertools import groupby
 import numpy as np
 import pybase64
 import pytest
-from tests.non_e2e.fixtures.generation_fixtures import GenerateEnv, generation_env, listify, make_sample, run_generate
+from tests.fast.fixtures.generation_fixtures import GenerateEnv, generation_env, listify, make_sample, run_generate
 from transformers import AutoTokenizer
 
 from miles.utils.test_utils.mock_sglang_server import ProcessResult, ProcessResultMetaInfo

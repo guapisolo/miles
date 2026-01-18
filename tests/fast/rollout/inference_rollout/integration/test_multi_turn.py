@@ -1,9 +1,9 @@
 from typing import Any
 
 import pytest
-from tests.non_e2e.fixtures.generation_fixtures import extra_argv_for_variant
-from tests.non_e2e.fixtures.rollout_fixtures import RolloutEnvConfig
-from tests.non_e2e.rollout import MODULAR_ROLLOUT_BASE_ARGV, load_and_call_rollout
+from tests.fast.fixtures.generation_fixtures import extra_argv_for_variant
+from tests.fast.fixtures.rollout_fixtures import RolloutEnvConfig
+from tests.fast.rollout import MODULAR_ROLLOUT_BASE_ARGV, load_and_call_rollout
 
 from miles.utils.test_utils.mock_tools import TwoTurnStub
 from miles.utils.types import Sample

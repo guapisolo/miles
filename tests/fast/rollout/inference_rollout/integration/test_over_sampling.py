@@ -1,5 +1,5 @@
 import pytest
-from tests.non_e2e.rollout import (
+from tests.fast.rollout import (
     filter_by_reward,
     integration_env_config,
     load_and_call_train,

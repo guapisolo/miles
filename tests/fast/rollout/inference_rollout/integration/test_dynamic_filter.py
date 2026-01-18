@@ -1,7 +1,7 @@
 from contextlib import nullcontext
 
 import pytest
-from tests.non_e2e.rollout import (
+from tests.fast.rollout import (
     MIXED_DATA_ROWS,
     filter_by_reward,
     integration_env_config,
