@@ -1,6 +1,5 @@
-# TODO: may rename to generate_endpoint_utils.py
 """
-Wrapper to integrate SGLang's `/generate` endpoint with RL things like Sample.
+Utils to integrate SGLang's `/generate` endpoint with RL things like Sample.
 """
 from copy import deepcopy
 from typing import Any
