@@ -1,12 +1,7 @@
 from contextlib import nullcontext
 
 import pytest
-from tests.fast.rollout import (
-    MIXED_DATA_ROWS,
-    filter_by_reward,
-    integration_env_config,
-    load_and_call_train,
-)
+from tests.fast.rollout import MIXED_DATA_ROWS, filter_by_reward, integration_env_config, load_and_call_train
 
 from miles.utils.misc import function_registry
 

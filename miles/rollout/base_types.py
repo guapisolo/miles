@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from argparse import Namespace
-from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
 
 from miles.rollout.data_source import DataSource
 from miles.utils.types import Sample

@@ -1,6 +1,7 @@
 """
 Utils to integrate SGLang's `/generate` endpoint with RL things like Sample.
 """
+
 from copy import deepcopy
 from typing import Any
 

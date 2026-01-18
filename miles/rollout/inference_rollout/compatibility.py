@@ -8,7 +8,6 @@ from miles.rollout.base_types import (
     RolloutFnEvalOutput,
     RolloutFnInput,
     RolloutFnOutput,
-    RolloutFnProtocol,
     RolloutFnTrainOutput,
 )
 from miles.utils.async_utils import run
