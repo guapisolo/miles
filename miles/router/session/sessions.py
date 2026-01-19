@@ -1,12 +1,15 @@
 import json
+from typing import TYPE_CHECKING
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from transformers import AutoTokenizer
 
-from miles.router.router import MilesRouter
 from miles.router.session.seq_trajectory import SeqTrajectoryManager, TokenInfo, Turn
+
+if TYPE_CHECKING:
+    from miles.router.router import MilesRouter
 
 
 class SessionRecord(BaseModel):
@@ -72,7 +75,7 @@ def setup_session_routes(app, router: "MilesRouter"):
         response = json.loads(result["response_body"])
 
         choice = response.get("choices", [{}])[0]
-        messages = request_body["messages"] + choice["message"]
+        messages = request_body["messages"] + [choice["message"]]
 
         assert "logprobs" in choice and "content" in choice["logprobs"], "logprobs must be in choice"
         logprobs_content = choice["logprobs"]["content"]

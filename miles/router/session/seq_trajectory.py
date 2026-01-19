@@ -86,12 +86,14 @@ class Turn(BaseModel):
         prompt_tokens: TokenInfo,
         response_tokens: TokenInfo,
     ):
+        super().__init__(
+            messages=messages,
+            prompt_tokens=prompt_tokens,
+            response_tokens=response_tokens,
+        )
         assert (
             len(messages) > 0 and messages[-1]["role"] == "assistant"
         ), "The last message must be an assistant message."
-        self.messages = messages
-        self.prompt_tokens = prompt_tokens
-        self.response_tokens = response_tokens
 
     def match_prefix_messages_and_return_remaining(self, other: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
         """
@@ -132,6 +134,7 @@ class SeqTrajectory(BaseModel):
     ) -> tuple[Turn, list[dict[str, Any]]]:
         if n is None:
             n = self.num_turns
+        assert n > 0, "n must be greater than 0"
         remain_messages = messages
         for i in range(n):
             turn = self.turns[i]
@@ -152,14 +155,17 @@ class SeqTrajectory(BaseModel):
         if cross_turn_token_out and self.num_turns > 0:
             if inherit_last_assistant:
                 raise NotImplementedError("Not implemented yet.")
-                turn, remain_messages = self.match_prefix_messages_and_return_last_turn(messages)
+                turn, remain_messages = self.match_prefix_turns_and_return_last_turn(messages)
                 token_info = turn.handle_token_out_for_next_turn(self.model_name)
             else:
-                turn, remain_messages = self.match_prefix_messages_and_return_last_turn(messages, self.num_turns - 1)
-                old_token_ids = turn.prompt_tokens.token_ids + turn.response_tokens.token_ids
+                if self.num_turns >= 2:
+                    turn, remain_messages = self.match_prefix_turns_and_return_last_turn(messages, self.num_turns - 1)
+                    old_token_ids = turn.prompt_tokens.token_ids + turn.response_tokens.token_ids
+                else:
+                    remain_messages = messages
+                    old_token_ids = []
                 new_token_ids = tokenize_messages(remain_messages, tokenizer, add_generation_prompt=True)
                 token_ids = old_token_ids + new_token_ids
-                # Old token logprobs and loss mask are set to 0.
                 log_probs = [0.0] * len(token_ids)
                 loss_mask = [0] * len(token_ids)
                 token_info = TokenInfo(
@@ -169,10 +175,7 @@ class SeqTrajectory(BaseModel):
                     loss_mask=loss_mask,
                 )
         else:
-            # Retokenize all trajectory tokens, and set logprobs and loss mask to 0.
-            token_ids = tokenizer.apply_chat_template(
-                self.turns[-1].messages, tokenize=True, add_generation_prompt=True
-            )
+            token_ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
             log_probs = [0.0] * len(token_ids)
             loss_mask = [0] * len(token_ids)
             token_info = TokenInfo(
@@ -185,6 +188,8 @@ class SeqTrajectory(BaseModel):
         return token_info
 
     def get_last_turn_token_info(self) -> TokenInfo:
+        if not self.turns:
+            return TokenInfo()
         return self.turns[-1].prompt_tokens + self.turns[-1].response_tokens
 
 
@@ -226,7 +231,7 @@ class SeqTrajectoryManager:
         # raise ValueError("Currently, we do not support consecutive assistant message input.")
 
     def delete_session_by_id(self, session_id: str) -> bool:
-        session = self.sessions.pop(session_id)
+        session = self.sessions.pop(session_id, None)
         if session is None:
             return False
         return True
