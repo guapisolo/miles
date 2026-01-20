@@ -1,9 +1,11 @@
 import json
+import logging
 
 from transformers import AutoTokenizer
 
 from miles.utils.test_utils.mock_sglang_server import ProcessResult
 
+logger = logging.getLogger(__name__)
 SAMPLE_TOOLS = [
     {
         "type": "function",
@@ -259,6 +261,103 @@ class ThreeTurnStub:
             ThreeTurnStub.FIRST_PROMPT: ThreeTurnStub.FIRST_RESPONSE,
             ThreeTurnStub.SECOND_PROMPT: ThreeTurnStub.SECOND_RESPONSE,
             ThreeTurnStub.THIRD_PROMPT: ThreeTurnStub.THIRD_RESPONSE,
+        }
+
+        for expect_prompt, response in prompt_response_pairs.items():
+            if prompt == expect_prompt:
+                return ProcessResult(text=response, finish_reason="stop")
+
+        raise ValueError(f"Unexpected {prompt=}")
+
+
+class ThinkingThreeTurnStub:
+    """3-turn stub with a think tag in the assistant response."""
+
+    USER_QUESTION = ThreeTurnStub.USER_QUESTION
+    THINK_PREFIX = "<think>\nLet me think.\n</think>\n\n"
+    FOURTH_USER_MESSAGE = "Thanks."
+
+    FIRST_RESPONSE = THINK_PREFIX + ThreeTurnStub.FIRST_RESPONSE
+    SECOND_RESPONSE = ThreeTurnStub.SECOND_RESPONSE
+    THIRD_RESPONSE = ThreeTurnStub.THIRD_RESPONSE
+    FOURTH_RESPONSE = "You're welcome."
+
+    FIRST_TOOL_RESPONSE = ThreeTurnStub.FIRST_TOOL_RESPONSE
+    SECOND_TOOL_RESPONSE = ThreeTurnStub.SECOND_TOOL_RESPONSE
+
+    FIRST_PROMPT = _SYSTEM_PROMPT + "<|im_start|>user\n" + USER_QUESTION + "<|im_end|>\n" + "<|im_start|>assistant\n"
+    SECOND_PROMPT = FIRST_PROMPT + FIRST_RESPONSE + FIRST_TOOL_RESPONSE
+    THIRD_PROMPT = SECOND_PROMPT + SECOND_RESPONSE + SECOND_TOOL_RESPONSE
+    FOURTH_PROMPT = (
+        THIRD_PROMPT
+        + THIRD_RESPONSE
+        + "<|im_end|>\n"
+        + "<|im_start|>user\n"
+        + FOURTH_USER_MESSAGE
+        + "<|im_end|>\n"
+        + "<|im_start|>assistant\n"
+    )
+
+    PROMPT = [{"role": "user", "content": USER_QUESTION}]
+
+    FIRST_PROMPT_TOKEN_IDS = _TOKENIZER(FIRST_PROMPT, add_special_tokens=False)["input_ids"]
+    SECOND_PROMPT_TOKEN_IDS = _TOKENIZER(SECOND_PROMPT, add_special_tokens=False)["input_ids"]
+    THIRD_PROMPT_TOKEN_IDS = _TOKENIZER(THIRD_PROMPT, add_special_tokens=False)["input_ids"]
+    FOURTH_PROMPT_TOKEN_IDS = _TOKENIZER(FOURTH_PROMPT, add_special_tokens=False)["input_ids"]
+
+    FIRST_RESPONSE_CONTENT = THINK_PREFIX + ThreeTurnStub.FIRST_RESPONSE_CONTENT
+    FIRST_TOOL_CALLS_OPENAI_FORMAT = ThreeTurnStub.FIRST_TOOL_CALLS_OPENAI_FORMAT
+    SECOND_RESPONSE_CONTENT = ThreeTurnStub.SECOND_RESPONSE_CONTENT
+    SECOND_TOOL_CALLS_OPENAI_FORMAT = ThreeTurnStub.SECOND_TOOL_CALLS_OPENAI_FORMAT
+
+    OPENAI_MESSAGES_FIRST_TURN = [{"role": "user", "content": USER_QUESTION}]
+
+    OPENAI_MESSAGES_SECOND_TURN_FROM_CLIENT = OPENAI_MESSAGES_FIRST_TURN + [
+        {
+            "content": FIRST_RESPONSE_CONTENT,
+            "refusal": None,
+            "role": "assistant",
+            "annotations": None,
+            "audio": None,
+            "function_call": None,
+            "tool_calls": FIRST_TOOL_CALLS_OPENAI_FORMAT,
+        },
+        {"role": "tool", "tool_call_id": "call00000", "content": '{"year": 2026}', "name": "get_year"},
+        {"role": "tool", "tool_call_id": "call00001", "content": '{"temperature": -60}', "name": "get_temperature"},
+    ]
+
+    OPENAI_MESSAGES_THIRD_TURN_FROM_CLIENT = OPENAI_MESSAGES_SECOND_TURN_FROM_CLIENT + [
+        {
+            "content": SECOND_RESPONSE_CONTENT,
+            "refusal": None,
+            "role": "assistant",
+            "annotations": None,
+            "audio": None,
+            "function_call": None,
+            "tool_calls": SECOND_TOOL_CALLS_OPENAI_FORMAT,
+        },
+        {"role": "tool", "tool_call_id": "call00000", "content": '{"temperature": 15}', "name": "get_temperature"},
+    ]
+    OPENAI_MESSAGES_FOURTH_TURN_FROM_CLIENT = OPENAI_MESSAGES_THIRD_TURN_FROM_CLIENT + [
+        {
+            "content": THIRD_RESPONSE,
+            "refusal": None,
+            "role": "assistant",
+            "annotations": None,
+            "audio": None,
+            "function_call": None,
+            "tool_calls": None,
+        },
+        {"role": "user", "content": FOURTH_USER_MESSAGE},
+    ]
+
+    @staticmethod
+    def process_fn(prompt: str) -> ProcessResult:
+        prompt_response_pairs = {
+            ThinkingThreeTurnStub.FIRST_PROMPT: ThinkingThreeTurnStub.FIRST_RESPONSE,
+            ThinkingThreeTurnStub.SECOND_PROMPT: ThinkingThreeTurnStub.SECOND_RESPONSE,
+            ThinkingThreeTurnStub.THIRD_PROMPT: ThinkingThreeTurnStub.THIRD_RESPONSE,
+            ThinkingThreeTurnStub.FOURTH_PROMPT: ThinkingThreeTurnStub.FOURTH_RESPONSE,
         }
 
         for expect_prompt, response in prompt_response_pairs.items():

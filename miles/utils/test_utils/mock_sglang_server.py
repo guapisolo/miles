@@ -145,6 +145,8 @@ class MockSGLangServer:
             messages, tokenize=False, add_generation_prompt=True, tools=tools
         )
 
+        print(f"_messages: {messages=}", flush=True)
+        print(f"_compute_chat_completions_response: {prompt_str=}", flush=True)
         process_result = self.process_fn(prompt_str)
         output_ids = self.tokenizer.encode(process_result.text, add_special_tokens=False)
 

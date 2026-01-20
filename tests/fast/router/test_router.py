@@ -19,6 +19,9 @@ def make_router_args(router_port: int, **overrides) -> Namespace:
         miles_router_max_connections=100,
         miles_router_timeout=None,
         miles_router_middleware_paths=[],
+        hf_checkpoint="Qwen/Qwen3-0.6B",
+        cross_turn_token_out=False,
+        inherit_last_assistant=False,
     )
     defaults.update(overrides)
     return Namespace(**defaults)

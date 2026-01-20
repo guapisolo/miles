@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import pytest
 from transformers import AutoTokenizer
 
 from miles.rollout.generate_utils.tokenize_utils import tokenize_messages
@@ -47,6 +50,14 @@ def _assert_prompt_token_info(token_info: seq_trajectory.TokenInfo, expected_tok
     assert token_info.tokens == TOKENIZER.convert_ids_to_tokens(expected_token_ids)
     assert token_info.log_probs == [0.0] * len(expected_token_ids)
     assert token_info.loss_mask == [0] * len(expected_token_ids)
+
+
+def _make_manager(*, cross_turn_token_out: bool, inherit_last_assistant: bool) -> seq_trajectory.SeqTrajectoryManager:
+    args = SimpleNamespace(
+        cross_turn_token_out=cross_turn_token_out,
+        inherit_last_assistant=inherit_last_assistant,
+    )
+    return seq_trajectory.SeqTrajectoryManager(args, TOKENIZER)
 
 
 def test_turn_match_prefix_messages_returns_remaining():
@@ -209,3 +220,147 @@ def test_tokenize_messages_does_not_trim_incomplete_think_content():
 
     assert tokens_incomplete != tokens_plain
     assert think_start_id in tokens_incomplete
+
+
+def test_manager_calc_prompt_tokens_missing_session_returns_none():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    messages = _messages([("system", "sys"), ("user", "hi")])
+
+    assert manager.calc_prompt_tokens("missing", messages) is None
+
+
+def test_manager_get_session_by_id_empty_returns_empty_token_info():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    session_id = manager.create_session()
+
+    token_info = manager.get_session_by_id(session_id)
+    assert token_info is not None
+    assert token_info.tokens == []
+    assert token_info.token_ids == []
+    assert token_info.log_probs == []
+    assert token_info.loss_mask == []
+
+
+def test_manager_calc_prompt_tokens_no_turns_retokens_messages():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    session_id = manager.create_session()
+    messages = _messages([("system", "sys"), ("user", "u1")])
+
+    token_info = manager.calc_prompt_tokens(session_id, messages)
+
+    expected_token_ids = TOKENIZER.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+    _assert_prompt_token_info(token_info, expected_token_ids)
+
+
+def test_manager_calc_prompt_tokens_inherit_last_assistant_raises():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=True)
+    session_id = manager.create_session()
+    turn_messages = _messages([("system", "sys"), ("user", "u1"), ("assistant", "a1")])
+    manager.add_record(session_id, _turn_from_messages(turn_messages))
+
+    with pytest.raises(NotImplementedError):
+        manager.calc_prompt_tokens(session_id, turn_messages)
+
+
+def test_manager_calc_prompt_tokens_cross_turn_single_turn_uses_tokenize_messages():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    session_id = manager.create_session()
+    turn_messages = _messages([("system", "sys"), ("user", "u1"), ("assistant", "a1")])
+    manager.add_record(session_id, _turn_from_messages(turn_messages))
+
+    messages = _messages([("system", "sys"), ("user", "next")])
+    token_info = manager.calc_prompt_tokens(session_id, messages)
+
+    expected_token_ids = tokenize_messages(messages, TOKENIZER, add_generation_prompt=True)
+    _assert_prompt_token_info(token_info, expected_token_ids)
+
+
+def test_manager_calc_prompt_tokens_cross_turn_multi_turn_prefix_success():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    session_id = manager.create_session()
+    turn1_messages = _messages([("system", "sys"), ("user", "u1"), ("assistant", "a1")])
+    turn2_messages = _messages([("user", "u2"), ("assistant", "a2")])
+    turn1 = _turn_from_messages(turn1_messages)
+    manager.add_record(session_id, turn1)
+    manager.add_record(session_id, _turn_from_messages(turn2_messages))
+
+    input_messages = _messages([("system", "sys")])
+    token_info = manager.calc_prompt_tokens(session_id, input_messages)
+
+    remain_messages = _messages([("user", "u1"), ("assistant", "a1")])
+    expected_new_token_ids = tokenize_messages(remain_messages, TOKENIZER, add_generation_prompt=True)
+    expected_token_ids = turn1.prompt_tokens.token_ids + turn1.response_tokens.token_ids + expected_new_token_ids
+    _assert_prompt_token_info(token_info, expected_token_ids)
+
+
+def test_manager_calc_prompt_tokens_cross_turn_multi_turn_prefix_mismatch_raises():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    session_id = manager.create_session()
+    turn1_messages = _messages([("system", "sys"), ("user", "u1"), ("assistant", "a1")])
+    manager.add_record(session_id, _turn_from_messages(turn1_messages))
+    manager.add_record(session_id, _turn_from_messages(_messages([("user", "u2"), ("assistant", "a2")])))
+
+    with pytest.raises(ValueError):
+        manager.calc_prompt_tokens(session_id, _messages([("system", "nope")]))
+
+
+def test_manager_calc_prompt_tokens_cross_turn_disabled_retokens_messages():
+    manager = _make_manager(cross_turn_token_out=False, inherit_last_assistant=True)
+    session_id = manager.create_session()
+    manager.add_record(
+        session_id, _turn_from_messages(_messages([("system", "sys"), ("user", "u1"), ("assistant", "a1")]))
+    )
+
+    messages = _messages([("system", "sys"), ("user", "new")])
+    token_info = manager.calc_prompt_tokens(session_id, messages)
+
+    expected_token_ids = TOKENIZER.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+    _assert_prompt_token_info(token_info, expected_token_ids)
+
+
+def test_manager_get_session_by_id_after_add_record_returns_combined_tokens():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    session_id = manager.create_session()
+    messages = _messages([("system", "sys"), ("user", "u1"), ("assistant", "a1")])
+    turn = _turn_from_messages(messages)
+    manager.add_record(session_id, turn)
+
+    token_info = manager.get_session_by_id(session_id)
+
+    expected_token_ids = turn.prompt_tokens.token_ids + turn.response_tokens.token_ids
+    assert token_info.token_ids == expected_token_ids
+    assert token_info.tokens == TOKENIZER.convert_ids_to_tokens(expected_token_ids)
+    assert token_info.log_probs == turn.prompt_tokens.log_probs + turn.response_tokens.log_probs
+    assert token_info.loss_mask == turn.prompt_tokens.loss_mask + turn.response_tokens.loss_mask
+
+
+def test_manager_delete_session_by_id():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    session_id = manager.create_session()
+
+    assert manager.delete_session_by_id(session_id) is True
+    assert manager.delete_session_by_id(session_id) is False
+
+
+def test_manager_add_record_missing_session_raises():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    messages = _messages([("system", "sys"), ("user", "u1"), ("assistant", "a1")])
+    turn = _turn_from_messages(messages)
+
+    with pytest.raises(ValueError):
+        manager.add_record("missing", turn)
+
+
+def test_manager_calc_prompt_tokens_cross_turn_multi_turn_empty_remaining_messages():
+    manager = _make_manager(cross_turn_token_out=True, inherit_last_assistant=False)
+    session_id = manager.create_session()
+    turn1_messages = _messages([("system", "sys"), ("user", "u1"), ("assistant", "a1")])
+    turn2_messages = _messages([("user", "u2"), ("assistant", "a2")])
+    turn1 = _turn_from_messages(turn1_messages)
+    manager.add_record(session_id, turn1)
+    manager.add_record(session_id, _turn_from_messages(turn2_messages))
+
+    token_info = manager.calc_prompt_tokens(session_id, turn1_messages)
+
+    expected_token_ids = turn1.prompt_tokens.token_ids + turn1.response_tokens.token_ids
+    _assert_prompt_token_info(token_info, expected_token_ids)

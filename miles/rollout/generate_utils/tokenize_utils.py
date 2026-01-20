@@ -23,9 +23,11 @@ def _naive_calc_additional_tokens(
 ) -> list[int]:
     prefix = [_DUMMY_SYSTEM, _DUMMY_USER, _DUMMY_ASSISTANT, _DUMMY_USER]
     suffix = [_DUMMY_SYSTEM, _DUMMY_USER]
-    prefix_tokens = tokenizer.apply_chat_template(prefix, tokenize=True)
-    messages_tokens = tokenizer.apply_chat_template(prefix + [message] + suffix, tokenize=True)
-    suffix_tokens = tokenizer.apply_chat_template(suffix, tokenize=True)
+    prefix_tokens = tokenizer.apply_chat_template(prefix, tokenize=True, add_special_tokens=False)
+    messages_tokens = tokenizer.apply_chat_template(
+        prefix + [message] + suffix, tokenize=True, add_special_tokens=False
+    )
+    suffix_tokens = tokenizer.apply_chat_template(suffix, tokenize=True, add_special_tokens=False)
 
     response_tokens = messages_tokens[len(prefix_tokens) : -len(suffix_tokens)]
     generation_prompt_tokens = calc_generation_prompt_tokens(tokenizer)

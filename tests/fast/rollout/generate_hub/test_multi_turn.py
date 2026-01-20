@@ -9,7 +9,7 @@ from tests.fast.fixtures.generation_fixtures import GenerateEnv, generation_env,
 from transformers import AutoTokenizer
 
 from miles.utils.test_utils.mock_sglang_server import ProcessResult, ProcessResultMetaInfo
-from miles.utils.test_utils.mock_tools import SAMPLE_TOOLS, ThreeTurnStub, TwoTurnStub
+from miles.utils.test_utils.mock_tools import SAMPLE_TOOLS, ThinkingThreeTurnStub, ThreeTurnStub, TwoTurnStub
 from miles.utils.types import Sample
 
 _ = generation_env, SAMPLE_TOOLS, TwoTurnStub, ThreeTurnStub
@@ -137,7 +137,8 @@ def expected_request(input_ids: list[int], sampling_params: dict | None = None) 
 
 
 def expected_openai_request(messages: list[dict]) -> dict:
-    return {"messages": messages, "model": "default", "tools": SAMPLE_TOOLS}
+    input_ids = TOKENIZER.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+    return {"messages": messages, "model": "default", "tools": SAMPLE_TOOLS, "input_ids": input_ids}
 
 
 SINGLE_TURN_PROMPT = [{"role": "user", "content": "What is 1+1?"}]
@@ -514,6 +515,89 @@ class TestThreeTurn:
                 ),
             ]
         verify_samples(result.sample, expected)
+
+
+class TestFourTurnWithThink:
+    def test_four_turns_with_think_prefix(self, variant, generation_env):
+        generation_env.mock_server.process_fn = ThinkingThreeTurnStub.process_fn
+
+        S = ThinkingThreeTurnStub
+        result = _run_generate(variant, generation_env, make_sample(prompt=S.PROMPT))
+
+        if is_agentic_variant(variant):
+            assert result.requests == [
+                expected_openai_request(S.OPENAI_MESSAGES_FIRST_TURN),
+                expected_openai_request(S.OPENAI_MESSAGES_SECOND_TURN_FROM_CLIENT),
+                expected_openai_request(S.OPENAI_MESSAGES_THIRD_TURN_FROM_CLIENT),
+            ]
+        else:
+            assert result.requests == [
+                expected_request(S.FIRST_PROMPT_TOKEN_IDS),
+                expected_request(S.SECOND_PROMPT_TOKEN_IDS),
+                expected_request(S.THIRD_PROMPT_TOKEN_IDS),
+            ]
+        if variant in ("multi_turn_single_sample", "agentic_tool_call_single_sample"):
+            full_response = (
+                S.FIRST_RESPONSE
+                + S.FIRST_TOOL_RESPONSE
+                + S.SECOND_RESPONSE
+                + S.SECOND_TOOL_RESPONSE
+                + S.THIRD_RESPONSE
+            )
+            expected = [
+                ExpectedSampleInfo(
+                    chunks=[
+                        expected_chunk(S.FIRST_RESPONSE, 1),
+                        expected_chunk(S.FIRST_TOOL_RESPONSE, 0),
+                        expected_chunk(S.SECOND_RESPONSE, 1),
+                        expected_chunk(S.SECOND_TOOL_RESPONSE, 0),
+                        expected_chunk(S.THIRD_RESPONSE, 1),
+                    ],
+                    partial_sample=expected_partial_sample(
+                        prompt=S.PROMPT,
+                        response=full_response,
+                        response_length=token_len(full_response),
+                    ),
+                ),
+            ]
+        else:
+            expected = [
+                ExpectedSampleInfo(
+                    chunks=[expected_chunk(S.FIRST_RESPONSE, 1)],
+                    partial_sample=expected_partial_sample(
+                        prompt=S.PROMPT,
+                        response=S.FIRST_RESPONSE,
+                        response_length=token_len(S.FIRST_RESPONSE),
+                    ),
+                ),
+                ExpectedSampleInfo(
+                    chunks=[expected_chunk(S.SECOND_RESPONSE, 1)],
+                    partial_sample=expected_partial_sample(
+                        prompt=S.PROMPT,
+                        response=S.SECOND_RESPONSE,
+                        response_length=token_len(S.SECOND_RESPONSE),
+                    ),
+                ),
+                ExpectedSampleInfo(
+                    chunks=[expected_chunk(S.THIRD_RESPONSE, 1)],
+                    partial_sample=expected_partial_sample(
+                        prompt=S.PROMPT,
+                        response=S.THIRD_RESPONSE,
+                        response_length=token_len(S.THIRD_RESPONSE),
+                    ),
+                ),
+            ]
+        verify_samples(result.sample, expected)
+
+        messages_without_think = deepcopy(S.OPENAI_MESSAGES_FOURTH_TURN_FROM_CLIENT)
+        messages_without_think[1]["content"] = messages_without_think[1]["content"].replace(S.THINK_PREFIX, "")
+        token_ids_with_think = TOKENIZER.apply_chat_template(
+            S.OPENAI_MESSAGES_FOURTH_TURN_FROM_CLIENT, tokenize=True, add_generation_prompt=True
+        )
+        token_ids_without_think = TOKENIZER.apply_chat_template(
+            messages_without_think, tokenize=True, add_generation_prompt=True
+        )
+        assert token_ids_with_think == token_ids_without_think
 
 
 class TestRoutedExpertsMultiTurn:

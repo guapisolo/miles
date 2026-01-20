@@ -1,4 +1,5 @@
 import json
+import time
 from typing import TYPE_CHECKING
 
 from fastapi import Request
@@ -24,6 +25,7 @@ class SessionRecord(BaseModel):
 class GetSessionResponse(BaseModel):
     session_id: str
     records: dict
+    session_records: list[SessionRecord] | None = None
 
 
 def setup_session_routes(app, router: "MilesRouter"):
@@ -46,7 +48,12 @@ def setup_session_routes(app, router: "MilesRouter"):
         token_info = manager.get_session_by_id(session_id)
         if token_info is None:
             return JSONResponse(status_code=404, content={"error": "session not found"})
-        return GetSessionResponse(session_id=session_id, records=token_info.model_dump())
+        session_records = manager.get_session_records(session_id)
+        return GetSessionResponse(
+            session_id=session_id,
+            records=token_info.model_dump(),
+            session_records=session_records,
+        )
 
     @app.delete("/sessions/{session_id}")
     async def delete_session(session_id: str):
@@ -92,6 +99,17 @@ def setup_session_routes(app, router: "MilesRouter"):
                 prompt_tokens=prompt_token_info,
                 response_tokens=response_token_info,
             ),
+        )
+        manager.add_session_record(
+            session_id,
+            SessionRecord(
+                timestamp=time.time(),
+                method=request.method,
+                path=path,
+                request=request_body,
+                response=response,
+                status_code=result["status_code"],
+            ).model_dump(),
         )
 
         return router._build_proxy_response(result)

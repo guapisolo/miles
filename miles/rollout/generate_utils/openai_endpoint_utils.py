@@ -28,14 +28,16 @@ class OpenAIEndpointTracer:
     async def collect_records(self) -> list[SessionRecord]:
         response = await post(f"{self.router_url}/sessions/{self.session_id}", {}, action="get")
         response = GetSessionResponse.model_validate(response)
-        records = response.records
+        records = response.session_records
+        if records is None and isinstance(response.records, list):
+            records = response.records
 
         try:
             await post(f"{self.router_url}/sessions/{self.session_id}", {}, action="delete")
         except Exception as e:
             logger.warning(f"Failed to delete session {self.session_id} after collecting records: {e}")
 
-        return records
+        return records or []
 
 
 def compute_samples_from_openai_records(input_sample: Sample, records: list[SessionRecord], tokenizer) -> list[Sample]:

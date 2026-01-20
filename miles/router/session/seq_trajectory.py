@@ -124,10 +124,14 @@ class SeqTrajectory(BaseModel):
     model_name: str = ""
     # History for all turns.
     turns: list[Turn] = Field(default_factory=list)
+    records: list[dict[str, Any]] = Field(default_factory=list)
 
     def insert_new_turn(self, turn: Turn):
         self.turns.append(turn)
         self.num_turns += 1
+
+    def insert_new_record(self, record: dict[str, Any]):
+        self.records.append(record)
 
     def match_prefix_turns_and_return_last_turn(
         self, messages: list[dict[str, Any]], n: int | None = None
@@ -149,8 +153,8 @@ class SeqTrajectory(BaseModel):
         self,
         messages: list[dict[str, Any]],
         tokenizer: AutoTokenizer,
-        cross_turn_token_out: bool = True,
-        inherit_last_assistant: bool = True,
+        cross_turn_token_out: bool = False,
+        inherit_last_assistant: bool = False,
     ) -> TokenInfo:
         if cross_turn_token_out and self.num_turns > 0:
             if inherit_last_assistant:
@@ -210,16 +214,24 @@ class SeqTrajectoryManager:
             return None
         return session.get_last_turn_token_info()
 
+    def get_session_records(self, session_id: str) -> list[dict[str, Any]] | None:
+        session = self.sessions.get(session_id)
+        if session is None:
+            return None
+        return session.records
+
     def calc_prompt_tokens(self, session_id: str, messages: list[dict[str, Any]]) -> TokenInfo | None:
         # Notice: Sequence trajectory manager will support the prefix of input messages match with the only history.
         session = self.sessions.get(session_id)
         if session is None:
             return None
+        cross_turn_token_out = getattr(self.args, "cross_turn_token_out", False)
+        inherit_last_assistant = getattr(self.args, "inherit_last_assistant", False)
         token_info: TokenInfo = session.calc_prompt_tokens_info(
             messages,
             self.tokenizer,
-            cross_turn_token_out=self.args.cross_turn_token_out,
-            inherit_last_assistant=self.args.inherit_last_assistant,
+            cross_turn_token_out=cross_turn_token_out,
+            inherit_last_assistant=inherit_last_assistant,
         )
         return token_info
         # if remain_messages is None:
@@ -241,4 +253,11 @@ class SeqTrajectoryManager:
         if session is None:
             raise ValueError(f"Session {session_id} not found.")
         session.insert_new_turn(turn)
+        return True
+
+    def add_session_record(self, session_id: str, record: dict[str, Any]) -> bool:
+        session = self.sessions.get(session_id)
+        if session is None:
+            raise ValueError(f"Session {session_id} not found.")
+        session.insert_new_record(record)
         return True
