@@ -1,0 +1,20 @@
+{
+    "include": [
+      "."
+    ],
+    "exclude": [
+      "**/node_modules",
+      "**/__pycache__",
+      "**/.git"
+    ],
+    "pythonVersion": "3.12",
+    "typeCheckingMode": "basic",
+    "useLibraryCodeForTypes": true,
+    "reportMissingImports": false,
+    "reportMissingTypeStubs": false,
+    "extraPaths": [
+      "/sgl-workspace/sglang/python"
+    ]
+  }
+  
+  
