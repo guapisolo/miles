@@ -5,7 +5,13 @@ import time
 import pytest
 import requests
 
-from miles.utils.test_utils.mock_sglang_server import Counter, ProcessResult, default_process_fn, with_mock_server
+from miles.utils.test_utils.mock_sglang_server import (
+    Counter,
+    ProcessResult,
+    ProcessResultMetaInfo,
+    default_process_fn,
+    with_mock_server,
+)
 
 
 @pytest.fixture(scope="module")
@@ -72,6 +78,64 @@ def test_default_process_fn():
     assert default_process_fn("What is 1+5?") == ProcessResult(text="\\boxed{6}", finish_reason="stop")
     assert default_process_fn("What is 1+10?") == ProcessResult(text="\\boxed{11}", finish_reason="stop")
     assert default_process_fn("Hello") == ProcessResult(text="I don't understand.", finish_reason="stop")
+
+
+def test_process_result_meta_info_to_dict():
+    assert ProcessResultMetaInfo().to_dict() == {}
+    assert ProcessResultMetaInfo(weight_version="v1").to_dict() == {"weight_version": "v1"}
+    assert ProcessResultMetaInfo(weight_version="v1", spec_accept_token_num=10).to_dict() == {
+        "weight_version": "v1",
+        "spec_accept_token_num": 10,
+    }
+    assert ProcessResultMetaInfo(
+        weight_version="v1", routed_experts="abc", spec_accept_token_num=10, spec_draft_token_num=15, spec_verify_ct=3
+    ).to_dict() == {
+        "weight_version": "v1",
+        "routed_experts": "abc",
+        "spec_accept_token_num": 10,
+        "spec_draft_token_num": 15,
+        "spec_verify_ct": 3,
+    }
+
+
+def test_generate_endpoint_with_meta_info():
+    def process_fn(_: str) -> ProcessResult:
+        return ProcessResult(
+            text="ok",
+            finish_reason="stop",
+            cached_tokens=5,
+            meta_info=ProcessResultMetaInfo(
+                weight_version="v2.0",
+                routed_experts="encoded_data",
+                spec_accept_token_num=10,
+                spec_draft_token_num=15,
+                spec_verify_ct=3,
+            ),
+        )
+
+    with with_mock_server(process_fn=process_fn) as server:
+        response = requests.post(
+            f"{server.url}/generate",
+            json={"input_ids": [1, 2, 3], "sampling_params": {}, "return_logprob": True},
+            timeout=5.0,
+        )
+        data = response.json()
+
+    assert data == {
+        "text": "ok",
+        "meta_info": {
+            "finish_reason": {"type": "stop"},
+            "prompt_tokens": 3,
+            "cached_tokens": 5,
+            "completion_tokens": 1,
+            "output_token_logprobs": [[-0.0, 562]],
+            "weight_version": "v2.0",
+            "routed_experts": "encoded_data",
+            "spec_accept_token_num": 10,
+            "spec_draft_token_num": 15,
+            "spec_verify_ct": 3,
+        },
+    }
 
 
 def test_request_log_and_reset_stats(mock_server):
