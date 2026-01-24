@@ -1,30 +1,80 @@
 from collections.abc import Callable
+from functools import lru_cache
 
 import pytest
 import torch
 import torch.nn.functional as F
 from megatron.core import mpu
+from transformers import AutoTokenizer
 
 from miles.backends.megatron_utils.data import DataIterator, get_batch
 
 
-def _build_rollout_data(device: torch.device) -> dict:
-    base_tokens = [
-        torch.tensor([2, 5, 7, 11, 3, 8, 4, 1], device=device, dtype=torch.long),
-        torch.tensor([9, 3, 10, 2, 7, 4], device=device, dtype=torch.long),
-        torch.tensor([6, 1, 5, 12, 7, 2, 8, 3, 9], device=device, dtype=torch.long),
-    ]
-    base_response_lengths = [4, 3, 5]
-    base_loss_masks = [
-        torch.tensor([1, 1, 0, 1], device=device, dtype=torch.float32),
-        torch.tensor([1, 0, 1], device=device, dtype=torch.float32),
-        torch.tensor([1, 1, 1, 0, 1], device=device, dtype=torch.float32),
-    ]
+_CHAT_MESSAGES = [
+    {
+        "role": "system",
+        "content": (
+            "\nYou are a highly capable and helpful math problem-solving assistant. Your goal is to carefully analyze "
+            "and solve the user's mathematics question by providing a detailed, step-by-step explanation that is easy "
+            "to follow and logically sound.\n\n## Instructions\n\n1. **Carefully read and fully understand the user's "
+            "question.** Identify what is being asked and any relevant information or constraints.\n\n2. **Generate a "
+            "detailed problem-solving process**, breaking down the solution into clear, logical steps. Explain each "
+            "step thoroughly, including all intermediate calculations, reasoning, definitions, and justifications—even "
+            "if they seem simple or obvious. This helps ensure clarity and aids understanding.\n\n3. **Structure your "
+            "reasoning by enclosing all these problem-solving steps within `<think>` tags.**\n\n4. **After completing "
+            "the detailed reasoning, provide the final answer clearly and unambiguously, enclosed within `<answer>` "
+            "tags.** Ensure the answer directly addresses the question.\n\n5. If the problem involves multiple parts or "
+            "sub-questions, address each part sequentially, separating your reasoning and answers clearly.\n\n6. Use "
+            "correct mathematical notation and terminology throughout.\n\n7. Avoid skipping steps or assuming knowledge; "
+            "assume the reader needs a comprehensive explanation.\n\n## Output Format\n<think>\n<!-- Detailed, step-by-"
+            "step problem-solving explanation goes here -->\n</think>\n\n<answer>\n<!-- Final answer to the problem goes "
+            "here -->\n</answer>\n"
+        ),
+    },
+    {
+        "role": "user",
+        "content": (
+            "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. "
+            "How many clips did Natalia sell altogether in April and May?"
+        ),
+    },
+    {
+        "role": "assistant",
+        "content": (
+            "Okay, let's see. Natalia sold clips to 48 friends in April. Then she sold half as many in May. So first, "
+            "I need to find out how many clips she sold in May.\n\nHmm, half as many as April's total. April has 48 "
+            "friends, so the number sold in May would be half of 48. Let me calculate that. 48 divided by 2 is 24. "
+            "So she sold 24 clips in May.\n\nNow, to find the total number sold in both months, I just add the April "
+            "sales and May sales. April was 48, May was 24. Adding them together gives me 48 + 24. Let me check that "
+            "again. 48 plus 24 is 72. So Natalia sold 72 clips altogether in April and May.\n\nWait, let me confirm. "
+            "Yes, 48 in April and half that in May equals 24, so total 72. I think that's right. No steps skipped here, "
+            "just basic arithmetic."
+        ),
+    },
+]
+
+
+@lru_cache
+def _get_tokenizer() -> AutoTokenizer:
+    return AutoTokenizer.from_pretrained("Qwen/Qwen3-8B")
+
+
+def _build_message_rollout_data(device: torch.device) -> dict:
+    tokenizer = _get_tokenizer()
+    full_token_ids = tokenizer.apply_chat_template(_CHAT_MESSAGES, tokenize=True)
+    prompt_token_ids = tokenizer.apply_chat_template(
+        _CHAT_MESSAGES[:-1],
+        tokenize=True,
+        add_generation_prompt=True,
+    )
+    response_length = len(full_token_ids) - len(prompt_token_ids)
+    loss_mask = torch.ones(response_length, device=device, dtype=torch.float32)
+
     num_samples = 20
-    tokens = [base_tokens[i % len(base_tokens)] for i in range(num_samples)]
-    response_lengths = [base_response_lengths[i % len(base_response_lengths)] for i in range(num_samples)]
-    loss_masks = [base_loss_masks[i % len(base_loss_masks)] for i in range(num_samples)]
-    total_lengths = [t.size(0) for t in tokens]
+    tokens = [torch.tensor(full_token_ids, device=device, dtype=torch.long) for _ in range(num_samples)]
+    loss_masks = [loss_mask for _ in range(num_samples)]
+    response_lengths = [response_length for _ in range(num_samples)]
+    total_lengths = [len(full_token_ids) for _ in range(num_samples)]
     return {
         "tokens": tokens,
         "loss_masks": loss_masks,
@@ -149,7 +199,7 @@ def _get_vocab_size(rollout_data: dict) -> int:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("tp_size", [1, 8])
-@pytest.mark.parametrize("rollout_builder", [_build_rollout_data, _build_random_long_rollout_data])
+@pytest.mark.parametrize("rollout_builder", [_build_message_rollout_data, _build_random_long_rollout_data])
 def test_packed_vs_padded_loss_matches(
     tp_size: int, rollout_builder: Callable[[torch.device], dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -196,7 +246,7 @@ def test_packed_vs_padded_loss_matches(
 
 @pytest.mark.unit
 @pytest.mark.parametrize("tp_size", [1, 8])
-@pytest.mark.parametrize("rollout_builder", [_build_rollout_data, _build_random_long_rollout_data])
+@pytest.mark.parametrize("rollout_builder", [_build_message_rollout_data, _build_random_long_rollout_data])
 def test_packed_vs_padded_loss_matches_with_cp(
     tp_size: int, rollout_builder: Callable[[torch.device], dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
