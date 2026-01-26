@@ -12,8 +12,10 @@ from miles.utils.http_utils import post
 
 
 async def run_agent(
-    base_url: str, prompt: list[dict[str, Any]] | str, request_kwargs: dict[str, Any] | None = None
+    base_url: str,
+    prompt: list[dict[str, Any]] | str,
+    tools: list[dict[str, Any]] | None = None,
+    completion_params: dict[str, Any] | None = None,
 ) -> None:
-    request_kwargs = request_kwargs or {}
-    payload = {"model": "default", "messages": prompt, "logprobs": True, **request_kwargs}
+    payload = {"model": "default", "messages": prompt, "tools": tools or [], "logprobs": True, **(completion_params or {})}
     await post(base_url + "/v1/chat/completions", payload)
