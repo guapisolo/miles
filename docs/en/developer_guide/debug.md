@@ -52,4 +52,4 @@ Specifically, miles currently provides the following parameters for separate deb
 
 5.  `--debug-first-weight-sync /your/saved/debug/first_weight_sync/`
 
-    When enabled, miles saves the first Hugging Face checkpoint that Megatron syncs to SGLang into this directory, compares it with `--hf-checkpoint`, and reports any layers that are not bitwise identical (including mismatch percentages and average relative differences).
+    When enabled, miles saves the first Hugging Face checkpoint that Megatron syncs to SGLang into this directory, compares it with `--hf-checkpoint`, and reports any layers that are not bitwise identical (including mismatch percentages and average relative differences). The run terminates after the first sync completes.

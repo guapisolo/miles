@@ -159,6 +159,7 @@ class UpdateWeightFromTensor:
             self._debug_first_weight_sync.finalize_and_compare(group=get_gloo_group())
             self._debug_first_weight_sync_done = True
             self._debug_first_weight_sync = None
+            raise RuntimeError("debug-first-weight-sync complete; terminating as requested.")
 
     def _send_hf_params(self, hf_named_tensors) -> tuple[list[ObjectRef], Any]:
         all_refs = []
