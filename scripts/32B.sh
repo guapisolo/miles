@@ -9,7 +9,6 @@ pkill -9 python
 sleep 3
 pkill -9 ray
 pkill -9 python
-pkill -9 redis
 
 set -ex
 
@@ -25,14 +24,13 @@ fi
 echo "HAS_NVLINK: $HAS_NVLINK (detected $NVLINK_COUNT NVLink references)"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-source "${SCRIPT_DIR}/models/qwen3-30B-A3B.sh"
+source "${SCRIPT_DIR}/models/qwen3-32B.sh"
 
 CKPT_ARGS=(
-   --hf-checkpoint /root/shared/Qwen3-30B-A3B
-   #--hf-checkpoint /root/shared/Qwen3-30B-A3B-FP8
-   --ref-load /root/shared/Qwen3-30B-A3B_torch_dist
-   # --load /root/shared/Qwen3-30B-A3B_miles/
-   --save /root/shared/Qwen3-30B-A3B_miles/
+   --hf-checkpoint /root/shared/Qwen3-32B
+   --ref-load /root/shared/Qwen3-32B_torch_dist/
+   # --load /root/shared/Qwen3-32B_miles/
+   --save /root/shared/Qwen3-32B_miles/
    --save-interval 20
 )
 
@@ -41,6 +39,7 @@ ROLLOUT_ARGS=(
    --input-key prompt
    --label-key label
    --apply-chat-template
+   # --rollout-shuffle
    --rm-type deepscaler
    --num-rollout 1
    --rollout-batch-size 1
@@ -65,7 +64,7 @@ PERF_ARGS=(
    --sequence-parallel
    --pipeline-model-parallel-size 1
    --context-parallel-size 1
-   --expert-model-parallel-size 4
+   --expert-model-parallel-size 1
    --expert-tensor-parallel-size 1
 
    --recompute-granularity full
@@ -73,6 +72,7 @@ PERF_ARGS=(
    --recompute-num-layers 1
 
    # --micro-batch-size 1
+   # --qkv-format bshd
    --use-dynamic-batch-size
    --max-tokens-per-gpu 20480
 )
@@ -111,6 +111,7 @@ SGLANG_ARGS=(
    --rollout-num-gpus-per-engine 4
    --sglang-mem-fraction-static 0.7
    --sglang-cuda-graph-bs 1 2 4 8 $(seq 16 8 256)
+   # --sglang-enable-ep-moe
 )
 
 MISC_ARGS=(
@@ -130,7 +131,8 @@ DEBUG_ARGS=(
    --debug-train-only
    --load-debug-rollout-data "/root/shared/debug_rollout/single/{rollout_id}.pt"
    --dump-label-logits
-   --dump-details /root/shared/dump_label_logits
+   # --dump-details /root/shared/dump_label_logits/32b/bshd
+   --dump-details /root/shared/dump_label_logits/32b/thd
 )
 
 # launch the master node of ray in container

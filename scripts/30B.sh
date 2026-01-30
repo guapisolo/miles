@@ -73,6 +73,7 @@ PERF_ARGS=(
    --recompute-num-layers 1
 
    # --micro-batch-size 1
+   --qkv-format thd
    --use-dynamic-batch-size
    --max-tokens-per-gpu 20480
 )
@@ -130,7 +131,7 @@ DEBUG_ARGS=(
    --debug-train-only
    --load-debug-rollout-data "/root/shared/debug_rollout/single/{rollout_id}.pt"
    --dump-label-logits
-   --dump-details /root/shared/dump_label_logits
+   --dump-details /root/shared/dump_label_logits/30b-a3b/thd
 )
 
 # launch the master node of ray in container
