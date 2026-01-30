@@ -3,6 +3,8 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import torch
+import torch.distributed as dist
+from megatron.core.tensor_parallel.utils import VocabUtility
 from torch.utils.checkpoint import checkpoint
 
 from miles.utils.distributed_utils import distributed_masked_whiten
@@ -146,6 +148,7 @@ def get_log_probs_and_entropy(
     assert non_loss_data
     log_probs_list = []
     entropy_list = []
+    label_logits_list = []
     for logits_chunk, tokens_chunk in get_responses(
         logits,
         args=args,
@@ -166,12 +169,59 @@ def get_log_probs_and_entropy(
         log_probs_list.append(log_prob.squeeze(-1))
         entropy_list.append(entropy)
 
+        if getattr(args, "dump_label_logits", False) and not torch.is_grad_enabled():
+            label_logits = _compute_label_logits_from_vocab_parallel(
+                logits_chunk,
+                tokens_chunk,
+                parallel_state.tp_group,
+            )
+            # Keep on CPU to reduce GPU memory footprint for debug dumps.
+            label_logits_list.append(label_logits.detach().cpu())
+
     res = {
         "log_probs": log_probs_list,
     }
     if with_entropy:
         res["entropy"] = entropy_list
+    if label_logits_list:
+        res["label_logits"] = label_logits_list
     return res
+
+
+def _compute_label_logits_from_vocab_parallel(
+    vocab_parallel_logits: torch.Tensor,
+    tokens: torch.Tensor,
+    tp_group: dist.ProcessGroup,
+) -> torch.Tensor:
+    """Compute label logits from vocab-parallel logits without full gather.
+
+    Args:
+        vocab_parallel_logits: Tensor of shape [R, V_local].
+        tokens: Tensor of shape [R] with global vocab indices.
+        tp_group: Tensor-parallel process group.
+
+    Returns:
+        Tensor of shape [R] containing the pre-softmax logit for each label.
+    """
+    if vocab_parallel_logits.numel() == 0:
+        return vocab_parallel_logits.new_zeros((0,))
+
+    partition_vocab_size = vocab_parallel_logits.size(-1)
+    world_size = dist.get_world_size(tp_group)
+    rank = dist.get_rank(tp_group)
+    vocab_start, vocab_end = VocabUtility.vocab_range_from_per_partition_vocab_size(
+        partition_vocab_size, rank, world_size
+    )
+
+    target_mask = (tokens < vocab_start) | (tokens >= vocab_end)
+    masked_target = tokens - vocab_start
+    masked_target = torch.where(target_mask, masked_target.new_zeros(()).expand_as(masked_target), masked_target)
+
+    local_logits = vocab_parallel_logits.gather(dim=-1, index=masked_target.unsqueeze(-1)).squeeze(-1)
+    local_logits = local_logits.masked_fill(target_mask, 0.0)
+
+    dist.all_reduce(local_logits, op=dist.ReduceOp.SUM, group=tp_group)
+    return local_logits
 
 
 def get_values(

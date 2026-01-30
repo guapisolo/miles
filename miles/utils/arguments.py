@@ -1114,6 +1114,15 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 ),
             )
             parser.add_argument(
+                "--dump-label-logits",
+                action="store_true",
+                default=False,
+                help=(
+                    "Dump per-token label logits (TP-reduced) during forward-only log-prob computation. "
+                    "Use with --save-debug-train-data or --dump-details to persist outputs."
+                ),
+            )
+            parser.add_argument(
                 "--dump-details",
                 type=str,
                 default=None,

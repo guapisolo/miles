@@ -6,6 +6,7 @@ from typing import Literal
 
 import torch
 from megatron.core import tensor_parallel
+from megatron.core.debug_utils import dumper
 from megatron.core.models.gpt import GPTModel
 from megatron.core.models.gpt.gpt_layer_specs import (
     get_gpt_decoder_block_spec,
@@ -73,6 +74,8 @@ def get_model_provider_func(
                 model.output_layer = LinearForLastLayer(
                     input_size=model.config.hidden_size, output_size=1, config=model.config
                 )
+            if dumper.enable:
+                dumper.register_transformer_hooks(model, dump_points=["post_mlp"])
             return model
 
         return wrapped_model_provider
@@ -89,7 +92,16 @@ def get_model_provider_func(
         provider.expert_tensor_parallel_size = args.expert_tensor_parallel_size
         provider.sequence_parallel = args.sequence_parallel
         provider.finalize()
-        return provider.provide
+
+        def bridge_model_provider(
+            pre_process: bool = True, post_process: bool = True, vp_stage: int | None = None
+        ) -> GPTModel:
+            model = provider.provide(pre_process=pre_process, post_process=post_process, vp_stage=vp_stage)
+            if dumper.enable:
+                dumper.register_transformer_hooks(model, dump_points=["post_mlp"])
+            return model
+
+        return bridge_model_provider
 
     def model_provider(pre_process: bool = True, post_process: bool = True, vp_stage: int | None = None) -> GPTModel:
         """Builds the model.
@@ -195,6 +207,9 @@ def get_model_provider_func(
 
         if post_process and role == "critic":
             model.output_layer = LinearForLastLayer(input_size=config.hidden_size, output_size=1, config=config)
+
+        if dumper.enable:
+            dumper.register_transformer_hooks(model, dump_points=["post_mlp"])
 
         return model
 

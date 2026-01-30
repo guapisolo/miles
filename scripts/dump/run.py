@@ -149,10 +149,13 @@ def main():
     time.sleep(3)
     run(["ray", "stop", "--force"], allow_fail=True, check=False)
     run(["pkill", "-9", "ray"], allow_fail=True, check=False)
-    run(["pkill", "-9", "python"], allow_fail=True, check=False)
+    # NOTE: Do NOT use "pkill -9 python" as it will kill the script itself!
+    # Instead, kill specific process names like "miles" or "train.py"
+    run(["pkill", "-9", "miles"], allow_fail=True, check=False)
     time.sleep(3)
     run(["pkill", "-9", "ray"], allow_fail=True, check=False)
-    run(["pkill", "-9", "python"], allow_fail=True, check=False)
+    run(["pkill", "-9", "miles"], allow_fail=True, check=False)
+    run(["pkill", "-9", "redis"], allow_fail=True, check=False)
 
     # will prevent ray from buffering stdout/stderr
     os.environ["PYTHONBUFFERED"] = "16"
@@ -393,6 +396,16 @@ def main():
     cmd += debug_args
 
     run(cmd)
+
+    # Print summary for easy copying
+    print("\n" + "=" * 80)
+    print("Job Submitted Successfully!")
+    print("=" * 80)
+    print(f"Configuration: {config_name}")
+    print("\nOutput Paths:")
+    print(f"  Dump Details: {dump_path}")
+    print(f"  Dumper Layer: {dumper_dir}")
+    print("=" * 80)
 
 
 if __name__ == "__main__":
