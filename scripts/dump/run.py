@@ -116,6 +116,18 @@ def parse_args():
     parser.add_argument(
         "--qkv-format", type=str, choices=["thd", "bshd"], default="thd", help="QKV format (default: thd)"
     )
+    parser.add_argument(
+        "--sample-folder",
+        type=str,
+        default="16479",
+        help="Sample folder name in /root/shared/debug_rollout/ (default: 16479)",
+    )
+    parser.add_argument(
+        "--data-pad-size-multiplier",
+        type=int,
+        default=128,
+        help="Multiplier for data padding size in data processing (default: 128)",
+    )
     parser.set_defaults(sp=True)
 
     return parser.parse_args()
@@ -134,6 +146,8 @@ def main():
     print(f"Data Parallel:      {args.dp_size}")
     print(f"Sequence Parallel:  {args.sp}")
     print(f"QKV Format:         {args.qkv_format}")
+    print(f"Sample Folder:      {args.sample_folder}")
+    print(f"Pad Size Multiplier: {args.data_pad_size_multiplier}")
     print("=" * 80)
 
     # Calculate total GPUs needed
@@ -230,6 +244,8 @@ def main():
         "1",
         "--qkv-format",
         args.qkv_format,
+        "--data-pad-size-multiplier",
+        str(args.data_pad_size_multiplier),
         "--max-tokens-per-gpu",
         "20480",
     ]
@@ -310,17 +326,17 @@ def main():
 
     # Build dump details path based on configuration
     sp_str = "sptrue" if args.sp else "spfalse"
-    config_name = f"{args.model}_tp{args.tp_size}_dp{args.dp_size}_{sp_str}_{args.qkv_format}"
+    config_name = f"{args.model}_tp{args.tp_size}_dp{args.dp_size}_{sp_str}_{args.qkv_format}_{args.sample_folder}_m{args.data_pad_size_multiplier}"
 
     dump_path = f"/root/shared/dump_label_logits/{config_name}"
     dumper_dir = f"/root/shared/dump_layers/{config_name}"
 
     debug_args = [
         # "--debug-rollout-only",
-        # "--save-debug-rollout-data", "/root/shared/debug_rollout/single/{rollout_id}.pt",
+        # "--save-debug-rollout-data", f"/root/shared/debug_rollout/{args.sample_folder}/{{rollout_id}}.pt",
         "--debug-train-only",
         "--load-debug-rollout-data",
-        "/root/shared/debug_rollout/single/{rollout_id}.pt",
+        f"/root/shared/debug_rollout/{args.sample_folder}/{{rollout_id}}.pt",
         "--dump-label-logits",
         "--dump-details",
         dump_path,
@@ -328,6 +344,7 @@ def main():
 
     print(f"Dump details path:  {dump_path}")
     print(f"Dumper layer path:  {dumper_dir}")
+    print(f"Sample data path:   /root/shared/debug_rollout/{args.sample_folder}/{{rollout_id}}.pt")
 
     # launch the master node of ray in container
     os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
