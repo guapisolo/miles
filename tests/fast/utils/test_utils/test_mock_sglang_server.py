@@ -23,13 +23,9 @@ def expected_logprobs(tokenizer, text: str) -> list[dict]:
     ]
 
 
-def expected_input_logprobs(tokenizer, messages: list[dict], tools: list[dict] | None) -> list[dict]:
+def expected_input_token_ids(tokenizer, messages: list[dict], tools: list[dict] | None) -> list[int]:
     prompt_str = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, tools=tools)
-    prompt_ids = tokenizer.encode(prompt_str, add_special_tokens=False)
-    return [
-        {"token": tokenizer.convert_ids_to_tokens(tid), "token_id": tid, "logprob": -i / 128}
-        for i, tid in enumerate(prompt_ids)
-    ]
+    return tokenizer.encode(prompt_str, add_special_tokens=False)
 
 
 @pytest.fixture(scope="module")
@@ -266,7 +262,7 @@ class TestChatCompletionsEndpoint:
                     "index": 0,
                     "message": {"role": "assistant", "content": "\\boxed{6}", "tool_calls": None},
                     "logprobs": {"content": expected_logprobs(mock_server.tokenizer, "\\boxed{6}")},
-                    "input_logprobs": {"content": expected_input_logprobs(mock_server.tokenizer, messages, None)},
+                    "input_token_ids": expected_input_token_ids(mock_server.tokenizer, messages, None),
                     "finish_reason": "stop",
                 }
             ],
@@ -300,13 +296,11 @@ class TestChatCompletionsEndpoint:
                     ],
                 },
                 "logprobs": {"content": expected_logprobs(server.tokenizer, tool_call_response)},
-                "input_logprobs": {
-                    "content": expected_input_logprobs(
-                        server.tokenizer,
-                        [{"role": "user", "content": "What year is it?"}],
-                        SAMPLE_TOOLS,
-                    )
-                },
+                "input_token_ids": expected_input_token_ids(
+                    server.tokenizer,
+                    [{"role": "user", "content": "What year is it?"}],
+                    SAMPLE_TOOLS,
+                ),
                 "finish_reason": "tool_calls",
             }
 
@@ -332,13 +326,11 @@ class TestChatCompletionsEndpoint:
                 "index": 0,
                 "message": {"role": "assistant", "content": response_text, "tool_calls": None},
                 "logprobs": {"content": expected_logprobs(server.tokenizer, response_text)},
-                "input_logprobs": {
-                    "content": expected_input_logprobs(
-                        server.tokenizer,
-                        [{"role": "user", "content": "What's the weather?"}],
-                        SAMPLE_TOOLS,
-                    )
-                },
+                "input_token_ids": expected_input_token_ids(
+                    server.tokenizer,
+                    [{"role": "user", "content": "What's the weather?"}],
+                    SAMPLE_TOOLS,
+                ),
                 "finish_reason": "stop",
             }
 
@@ -379,13 +371,11 @@ class TestChatCompletionsEndpoint:
                     ],
                 },
                 "logprobs": {"content": expected_logprobs(server.tokenizer, multi_tool_response)},
-                "input_logprobs": {
-                    "content": expected_input_logprobs(
-                        server.tokenizer,
-                        [{"role": "user", "content": "What year and temperature?"}],
-                        SAMPLE_TOOLS,
-                    )
-                },
+                "input_token_ids": expected_input_token_ids(
+                    server.tokenizer,
+                    [{"role": "user", "content": "What year and temperature?"}],
+                    SAMPLE_TOOLS,
+                ),
                 "finish_reason": "tool_calls",
             }
 
