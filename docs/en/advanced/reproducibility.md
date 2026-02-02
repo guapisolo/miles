@@ -1,8 +1,8 @@
 # Reproducibility
 
-Reproducibility is a bedrock of scientific progress. 通过结合 SGLang 提供的 [确定性推理](https://lmsys.org/blog/2025-09-22-sglang-deterministic/) 和 Megatron-LM 的确定性模式，miles 可以提供完全确定性（bitwise）的实验复现能力。
+Reproducibility is a bedrock of scientific progress. By combining SGLang's [deterministic inference](https://lmsys.org/blog/2025-09-22-sglang-deterministic/) with Megatron-LM's deterministic mode, miles can provide fully deterministic (bitwise) experiment reproducibility.
 
-为了开启确定性训练，你需要通过 `pip uninstall flash_attn_3 -y` 卸载 flash attention 3，并设置：
+To enable deterministic training, you need to uninstall flash attention 3 via `pip uninstall flash_attn_3 -y` and set the following:
 
 ```bash
   # sglang config
@@ -13,7 +13,7 @@ Reproducibility is a bedrock of scientific progress. 通过结合 SGLang 提供�
   --deterministic-mode
 ```
 
-以及设置如下环境变量：
+And set the following environment variables:
 
 ```bash
      "env_vars": {
@@ -24,9 +24,9 @@ Reproducibility is a bedrock of scientific progress. 通过结合 SGLang 提供�
      }
 ```
 
-我们提供了一个完全确定性的，用 Qwen2.5 0.5B 训练 GSM8K 的脚本。
+We provide a fully deterministic script for training GSM8K with Qwen2.5 0.5B.
 
-可以用如下脚本初始化训练数据和 ckpt：
+You can initialize the training data and checkpoint with the following script:
 
 ```bash
 # download
@@ -43,10 +43,10 @@ PYTHONPATH=/root/Megatron-LM/ python \
    --save /root/Qwen2.5-0.5B-Instruct_torch_dist/
 ```
 
-可以使用如下脚本进行训练：
+You can train with the following script:
 
 ```bash
 bash script/run-qwen2.5-0.5B-reproducibility.sh
 ```
 
-这个 PR 中记录了 wandb 的截图 [pull#370](https://github.com/THUDM/slime/pull/370).
+Wandb screenshots are recorded in this PR: [pull#370](https://github.com/THUDM/slime/pull/370).

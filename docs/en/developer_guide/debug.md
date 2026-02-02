@@ -50,11 +50,9 @@ Specifically, miles currently provides the following parameters for separate deb
 
     When enabled, data will be loaded from `args.load_debug_rollout_data.format(rollout_id=rollout_id)`, and SGLang will not be initialized (automatically setting `debug_train_only=True`). This method allows you to fix the input for the training part to tune it, for example, by switching between different parallelization strategies.
 
-## Debug sglang illegal memory access (IMA)
+## Debug SGLang Illegal Memory Access (IMA)
 
-在进行大规模 RL 时，时常会遇到 SGLang IMA 的问题，以下是我们的一些 debug 建议：
-
-When running large scale RL, we will occationally meet the IMA in SGLang, there are some debug suggestions based on our experience:
+When running large-scale RL, we occasionally encounter IMA issues in SGLang. Here are some debug suggestions based on our experience:
 
 1. Enable `CUDA_LAUNCH_BLOCKING=1`
 
