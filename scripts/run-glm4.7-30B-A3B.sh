@@ -188,7 +188,6 @@ ray job submit --address="http://127.0.0.1:8265" \
    --actor-num-nodes 2 \
    --actor-num-gpus-per-node 8 \
    --colocate \
-   --save-debug-rollout-data "data.pt" \
    ${MODEL_ARGS[@]} \
    ${CKPT_ARGS[@]} \
    ${ROLLOUT_ARGS[@]} \
