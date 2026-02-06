@@ -42,7 +42,6 @@ ROLLOUT_ARGS=(
 
    --num-rollout 3000
    --rollout-batch-size 128
-   #--over-sampling-batch-size 256
    --n-samples-per-prompt 8
    --rollout-max-response-len 32768
    --rollout-temperature 1.0
@@ -53,8 +52,8 @@ ROLLOUT_ARGS=(
 
 EVAL_ARGS=(
    --eval-interval 20
-   --eval-prompt-data aime24 $BASE_DIR/rl_data/aime-2024.jsonl
-   --n-samples-per-eval-prompt 2
+   --eval-prompt-data aime24 $BASE_DIR/aime-2024/aime-2024.jsonl
+   --n-samples-per-eval-prompt 16
    --eval-max-response-len 16384
    --eval-temperature 0.6
    --eval-top-p 0.95
@@ -63,8 +62,8 @@ EVAL_ARGS=(
 PERF_ARGS=(
    --tensor-model-parallel-size 4
    --sequence-parallel
-   --pipeline-model-parallel-size 2
-   --context-parallel-size 2
+   --pipeline-model-parallel-size 1
+   --context-parallel-size 1
    --expert-model-parallel-size 8
    --expert-tensor-parallel-size 1
    --decoder-last-pipeline-num-layers 23
@@ -139,55 +138,28 @@ MISC_ARGS=(
 )
 
 # launch the master node of ray in container
-export MASTER_ADDR=${MLP_WORKER_0_HOST}
-export no_proxy="127.0.0.1,${MASTER_ADDR}"
-ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-stats
 
-for WORKER_IP in $(awk '{print $1}' /root/mpi_rack_hostfile); do
-  if [[ "$WORKER_IP" == "$MLP_WORKER_0_HOST" ]]; then
-    continue
-  fi
-  echo "Starting Ray worker on ${WORKER_IP}"
-  ssh root@"${WORKER_IP}" \
-    "pkill -9 sglang ; ray stop --force ; pkill -9 python ; ray start --address=${MASTER_ADDR}:6379 --num-gpus 8 --node-ip-address ${WORKER_IP} --disable-usage-stats" &
-done
-wait
+# Single-node training example:
+
+# launch the master node of ray in container
+export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
+ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
+
+# Build the runtime environment JSON with proper variable substitution
+RUNTIME_ENV_JSON="{
+  \"env_vars\": {
+    \"PYTHONPATH\": \"/root/Megatron-LM/\",
+    \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
+    \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\"
+  }
+}"
 
 ray job submit --address="http://127.0.0.1:8265" \
-   --runtime-env-json='{
-     "env_vars": {
-        "no_proxy": "localhost,127.0.0.1,0.0.0.0,${MASTER_ADDR}",
-        "GLOO_SOCKET_IFNAME": "${MLP_SOCKET_IFNAME}",
-        "TP_SOCKET_IFNAME": "${MLP_SOCKET_IFNAME}",
-        "MASTER_ADDR": "${MLP_WORKER_0_HOST}",
-        "PYTHONPATH": "/root/Megatron-LM/",
-        "NCCL_CUMEM_ENABLE": "0",
-        "CUDA_DEVICE_MAX_CONNECTIONS": "1",
-        "NVTE_BWD_LAYERNORM_SM_MARGIN": "20",
-        "NCCL_IB_TC": "160",
-        "NCCL_PXN_DISABLE": "0",
-        "NCCL_IB_GID_INDEX": "3",
-        "NCCL_NET_GDR_LEVEL": "4",
-        "NCCL_IB_RETRY_CNT": "7",
-        "NCCL_IB_TIMEOUT": "32",
-        "NCCL_IB_QPS_PER_CONNECTION": "8",
-        "NCCL_P2P_LEVEL": "NVL",
-        "TORCH_NCCL_AVOID_RECORD_STREAMS": "1",
-        "NCCL_NVLS_ENABLE": "0",
-        "NCCL_MIN_CTAS": "4",
-        "OMPI_MCA_pml": "ob1",
-        "OMPI_MCA_btl": "^openib",
-        "OMPI_MCA_routed": "direct",
-        "OMPI_MCA_routed_radix": "1024",
-        "OMPI_MCA_plm_rsh_no_tree_spawn": "1",
-        "OMPI_MCA_oob_tcp_if_include": "${MLP_SOCKET_IFNAME}",
-        "OMPI_MCA_btl_tcp_if_include": "${MLP_SOCKET_IFNAME}"
-     }
-   }' \
+   --runtime-env-json="${RUNTIME_ENV_JSON}" \
    -- python3 train.py \
-   --actor-num-nodes 2 \
+   --actor-num-nodes 1 \
    --actor-num-gpus-per-node 8 \
-   --colocate \
+   --rollout-num-gpus 8 \
    ${MODEL_ARGS[@]} \
    ${CKPT_ARGS[@]} \
    ${ROLLOUT_ARGS[@]} \
@@ -198,3 +170,67 @@ ray job submit --address="http://127.0.0.1:8265" \
    ${EVAL_ARGS[@]} \
    ${SGLANG_ARGS[@]} \
    ${MISC_ARGS[@]}
+
+
+# Mult-node training example:
+# You can modify the cp and pp settings in PERF_ARGS to speed up training.
+
+# export MASTER_ADDR=${MLP_WORKER_0_HOST}
+# export no_proxy="127.0.0.1,${MASTER_ADDR}"
+# ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-stats
+
+# for WORKER_IP in $(awk '{print $1}' /root/mpi_rack_hostfile); do
+#   if [[ "$WORKER_IP" == "$MLP_WORKER_0_HOST" ]]; then
+#     continue
+#   fi
+#   echo "Starting Ray worker on ${WORKER_IP}"
+#   ssh root@"${WORKER_IP}" \
+#     "pkill -9 sglang ; ray stop --force ; pkill -9 python ; ray start --address=${MASTER_ADDR}:6379 --num-gpus 8 --node-ip-address ${WORKER_IP} --disable-usage-stats" &
+# done
+# wait
+
+# ray job submit --address="http://127.0.0.1:8265" \
+#    --runtime-env-json='{
+#      "env_vars": {
+#         "no_proxy": "localhost,127.0.0.1,0.0.0.0,${MASTER_ADDR}",
+#         "GLOO_SOCKET_IFNAME": "${MLP_SOCKET_IFNAME}",
+#         "TP_SOCKET_IFNAME": "${MLP_SOCKET_IFNAME}",
+#         "MASTER_ADDR": "${MLP_WORKER_0_HOST}",
+#         "PYTHONPATH": "/root/Megatron-LM/",
+#         "NCCL_CUMEM_ENABLE": "0",
+#         "CUDA_DEVICE_MAX_CONNECTIONS": "1",
+#         "NVTE_BWD_LAYERNORM_SM_MARGIN": "20",
+#         "NCCL_IB_TC": "160",
+#         "NCCL_PXN_DISABLE": "0",
+#         "NCCL_IB_GID_INDEX": "3",
+#         "NCCL_NET_GDR_LEVEL": "4",
+#         "NCCL_IB_RETRY_CNT": "7",
+#         "NCCL_IB_TIMEOUT": "32",
+#         "NCCL_IB_QPS_PER_CONNECTION": "8",
+#         "NCCL_P2P_LEVEL": "NVL",
+#         "TORCH_NCCL_AVOID_RECORD_STREAMS": "1",
+#         "NCCL_NVLS_ENABLE": "0",
+#         "NCCL_MIN_CTAS": "4",
+#         "OMPI_MCA_pml": "ob1",
+#         "OMPI_MCA_btl": "^openib",
+#         "OMPI_MCA_routed": "direct",
+#         "OMPI_MCA_routed_radix": "1024",
+#         "OMPI_MCA_plm_rsh_no_tree_spawn": "1",
+#         "OMPI_MCA_oob_tcp_if_include": "${MLP_SOCKET_IFNAME}",
+#         "OMPI_MCA_btl_tcp_if_include": "${MLP_SOCKET_IFNAME}"
+#      }
+#    }' \
+#    -- python3 train.py \
+#    --actor-num-nodes 2 \
+#    --actor-num-gpus-per-node 8 \
+#    --colocate \
+#    ${MODEL_ARGS[@]} \
+#    ${CKPT_ARGS[@]} \
+#    ${ROLLOUT_ARGS[@]} \
+#    ${OPTIMIZER_ARGS[@]} \
+#    ${GRPO_ARGS[@]} \
+#    ${WANDB_ARGS[@]} \
+#    ${PERF_ARGS[@]} \
+#    ${EVAL_ARGS[@]} \
+#    ${SGLANG_ARGS[@]} \
+#    ${MISC_ARGS[@]}
