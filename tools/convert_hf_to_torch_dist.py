@@ -9,7 +9,6 @@ from megatron.core.enums import ModelType
 from megatron.training.arguments import parse_args, validate_args
 from megatron.training.checkpointing import get_checkpoint_name, get_checkpoint_tracker_filename, save_checkpoint
 from megatron.training.training import get_model
-from transformers import AutoConfig, PretrainedConfig
 
 import miles_plugins.mbridge  # noqa: F401
 from mbridge import AutoBridge
@@ -101,7 +100,6 @@ def get_args():
 def main():
     if torch.version.hip:
         import megatron.core.dist_checkpointing.strategies.filesystem_async as filesystem_async_module
-
         from miles.utils.rocm_checkpoint_writer import ROCmFileSystemWriterAsync
 
         filesystem_async_module.FileSystemWriterAsync = ROCmFileSystemWriterAsync
@@ -132,15 +130,7 @@ def main():
 
     # Load model
     hf_model_path = args.hf_checkpoint
-    try:
-        # AutoConfig supports models with custom remote code (with trust_remote_code=True)
-        hf_config = AutoConfig.from_pretrained(hf_model_path, trust_remote_code=True)
-    except ValueError:
-        # But raises ValueError for unknown model_type without remote code
-        # - e.g. glm4_moe_lite will report transformers version error
-        # Fall back to PretrainedConfig which loads config.json without model_type validation.
-        hf_config = PretrainedConfig.from_pretrained(hf_model_path)
-    bridge = AutoBridge.from_config(hf_config)
+    bridge = AutoBridge.from_pretrained(hf_model_path, trust_remote_code=True)
 
     # Patch to preserve FP32 precision for _keep_fp32 params
     patch_weight_to_mcore_format_preserve_fp32()
