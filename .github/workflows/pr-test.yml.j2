@@ -149,6 +149,7 @@ jobs:
       MILES_TEST_USE_DEEPEP: ${{ matrix.info.use_deepep || '0' }}
       MILES_TEST_USE_FP8_ROLLOUT: ${{ matrix.info.use_fp8_rollout || '0' }}
       MILES_TEST_ENABLE_EVAL: ${{ matrix.info.enable_eval || '1' }}
+      MILES_TEST_FEW_GPU: '0'
 
     steps:
       - name: Checkout repository
