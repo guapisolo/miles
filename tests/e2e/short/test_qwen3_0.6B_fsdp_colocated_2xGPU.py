@@ -76,7 +76,12 @@ def execute():
         "--ci-metric-checker-threshold 0.71 "  # loose threshold at 60 step
     )
 
-    misc_args = "--actor-num-nodes 1 " f"--actor-num-gpus-per-node {2 if FEW_GPU else 8} " "--colocate " "--train-backend fsdp "
+    misc_args = (
+        "--actor-num-nodes 1 "
+        f"--actor-num-gpus-per-node {2 if FEW_GPU else 8} "
+        "--colocate "
+        "--train-backend fsdp "
+    )
 
     train_args = (
         f"{ckpt_args} "
