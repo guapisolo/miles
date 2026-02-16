@@ -80,7 +80,9 @@ def execute():
     )
 
     sglang_args = (
-        "--rollout-num-gpus-per-engine 2 " f"--sglang-mem-fraction-static {0.7 if TIGHT_HOST_MEMORY else 0.8} " "--sglang-max-running-requests 512 "
+        "--rollout-num-gpus-per-engine 2 "
+        f"--sglang-mem-fraction-static {0.7 if TIGHT_HOST_MEMORY else 0.8} "
+        "--sglang-max-running-requests 512 "
     )
 
     ci_args = "--ci-test "
