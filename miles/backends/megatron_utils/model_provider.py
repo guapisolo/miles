@@ -192,14 +192,15 @@ def get_model_provider_func(
                 mtp_kwargs["vp_stage"] = vp_stage
 
             # hard code here to skip r3 registration for mtp layers
-            if args.use_rollout_routing_replay:
+            # getattr is required to avoid ckpt conversion errors
+            if getattr(args, "use_rollout_routing_replay", False):
                 routing_replay_manager.enabled = False
                 logger.warning(
                     "Rollout routing replay is not applicable for MTP modules, so skipped replay registration"
                 )
             mtp_block_spec = get_gpt_mtp_block_spec(config, transformer_layer_spec, **mtp_kwargs)
             kwargs["mtp_block_spec"] = mtp_block_spec
-            if args.use_rollout_routing_replay:
+            if getattr(args, "use_rollout_routing_replay", False):
                 routing_replay_manager.enabled = True
 
         with build_model_context(**build_model_context_args):
