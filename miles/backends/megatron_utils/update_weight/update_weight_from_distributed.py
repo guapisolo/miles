@@ -162,7 +162,7 @@ class UpdateWeightFromDistributed:
         Non-expert: gather TP → rm pad → HF → buffer (flush if full). All gather, PP source buffers.
         Returns updated bytes on source, None on non-source.
         """
-        param = all_gather_param(name, param)
+        param = all_gather_param(self.args, name, param)
         if not self._is_pp_src_rank:
             return
 
@@ -185,7 +185,7 @@ class UpdateWeightFromDistributed:
         """
         Expert: gather TP → rm pad → buffer. EP gather + HF deferred. Threshold × EP size.
         """
-        param = all_gather_param(name, param)
+        param = all_gather_param(self.args, name, param)
 
         param_size = param.numel() * param.element_size()
         if (
@@ -247,6 +247,12 @@ class UpdateWeightFromDistributed:
         # lock the rollout engines to prevent dead lock on broadcast.
         while not ray.get(self.rollout_engine_lock.acquire.remote()):
             time.sleep(0.1)
+
+        import logging
+
+        logger = logging.getLogger(__name__)
+        for _n, _t in converted_named_tensors:
+            logger.warning("[bucket] sending hf_name=%s shape=%s", _n, list(_t.shape))
 
         refs = update_weights_from_distributed(
             self._group_name,

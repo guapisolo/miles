@@ -95,7 +95,13 @@ def get_model_provider_func(
         provider.finalize()
         return provider.provide
 
-    def model_provider(pre_process: bool = True, post_process: bool = True, vp_stage: int | None = None) -> GPTModel:
+    def model_provider(
+        pre_process: bool = True,
+        post_process: bool = True,
+        vp_stage: int | None = None,
+        config: TransformerConfig | None = None,
+        **_kwargs,
+    ) -> GPTModel:
         """Builds the model.
 
         If you set the use_legacy_models to True, it will return the legacy GPT model and if not the mcore GPT model.
@@ -110,14 +116,23 @@ def get_model_provider_func(
         """
         use_te = args.transformer_impl == "transformer_engine"
 
-        # Experimental loading arguments from yaml
-        config: TransformerConfig = core_transformer_config_from_args(args)
+        # Use config from caller (Megatron get_model) if provided, otherwise build from args
+        if config is None:
+            config = core_transformer_config_from_args(args)
 
         if args.spec is not None:
             transformer_layer_spec = import_module(args.spec)
             # Allow the spec to be a function so that user can use customized Megatron easier.
             if callable(transformer_layer_spec):
                 transformer_layer_spec = transformer_layer_spec(args, config, vp_stage)
+        elif getattr(config, "experimental_attention_variant", None) is not None:
+            from megatron.core.models.gpt.experimental_attention_variant_module_specs import (
+                get_transformer_block_with_experimental_attention_variant_spec,
+            )
+
+            transformer_layer_spec = get_transformer_block_with_experimental_attention_variant_spec(
+                config=config, vp_stage=vp_stage
+            )
         else:
             if args.num_experts:
                 # Define the decoder block spec
