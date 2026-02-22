@@ -97,6 +97,12 @@ class MegatronTrainRayActor(TrainRayActor):
             args, role
         )
 
+        # Patch FLA's GDN chunk kernels to match SGLang's implementation,
+        # ensuring train_rollout_logprob_abs_diff ≈ 0 for hybrid GDN models.
+        from .fla_compat import patch_fla_for_sglang_compat
+
+        patch_fla_for_sglang_compat()
+
         self.parallel_state = create_megatron_parallel_state(model=self.model)
 
         if role == "critic":
