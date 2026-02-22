@@ -248,12 +248,6 @@ class UpdateWeightFromDistributed:
         while not ray.get(self.rollout_engine_lock.acquire.remote()):
             time.sleep(0.1)
 
-        import logging
-
-        logger = logging.getLogger(__name__)
-        for _n, _t in converted_named_tensors:
-            logger.warning("[bucket] sending hf_name=%s shape=%s", _n, list(_t.shape))
-
         refs = update_weights_from_distributed(
             self._group_name,
             self._model_update_groups,

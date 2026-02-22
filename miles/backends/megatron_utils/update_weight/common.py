@@ -46,36 +46,16 @@ def all_gather_param(args: Namespace, name: str, param: torch.nn.Parameter) -> t
     dist.all_gather(param_partitions, param.data, group=tp_group)
     partition_dim = param.partition_dim
     partition_stride = param.partition_stride
-    # TODO: here we did an extra copy during concat, maybe merge this with convert_to_hf is better?
-    # TODO: check only GLU is used.
-    if "linear_fc1.weight" in name:
-        assert partition_stride == 2, "partition_stride must be 2 to do interleave fix for linear_fc1.weight"
-        param_partitions = [p.chunk(2, dim=0) for p in param_partitions]
-        param_partitions = [p[0] for p in param_partitions] + [p[1] for p in param_partitions]
-    #     partition_stride = 1
-    # this is bug in megatron's grouped moe.
-    if "linear_fc2.weight" in name:
-        if partition_dim == 0:
-            partition_dim = 1
-    # if partition_stride == 1:
-    param = torch.cat(param_partitions, dim=partition_dim)
 
-    # else:
-    #     # Interleaved (strided) partitioning, e.g. GQA QKV projections.
-    #     # Each rank holds `partition_stride` non-contiguous chunks; reconstruct
-    #     # by interleaving: [r0_s0, r1_s0, ..., rN_s0, r0_s1, ..., rN_s{S-1}]
-    #     logger.warning(
-    #         "[all_gather_param] partition_stride=%d name=%s per_rank_shape=%s partition_dim=%d tp_size=%d",
-    #         partition_stride,
-    #         name,
-    #         list(param_partitions[0].shape),
-    #         partition_dim,
-    #         len(param_partitions),
-    #     )
-    #     chunks_per_rank = [p.chunk(partition_stride, dim=partition_dim) for p in param_partitions]
-    #     interleaved = [chunks_per_rank[r][s] for s in range(partition_stride) for r in range(len(param_partitions))]
-    #     param = torch.cat(interleaved, dim=partition_dim)
-    #     logger.warning("[all_gather_param] reconstructed shape=%s", list(param.shape))
+    if partition_stride == 1:
+        param = torch.cat(param_partitions, dim=partition_dim)
+    else:
+        # Interleaved (strided) partitioning, for linear_fc1.weight under glm/swiglu
+        chunks_per_rank = [p.chunk(partition_stride, dim=partition_dim) for p in param_partitions]
+        interleaved = [chunks_per_rank[r][s] for s in range(partition_stride) for r in range(len(param_partitions))]
+        param = torch.cat(interleaved, dim=partition_dim)
+
+    # handle gdn weight gather
     if getattr(args, "experimental_attention_variant", None) is not None:
         param = _handle_gdn_weight_gather(args, name, param)
     return param
@@ -129,28 +109,17 @@ def all_gather_params_async(
             # No all_gather needed
             param = direct_param
         else:
-            # TODO: here we did an extra copy during concat, maybe merge this with convert_to_hf is better?
-            # TODO: check only GLU is used.
-            if "linear_fc1.weight" in info.name:
-                param_partitions = [p.chunk(2, dim=0) for p in param_partitions]
-                param_partitions = [p[0] for p in param_partitions] + [p[1] for p in param_partitions]
-                # GLU rechunk already separates gate/up strides; skip strided interleave
-                # to avoid double-processing when MCore sets partition_stride=2 for GLU.
-                partition_stride = 1
-            # this is bug in megatron's grouped moe.
-            if "linear_fc2.weight" in info.name:
-                if partition_dim == 0:
-                    partition_dim = 1
             if partition_stride == 1:
                 param = torch.cat(param_partitions, dim=partition_dim)
             else:
-                # Interleaved (strided) partitioning, e.g. GQA QKV projections.
+                # Interleaved (strided) partitioning, for linear_fc1.weight under glm/swiglu
                 chunks_per_rank = [p.chunk(partition_stride, dim=partition_dim) for p in param_partitions]
                 interleaved = [
                     chunks_per_rank[r][s] for s in range(partition_stride) for r in range(len(param_partitions))
                 ]
                 param = torch.cat(interleaved, dim=partition_dim)
 
+        # handle gdn weight gather
         if getattr(args, "experimental_attention_variant", None) is not None:
             param = _handle_gdn_weight_gather(args, info.name, param)
         gathered_params.append(param)
