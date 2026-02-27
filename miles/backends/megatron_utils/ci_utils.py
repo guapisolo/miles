@@ -69,7 +69,7 @@ def _hash_file_path(base_dir: str | Path, iteration: int) -> Path:
 
 
 def save_model_hashes(args, model: Sequence[DDP], iteration: int, hashes: dict[str, str]) -> None:
-    if not args.ci_test or not args.ci_save_model_hash or not args.save:
+    if not args.ci_test or not args.ci_save_model_hash:
         return
     path = _hash_file_path(args.save, iteration)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,7 +79,7 @@ def save_model_hashes(args, model: Sequence[DDP], iteration: int, hashes: dict[s
 
 
 def check_model_hashes(args, model: Sequence[DDP], iteration: int) -> None:
-    if not args.ci_test or not args.ci_check_model_hash or not args.load:
+    if not args.ci_test or not args.ci_check_model_hash:
         return
     path = _hash_file_path(args.load, iteration)
     if not path.is_file():

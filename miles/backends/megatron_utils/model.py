@@ -678,7 +678,7 @@ def save(
     """
     args = get_args()
     hashes = None
-    if args.ci_test and args.ci_save_model_hash and args.save:
+    if args.ci_test and args.ci_save_model_hash:
         hashes = compute_model_hashes_by_layer(model)
     if should_disable_forward_pre_hook(args):
         disable_forward_pre_hook(model)

@@ -139,14 +139,13 @@ def _merge_optimizer_param_state_lists(x1: dict | list, x2: dict | list, key: tu
 
 
 def _filter_dp_reshardable_bucket_state(bucket_state: list[dict[str, Any]], param_count: int) -> list[dict[str, Any]]:
+    """Remove padding entries from bucket_state and validate against param_count."""
     filtered = [elem for elem in bucket_state if not elem.get("padding", False)]
-    if len(filtered) < param_count:
+    if len(filtered) != param_count:
         raise AssertionError(
-            "dp_reshardable bucket_state shorter than param_map "
-            f"(bucket_state={len(filtered)}, param_map={param_count})"
+            f"dp_reshardable bucket_state length mismatch after filtering padding "
+            f"(got {len(filtered)}, expected {param_count})"
         )
-    if len(filtered) > param_count:
-        filtered = filtered[:param_count]
     return filtered
 
 
@@ -184,7 +183,7 @@ def _patched_dp_reshardable_loader():
                     bucket_state = state_dict[gbuf_idx][dtype][bucket_idx]
                     bucket_state = _filter_dp_reshardable_bucket_state(bucket_state, len(gbuf_range_map["param_map"]))
                     for src_tensors, (model_param, _param_range_map) in zip(
-                        bucket_state, gbuf_range_map["param_map"].items(), strict=False
+                        bucket_state, gbuf_range_map["param_map"].items(), strict=True
                     ):
                         self._set_main_param_and_optimizer_states(model_param, src_tensors)
 
@@ -211,26 +210,21 @@ def _resolve_checkpoint_iteration_dir(load_path: str | Path, args) -> Path:
 
 
 def _dp_reshardable_sharding_type(load_path: str | Path, args) -> str | None:
-    iter_dir = _resolve_checkpoint_iteration_dir(load_path, args)
-    common_path = iter_dir / "common.pt"
+    """Detect checkpoint sharding type from common.pt metadata."""
     import torch
 
+    iter_dir = _resolve_checkpoint_iteration_dir(load_path, args)
+    common_path = iter_dir / "common.pt"
     common_state: dict[str, Any] = torch.load(common_path, map_location="cpu", weights_only=False)
-    if not isinstance(common_state, dict):
-        raise AssertionError("Invalid common checkpoint state format.")
-    optimizer_state = common_state.get("optimizer", {})
-    if isinstance(optimizer_state, dict) and "param_state_sharding_type" in optimizer_state:
+    optimizer_state: dict[str, Any] = common_state.get("optimizer", {})
+
+    # Fast path: sharding type at top level of optimizer state.
+    if "param_state_sharding_type" in optimizer_state:
         return optimizer_state["param_state_sharding_type"]
 
+    # Search nested optimizer groups for sharding type.
     sharding_types: set[str] = set()
-    if isinstance(optimizer_state, dict):
-        candidates = optimizer_state.values()
-    elif isinstance(optimizer_state, list):
-        candidates = optimizer_state
-    else:
-        candidates = []
-
-    for value in candidates:
+    for value in optimizer_state.values():
         if isinstance(value, dict) and "param_state_sharding_type" in value:
             sharding_types.add(value["param_state_sharding_type"])
 

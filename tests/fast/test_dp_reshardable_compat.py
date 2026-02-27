@@ -44,22 +44,34 @@ def test_merge_list_mismatch_non_optimizer_raises():
         ckpt._merge_optimizer_param_state_lists(x1, x2)
 
 
-def test_filter_dp_reshardable_bucket_state_truncates_padding():
+def test_filter_dp_reshardable_bucket_state_filters_padding():
     bucket_state = [
         {"step": 1},
         {"padding": True},
         {"step": 2},
         {"step": 3},
     ]
-    filtered = ckpt._filter_dp_reshardable_bucket_state(bucket_state, 2)
-    assert len(filtered) == 2
+    filtered = ckpt._filter_dp_reshardable_bucket_state(bucket_state, 3)
+    assert len(filtered) == 3
     assert filtered[0]["step"] == 1
     assert filtered[1]["step"] == 2
+    assert filtered[2]["step"] == 3
+
+
+def test_filter_dp_reshardable_bucket_state_mismatch_raises():
+    bucket_state = [
+        {"step": 1},
+        {"padding": True},
+        {"step": 2},
+        {"step": 3},
+    ]
+    with pytest.raises(AssertionError, match="length mismatch"):
+        ckpt._filter_dp_reshardable_bucket_state(bucket_state, 2)
 
 
 def test_filter_dp_reshardable_bucket_state_short_raises():
     bucket_state = [{"padding": True}]
-    with pytest.raises(AssertionError, match="bucket_state shorter"):
+    with pytest.raises(AssertionError, match="length mismatch"):
         ckpt._filter_dp_reshardable_bucket_state(bucket_state, 2)
 
 
