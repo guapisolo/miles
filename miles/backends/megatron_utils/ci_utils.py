@@ -69,11 +69,7 @@ def _hash_file_path(base_dir: str | Path, iteration: int) -> Path:
 
 
 def save_model_hashes(args, model: Sequence[DDP], iteration: int, hashes: dict[str, str]) -> None:
-    if not args.ci_test or not args.save:
-        return
-    dp_rank = mpu.get_data_parallel_rank(with_context_parallel=True)
-    cp_rank = mpu.get_context_parallel_rank()
-    if dp_rank != 0 or cp_rank != 0:
+    if not args.ci_test or not args.ci_save_model_hash or not args.save:
         return
     path = _hash_file_path(args.save, iteration)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,19 +79,7 @@ def save_model_hashes(args, model: Sequence[DDP], iteration: int, hashes: dict[s
 
 
 def check_model_hashes(args, model: Sequence[DDP], iteration: int) -> None:
-    if not args.ci_test or not args.load:
-        return
-    # Skip hash check when loading reference checkpoint (e.g., ref_load used for init).
-    if getattr(args, "ref_load", None):
-        try:
-            if Path(args.load).resolve() == Path(args.ref_load).resolve():
-                return
-        except Exception:
-            if args.load == args.ref_load:
-                return
-    dp_rank = mpu.get_data_parallel_rank(with_context_parallel=True)
-    cp_rank = mpu.get_context_parallel_rank()
-    if dp_rank != 0 or cp_rank != 0:
+    if not args.ci_test or not args.ci_check_model_hash or not args.load:
         return
     path = _hash_file_path(args.load, iteration)
     if not path.is_file():

@@ -678,11 +678,8 @@ def save(
     """
     args = get_args()
     hashes = None
-    if args.ci_test and args.save:
-        dp_rank = mpu.get_data_parallel_rank(with_context_parallel=True)
-        cp_rank = mpu.get_context_parallel_rank()
-        if dp_rank == 0 and cp_rank == 0:
-            hashes = compute_model_hashes_by_layer(model)
+    if args.ci_test and args.ci_save_model_hash and args.save:
+        hashes = compute_model_hashes_by_layer(model)
     if should_disable_forward_pre_hook(args):
         disable_forward_pre_hook(model)
     save_checkpoint(
