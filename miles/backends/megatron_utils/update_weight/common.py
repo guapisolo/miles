@@ -1,5 +1,6 @@
 import inspect
 import logging
+import os
 import re
 from argparse import Namespace
 from collections.abc import Iterator, Sequence
@@ -27,7 +28,7 @@ def _gather_with_stride(
     return torch.cat(interleaved, dim=partition_dim)
 
 
-def _check_partition_stride(args: Namespace, name: str, partition_stride: int) -> int:
+def _check_and_fix_partition(args: Namespace, name: str, partition_stride: int, partition_dim: int) -> tuple[int, int]:
     """Validate partition_stride values for known parameter patterns.
 
     After Megatron-LM PR #2708, linear_fc1 correctly reports partition_stride=2
@@ -38,12 +39,21 @@ def _check_partition_stride(args: Namespace, name: str, partition_stride: int) -
             # Megatron bug: TEGroupedLinaer does not set partition_stride=2 for linear_fc1
             partition_stride = 2
         if args.swiglu:
-            assert (
-                partition_stride == 2
-            ), f"Expected partition_stride=2 for {name} (GLU/SwiGLU), got {partition_stride}"
+            if os.getenv("DEPRECATED_MEGATRON_COMPATIBLE", "0") == "1":
+                partition_stride = 2
+            else:
+                assert (
+                    partition_stride == 2
+                ), f"Expected partition_stride=2 for {name} (GLU/SwiGLU), got {partition_stride}"
     elif "linear_fc2.weight" in name:
-        assert partition_stride == 1, f"Expected partition_stride=1 for {name}, got {partition_stride}"
-    return partition_stride
+        if os.getenv("DEPRECATED_MEGATRON_COMPATIBLE", "0") == "1":
+            partition_stride = 1
+            if partition_dim == 0:
+                partition_dim = 1
+        else:
+            assert partition_stride == 1, f"Expected partition_stride=1 for {name}, got {partition_stride}"
+            assert partition_dim == 1, f"Expected partition_dim=1 for {name}, got {partition_dim}"
+    return partition_stride, partition_dim
 
 
 def all_gather_param(args: Namespace, name: str, param: torch.nn.Parameter) -> torch.Tensor:
@@ -70,7 +80,7 @@ def all_gather_param(args: Namespace, name: str, param: torch.nn.Parameter) -> t
     partition_dim = param.partition_dim
     partition_stride = param.partition_stride
 
-    partition_stride = _check_partition_stride(args, name, partition_stride)
+    partition_stride, partition_dim = _check_and_fix_partition(args, name, partition_stride, partition_dim)
     param = _gather_with_stride(param_partitions, partition_dim, partition_stride)
     return param
 
@@ -123,7 +133,9 @@ def all_gather_params_async(
             # No all_gather needed
             param = direct_param
         else:
-            partition_stride = _check_partition_stride(args, info.name, partition_stride)
+            partition_stride, partition_dim = _check_and_fix_partition(
+                args, info.name, partition_stride, partition_dim
+            )
             param = _gather_with_stride(param_partitions, partition_dim, partition_stride)
 
         gathered_params.append(param)
