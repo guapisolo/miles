@@ -51,7 +51,7 @@ def _compute_sample_from_openai_record(input_sample: Sample, record: SessionReco
     choice = record.response["choices"][0]
 
     if "prompt_token_ids" in choice:
-        input_token_ids = choice["prompt_token_ids"]
+        prompt_token_ids = choice["prompt_token_ids"]
 
     output_token_ids = [item["token_id"] for item in choice["logprobs"]["content"]]
     output_log_probs = [item["logprob"] for item in choice["logprobs"]["content"]]
@@ -60,9 +60,9 @@ def _compute_sample_from_openai_record(input_sample: Sample, record: SessionReco
     request_input_ids = record.request.get("input_ids")
     if request_input_ids is not None:
         assert (
-            request_input_ids == input_token_ids
+            request_input_ids == prompt_token_ids
         ), "for prompt part, input_ids return by sglang should match with the request input_ids"
-    sample.tokens = input_token_ids + output_token_ids
+    sample.tokens = prompt_token_ids + output_token_ids
     sample.rollout_log_probs = output_log_probs
     sample.response = tokenizer.decode(output_token_ids)
     sample.response_length = len(output_token_ids)
