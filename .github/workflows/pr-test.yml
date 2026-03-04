@@ -18,6 +18,8 @@
 
 
 
+
+
 name: PR Test
 
 on:
@@ -102,6 +104,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -151,6 +154,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -207,6 +211,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -256,6 +261,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -312,6 +318,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -361,6 +368,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -417,6 +425,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -466,6 +475,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -522,6 +532,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -571,6 +582,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -627,6 +639,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -676,6 +689,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -732,6 +746,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -781,6 +796,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -837,6 +853,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -886,6 +903,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -942,6 +960,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -991,6 +1010,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -1047,6 +1067,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -1096,6 +1117,69 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
+
+      - name: Execute
+        shell: bash
+        run: python tests/ci/gpu_lock_exec.py --count ${{ matrix.info.num_gpus }} -- python tests/${{ matrix.info.test_file }}
+
+  e2e-test-glm5:
+    if: (github.event_name == 'workflow_dispatch') || (github.event.pull_request && contains(github.event.pull_request.labels.*.name, 'run-ci-glm5'))
+    runs-on: self-hosted
+    container:
+      image: radixark/miles:glm5
+      options: >
+        --gpus all
+        --ipc=host
+        --shm-size=32g
+        --ulimit memlock=-1
+        --ulimit stack=67108864
+        --memory=0
+        --memory-swap=0
+        -v /mnt/nvme0n1/miles_ci:/data/miles_ci
+        -v /mnt/nvme0n1/miles_ci/models:/root/models
+        -v /mnt/nvme0n1/miles_ci/datasets:/root/datasets
+        --privileged
+        --ulimit nofile=65535:65535
+        -v /tmp:/tmp
+    strategy:
+      fail-fast: false
+      matrix:
+        info: [{"num_gpus": 8, "test_file": "e2e/megatron/test_glm5_744b_a40b_4layer.py"}]
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    env:
+      GITHUB_COMMIT_NAME: ${{ github.sha }}_${{ github.event.pull_request.number || 'non-pr' }}
+      WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+      MILES_TEST_ENABLE_INFINITE_RUN: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.infinite_run) || 'false' }}
+      MILES_TEST_USE_DEEPEP: ${{ matrix.info.use_deepep || '0' }}
+      MILES_TEST_USE_FP8_ROLLOUT: ${{ matrix.info.use_fp8_rollout || '0' }}
+      MILES_TEST_ENABLE_EVAL: ${{ matrix.info.enable_eval || '1' }}
+      MILES_TEST_FEW_GPU: '0'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cleanup Ray processes
+        shell: bash
+        run: |
+          pkill -9 -f 'ray::' 2>/dev/null || true
+          pkill -9 -f raylet 2>/dev/null || true
+          pkill -9 -f gcs_server 2>/dev/null || true
+          pkill -9 -f 'ray-dashboard' 2>/dev/null || true
+          pkill -9 sglang 2>/dev/null || true
+          ray stop --force 2>/dev/null || true
+          rm -rf /tmp/ray/* 2>/dev/null || true
+          sleep 3
+
+
+      - name: Install
+        shell: bash
+        run: |
+          cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
@@ -1152,6 +1236,7 @@ jobs:
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
 
+
       - name: Resolve dependency refs
         id: resolve-refs
         shell: bash
@@ -1201,6 +1286,7 @@ jobs:
           cd /sgl-workspace/sglang && git reset --hard HEAD && git clean -fd && git fetch origin "$SGLANG_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e python --no-deps --break-system-packages
           cd /root/Megatron-LM && git reset --hard HEAD && git clean -fd && git fetch origin "$MEGATRON_PR" && git checkout -f FETCH_HEAD && git log --oneline -1 && pip install -e . --no-deps --break-system-packages
           cd $GITHUB_WORKSPACE && pip install -e . --no-deps --break-system-packages
+
 
       - name: Execute
         shell: bash
