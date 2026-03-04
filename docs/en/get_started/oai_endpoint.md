@@ -121,35 +121,21 @@ TITO needs two things from the SGLang response:
 By default, `build_chat_request_kwargs` in `agentic_tool_call.py` sets both
 `return_prompt_token_ids=True` and `logprobs=True`. The session middleware
 forwards raw `messages` to SGLang, which tokenizes the prompt and returns the
-response. After that, `_compute_sample_from_openai_record` in
-`openai_endpoint_utils.py` extracts token ids from the response like this:
+response. Then `_compute_sample_from_openai_record` in
+`openai_endpoint_utils.py` extracts prompt token ids and output token ids from
+the response and concatenates them into `sample.tokens`. You do not need to
+provide `input_ids` yourself.
 
-```python
-# prompt token ids
-input_token_ids  = choice["prompt_token_ids"]
-
-# output token ids + logprobs
-output_token_ids = [item["token_id"] for item in choice["logprobs"]["content"]]
-output_log_probs = [item["logprob"]   for item in choice["logprobs"]["content"]]
-
-sample.tokens = input_token_ids + output_token_ids
-```
-
-This is sufficient for TITO. You do not need to provide `input_ids` yourself.
-
-**Important**: Do **not** set `logprob_start_len=0` — it forces SGLang to
-compute logprobs for every prompt token, which destroys the prefix cache and
-hurts performance. Use `return_prompt_token_ids=True` instead, which returns
-prompt token ids at zero cost without affecting caching.
-
-We can save multi-turn samples within a single session, but we still do not
-inherit or reuse prompt tokens across turns. Each request is tokenized
+We can save multi-turn samples within a single session, but currently we
+still do not inherit or reuse tokens across turns. Each request is tokenized
 independently.
 
 ### Common pitfalls
 
 - Ensure `logprobs=True` and `return_prompt_token_ids=True` in OpenAI chat
   requests (both are already set in `request_kwargs`).
-- Do **not** set `logprob_start_len=0` — use `return_prompt_token_ids=True`
-  to get prompt token ids without breaking SGLang's prefix cache.
+- Do **not** set `logprob_start_len=0` — it forces SGLang to compute
+  logprobs for every prompt token, which destroys the prefix cache and hurts
+  performance. Use `return_prompt_token_ids=True` instead, which returns
+  prompt token ids at zero cost without affecting caching.
 - Ensure the tokenizer matches `--hf-checkpoint`.
