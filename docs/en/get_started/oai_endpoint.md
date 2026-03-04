@@ -108,35 +108,43 @@ see `docs/en/get_started/gen_endpoint.md`.
 
 ## 5. TITO (token-in token-out)
 
-TITO needs two things:
+TITO needs two things from the SGLang response:
 
-1. Prompt token ids returned by the backend (via `prompt_token_ids` in the
-   response choice, triggered by `return_prompt_token_ids=True` in the
-   request).
-2. Output token ids returned by the backend (`logprobs.content[*].token_id`,
-   triggered by `logprobs=True`).
+1. **Prompt token ids** — extracted from `response.choices[0].prompt_token_ids`.
+   This field is returned by SGLang when the request sets
+   `return_prompt_token_ids=True`.
+2. **Output token ids and logprobs** — extracted from
+   `response.choices[0].logprobs.content[*].token_id` and
+   `response.choices[0].logprobs.content[*].logprob`.
+   These fields are returned when the request sets `logprobs=True`.
 
-By default, `build_chat_request_kwargs` in `agentic_tool_call.py` sets
+By default, `build_chat_request_kwargs` in `agentic_tool_call.py` sets both
 `return_prompt_token_ids=True` and `logprobs=True`. The session middleware
-forwards raw `messages` to SGLang, which tokenizes the prompt and returns
-both prompt token ids and output token ids. This is sufficient for TITO
-without providing `input_ids`.
+forwards raw `messages` to SGLang, which tokenizes the prompt and returns the
+response. After that, `_compute_sample_from_openai_record` in
+`openai_endpoint_utils.py` extracts token ids from the response like this:
+
+```python
+# prompt token ids
+input_token_ids  = choice["prompt_token_ids"]
+
+# output token ids + logprobs
+output_token_ids = [item["token_id"] for item in choice["logprobs"]["content"]]
+output_log_probs = [item["logprob"]   for item in choice["logprobs"]["content"]]
+
+sample.tokens = input_token_ids + output_token_ids
+```
+
+This is sufficient for TITO. You do not need to provide `input_ids` yourself.
 
 **Important**: Do **not** set `logprob_start_len=0` — it forces SGLang to
 compute logprobs for every prompt token, which destroys the prefix cache and
 hurts performance. Use `return_prompt_token_ids=True` instead, which returns
 prompt token ids at zero cost without affecting caching.
 
-If you prefer to send `input_ids` to SGLang, you can enable token input for chat
-completions in the router via
-`--miles-router-enable-token-input-for-chat-completions`. The session route
-will tokenize `messages` and inject `input_ids` before proxying to SGLang. The
-backend still returns prompt token ids, and they should match any `input_ids`
-you supplied.
-
 We can save multi-turn samples within a single session, but we still do not
 inherit or reuse prompt tokens across turns. Each request is tokenized
-independently, regardless of which option you choose.
+independently.
 
 ### Common pitfalls
 
