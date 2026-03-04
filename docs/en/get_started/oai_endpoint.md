@@ -138,4 +138,3 @@ independently.
   logprobs for every prompt token, which destroys the prefix cache and hurts
   performance. Use `return_prompt_token_ids=True` instead, which returns
   prompt token ids at zero cost without affecting caching.
-- Ensure the tokenizer matches `--hf-checkpoint`.
