@@ -12,8 +12,8 @@ MODEL_TYPE = "glm5-744B-A40B_4layer"
 MODEL_ORG = "Pinaster"
 NUM_GPUS = 8
 
-MODEL_DIR = "/root/models"
-DATA_DIR = "/root/datasets"
+MODEL_DIR = "/root/shared/models"
+DATA_DIR = "/root/shared/datasets"
 
 
 def _process_glm_checkpoint():
@@ -62,6 +62,7 @@ def prepare():
         model_name=MODEL_NAME,
         megatron_model_type=MODEL_TYPE,
         num_gpus_per_node=4,
+        hf_checkpoint=f"{MODEL_DIR}/{MODEL_NAME}",
         extra_args=(
             "--tensor-model-parallel-size 1 "
             "--expert-tensor-parallel-size 1 "
@@ -77,9 +78,9 @@ def execute():
     ckpt_args = (
         f"--hf-checkpoint {MODEL_DIR}/{hf_name} "
         f"--ref-load {MODEL_DIR}/{MODEL_NAME}_torch_dist "
-        "--load /root/shared_data/checkpoints "
-        "--save /root/shared_data/checkpoints "
-        "--save-interval 20 "
+        "--load /root/shared/checkpoints "
+        "--save /root/shared/checkpoints "
+        "--save-interval 5 "
     )
 
     # debug_minimal mode for single-node 4-layer test: short response length
@@ -90,7 +91,7 @@ def execute():
         "--apply-chat-template "
         "--rollout-shuffle "
         "--rm-type deepscaler "
-        "--num-rollout 3 "
+        "--num-rollout 30 "
         "--rollout-batch-size 8 "
         "--n-samples-per-prompt 8 "
         "--rollout-max-response-len 100 "
@@ -172,13 +173,10 @@ def execute():
         "--moe-token-dispatcher-type flex "
         "--allgather-cp "
         # ------------
-        f"--update-weight-buffer-size {2 * 1024 ** 3} "
         "--actor-num-nodes 1 "
         "--actor-num-gpus-per-node 8 "
         "--num-gpus-per-node 8 "
         "--colocate "
-        "--dump-details /root/shared_data/dump_details "
-        "--disable-weights-backuper "
     )
 
     train_args = (
