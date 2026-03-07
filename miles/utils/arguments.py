@@ -545,9 +545,12 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 "--chat-template-path",
                 type=str,
                 default=None,
-                help="Path to a custom Jinja chat template file (.jinja). "
+                help="Path to a custom Jinja chat template file (.jinja), or 'autofix'. "
                 "Sets tokenizer.chat_template when loading via load_tokenizer, "
                 "and also sets --sglang-chat-template so the sglang server uses the same template. "
+                "If set to 'autofix', Miles will automatically select a fixed chat template "
+                "maintained internally that resolves train-inference token mismatch issues "
+                "in agentic workflows (e.g. tool-call trajectories). "
                 "The path must be accessible on all Ray worker nodes "
                 "(e.g. a path inside the miles repo, or a shared filesystem like NFS).",
             )
@@ -1617,6 +1620,16 @@ def _resolve_eval_datasets(args) -> list[EvalDatasetConfig]:
 
 def miles_validate_args(args):
     args.eval_datasets = _resolve_eval_datasets(args)
+
+    if args.chat_template_path == "autofix":
+        from miles.utils.chat_template_utils import try_get_fixed_chat_template
+
+        resolved = try_get_fixed_chat_template(args.hf_checkpoint)
+        if resolved is None:
+            logger.warning(
+                "--chat-template-path=autofix but no fix rule found for %s, using HF default", args.hf_checkpoint
+            )
+        args.chat_template_path = resolved
 
     if args.chat_template_path is not None:
         if not os.path.isfile(args.chat_template_path):
