@@ -1,12 +1,8 @@
 """Custom agent function for the session-server tool-call e2e test.
 
 Performs a multi-turn tool-calling conversation through the session proxy and
-verifies the pretokenized TITO prefix invariant by comparing prompt_token_ids
-obtained via the session route (with pretokenized injection) against the
-non-session route (full tokenization, no pretokenized prefix).
-
-If both routes produce the same prompt_token_ids on turn 2+, the fixed chat
-template is append-only and pretokenized TITO is correct.
+verifies that the session's prompt_token_ids, when decoded, exactly match
+the text produced by locally applying the chat template to the same messages.
 
 The agent is loaded at runtime by ``agentic_tool_call.generate`` via
 ``--custom-agent-function-path tests.e2e.sglang.session_tool_agent.run_agent``.
@@ -17,13 +13,16 @@ import logging
 import os
 
 import httpx
+from sglang.srt.entrypoints.openai.protocol import Tool
 from transformers import AutoTokenizer
+
+from miles.utils.chat_template_utils import try_get_fixed_chat_template
 
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = os.environ.get("SGLANG_E2E_MODEL_PATH", "Qwen/Qwen3-0.6B")
 
-MAX_TOOL_TURNS = 4
+MAX_TOOL_TURNS = 8
 
 TOOLS = [
     {
@@ -53,13 +52,12 @@ MOCK_TOOL_RESULTS = [
 ]
 
 
-def _router_url_from_base(base_url: str) -> str:
-    """Extract the router root URL from the session base_url.
-
-    base_url looks like ``http://host:port/sessions/{session_id}``.
-    """
-    parts = base_url.split("/sessions/")
-    return parts[0]
+def _load_chat_template(model_path: str) -> str:
+    """Load the fixed chat template for the model."""
+    template_path = try_get_fixed_chat_template(model_path)
+    assert template_path is not None, f"No fixed chat template found for {model_path}"
+    with open(template_path) as f:
+        return f.read()
 
 
 def _extract_tool_calls(assistant_msg: dict) -> list[dict] | None:
@@ -119,38 +117,40 @@ async def _chat(
 def _verify_turn(
     turn: int,
     session_prompt_ids: list[int],
-    direct_prompt_ids: list[int],
+    messages: list[dict],
     prev_session_text: str | None,
     tokenizer,
+    chat_template: str,
 ):
-    """Assert that decoded prompt text matches between session and direct routes.
-
-    Token IDs may differ due to encode/decode round-trip asymmetry in BPE
-    tokenizers, but the decoded text must be identical — this is what the
-    model actually sees, and prompt tokens are loss-masked anyway.
-    """
+    """Assert that decoded session prompt text matches locally rendered template."""
     session_text = tokenizer.decode(session_prompt_ids, skip_special_tokens=False)
-    direct_text = tokenizer.decode(direct_prompt_ids, skip_special_tokens=False)
+    tool_defs = [Tool(**t).function.model_dump() for t in TOOLS]
+    expected_text = tokenizer.apply_chat_template(
+        messages,
+        tools=tool_defs,
+        chat_template=chat_template,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
 
-    if session_text != direct_text:
-        # Find first character-level diff for readable diagnostics
+    if session_text != expected_text:
         first_char_diff = next(
-            (i for i, (a, b) in enumerate(zip(session_text, direct_text, strict=False)) if a != b),
-            min(len(session_text), len(direct_text)),
+            (i for i, (a, b) in enumerate(zip(session_text, expected_text, strict=False)) if a != b),
+            min(len(session_text), len(expected_text)),
         )
         ctx_lo = max(0, first_char_diff - 80)
-        ctx_hi = min(max(len(session_text), len(direct_text)), first_char_diff + 80)
+        ctx_hi = min(max(len(session_text), len(expected_text)), first_char_diff + 80)
         raise AssertionError(
             f"TITO TEXT MISMATCH on turn {turn}!\n"
-            f"Session text length: {len(session_text)} chars "
+            f"Session decoded length: {len(session_text)} chars "
             f"({len(session_prompt_ids)} tokens)\n"
-            f"Direct text length:  {len(direct_text)} chars "
-            f"({len(direct_prompt_ids)} tokens)\n"
+            f"Template rendered length: {len(expected_text)} chars\n"
             f"First char diff at index {first_char_diff}\n"
-            f"\n--- Session text around diff ---\n"
+            f"\n--- Session decoded text around diff ---\n"
             f"{session_text[ctx_lo:ctx_hi]!r}\n"
-            f"\n--- Direct text around diff ---\n"
-            f"{direct_text[ctx_lo:ctx_hi]!r}\n"
+            f"\n--- Template rendered text around diff ---\n"
+            f"{expected_text[ctx_lo:ctx_hi]!r}\n"
         )
 
     if prev_session_text is not None:
@@ -166,16 +166,11 @@ def _verify_turn(
 
 
 async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
-    """Multi-turn tool-call agent with pretokenized prefix invariant checks.
+    """Multi-turn tool-call agent that verifies session prompt correctness.
 
-    Verification strategy:
-    After multi-turn conversation through the session proxy (which injects
-    pretokenized_token_ids on turn 2+), send the same accumulated messages
-    via the non-session route (direct to sglang, no pretokenized injection).
-    Decode both prompt_token_ids to text and compare — they must be identical.
-    Token IDs may differ (encode/decode round-trip) but decoded text must match.
+    On every turn, decodes the session's prompt_token_ids and compares with
+    locally rendered chat template text — they must be identical.
     """
-    router_url = _router_url_from_base(base_url)
     messages = list(prompt)
 
     rk = {k: v for k, v in request_kwargs.items() if k not in ("tools",)}
@@ -184,6 +179,7 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
 
     model_path = metadata.get("model_path", MODEL_NAME) if metadata else MODEL_NAME
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    chat_template = _load_chat_template(model_path)
 
     turns_completed = 0
     prev_session_text = None
@@ -197,42 +193,25 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
                 messages,
                 rk,
                 label=label,
-                tool_choice="required",
+                tool_choice="auto",
             )
             logger.info("%s: %d prompt tokens", label, len(session_ids))
 
-            if turn >= 2:
-                _, direct_ids = await _chat(
-                    client,
-                    router_url,
-                    messages,
-                    rk,
-                    label=f"Direct Turn {turn}",
-                    tool_choice="required",
-                )
-                logger.info("Direct Turn %d: %d prompt tokens", turn, len(direct_ids))
-
-                session_text = _verify_turn(
-                    turn,
-                    session_ids,
-                    direct_ids,
-                    prev_session_text,
-                    tokenizer,
-                )
-                prev_session_text = session_text
-                logger.info(
-                    "Turn %d VERIFIED: decoded text exact match "
-                    "(session %d tokens, direct %d tokens, text %d chars)",
-                    turn,
-                    len(session_ids),
-                    len(direct_ids),
-                    len(session_text),
-                )
-            else:
-                prev_session_text = tokenizer.decode(
-                    session_ids,
-                    skip_special_tokens=False,
-                )
+            session_text = _verify_turn(
+                turn,
+                session_ids,
+                messages,
+                prev_session_text,
+                tokenizer,
+                chat_template,
+            )
+            prev_session_text = session_text
+            logger.info(
+                "Turn %d VERIFIED: session decoded text matches template " "(%d tokens, %d chars)",
+                turn,
+                len(session_ids),
+                len(session_text),
+            )
 
             turns_completed = turn
 
@@ -241,11 +220,8 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
 
             tool_calls = _extract_tool_calls(assistant_msg)
             if not tool_calls:
-                logger.warning(
-                    "Turn %d: no tool calls despite tool_choice=required – " "ending conversation early",
-                    turn,
-                )
-                break
+                logger.info("Turn %d: no tool calls, skipping to next turn", turn)
+                continue
 
             mock_result = MOCK_TOOL_RESULTS[(turn - 1) % len(MOCK_TOOL_RESULTS)]
             for tc in tool_calls:
