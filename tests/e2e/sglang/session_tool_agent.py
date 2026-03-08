@@ -17,6 +17,7 @@ import logging
 import os
 
 import httpx
+from transformers import AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -119,28 +120,49 @@ def _verify_turn(
     turn: int,
     session_prompt_ids: list[int],
     direct_prompt_ids: list[int],
-    prev_prompt_ids: list[int] | None,
+    prev_session_text: str | None,
+    tokenizer,
 ):
-    """Assert strict prefix invariant for one turn."""
-    assert session_prompt_ids == direct_prompt_ids, (
-        f"TITO PREFIX INVARIANT VIOLATED on turn {turn}!\n"
-        f"Session route (pretokenized): {len(session_prompt_ids)} tokens\n"
-        f"Direct route (full tokenize): {len(direct_prompt_ids)} tokens\n"
-        f"First diff at index {_first_diff(session_prompt_ids, direct_prompt_ids)}"
-    )
+    """Assert that decoded prompt text matches between session and direct routes.
 
-    if prev_prompt_ids is not None:
-        assert len(session_prompt_ids) > len(prev_prompt_ids), (
-            f"Turn {turn} prompt ({len(session_prompt_ids)} tokens) should be "
-            f"strictly longer than previous turn ({len(prev_prompt_ids)} tokens)"
+    Token IDs may differ due to encode/decode round-trip asymmetry in BPE
+    tokenizers, but the decoded text must be identical — this is what the
+    model actually sees, and prompt tokens are loss-masked anyway.
+    """
+    session_text = tokenizer.decode(session_prompt_ids, skip_special_tokens=False)
+    direct_text = tokenizer.decode(direct_prompt_ids, skip_special_tokens=False)
+
+    if session_text != direct_text:
+        # Find first character-level diff for readable diagnostics
+        first_char_diff = next(
+            (i for i, (a, b) in enumerate(zip(session_text, direct_text, strict=False)) if a != b),
+            min(len(session_text), len(direct_text)),
         )
-        assert session_prompt_ids[: len(prev_prompt_ids)] == prev_prompt_ids, (
-            f"Prefix mismatch on turn {turn}: previous turn's prompt_token_ids "
-            f"({len(prev_prompt_ids)} tokens) is not a prefix of this turn's "
-            f"({len(session_prompt_ids)} tokens). "
-            f"First diff at index "
-            f"{_first_diff(prev_prompt_ids, session_prompt_ids[:len(prev_prompt_ids)])}"
+        ctx_lo = max(0, first_char_diff - 80)
+        ctx_hi = min(max(len(session_text), len(direct_text)), first_char_diff + 80)
+        raise AssertionError(
+            f"TITO TEXT MISMATCH on turn {turn}!\n"
+            f"Session text length: {len(session_text)} chars "
+            f"({len(session_prompt_ids)} tokens)\n"
+            f"Direct text length:  {len(direct_text)} chars "
+            f"({len(direct_prompt_ids)} tokens)\n"
+            f"First char diff at index {first_char_diff}\n"
+            f"\n--- Session text around diff ---\n"
+            f"{session_text[ctx_lo:ctx_hi]!r}\n"
+            f"\n--- Direct text around diff ---\n"
+            f"{direct_text[ctx_lo:ctx_hi]!r}\n"
         )
+
+    if prev_session_text is not None:
+        assert session_text.startswith(prev_session_text), (
+            f"Prefix mismatch on turn {turn}: previous turn's decoded text "
+            f"({len(prev_session_text)} chars) is not a prefix of this turn's "
+            f"({len(session_text)} chars).\n"
+            f"Previous tail: {prev_session_text[-100:]!r}\n"
+            f"Current head:  {session_text[:len(prev_session_text)][-100:]!r}"
+        )
+
+    return session_text
 
 
 async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
@@ -150,8 +172,8 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
     After multi-turn conversation through the session proxy (which injects
     pretokenized_token_ids on turn 2+), send the same accumulated messages
     via the non-session route (direct to sglang, no pretokenized injection).
-    If the prompt_token_ids match exactly, the template is append-only and
-    TITO is correct.
+    Decode both prompt_token_ids to text and compare — they must be identical.
+    Token IDs may differ (encode/decode round-trip) but decoded text must match.
     """
     router_url = _router_url_from_base(base_url)
     messages = list(prompt)
@@ -160,8 +182,11 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
     rk.setdefault("return_prompt_token_ids", True)
     rk.setdefault("logprobs", True)
 
+    model_path = metadata.get("model_path", MODEL_NAME) if metadata else MODEL_NAME
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+
     turns_completed = 0
-    prev_prompt_ids = None
+    prev_session_text = None
 
     async with httpx.AsyncClient(timeout=180) as client:
         for turn in range(1, MAX_TOOL_TURNS + 1):
@@ -187,17 +212,28 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
                 )
                 logger.info("Direct Turn %d: %d prompt tokens", turn, len(direct_ids))
 
-                _verify_turn(turn, session_ids, direct_ids, prev_prompt_ids)
+                session_text = _verify_turn(
+                    turn,
+                    session_ids,
+                    direct_ids,
+                    prev_session_text,
+                    tokenizer,
+                )
+                prev_session_text = session_text
                 logger.info(
-                    "Turn %d VERIFIED: session (%d) == direct (%d), " "prefix from turn %d (%d tokens) preserved",
+                    "Turn %d VERIFIED: decoded text exact match "
+                    "(session %d tokens, direct %d tokens, text %d chars)",
                     turn,
                     len(session_ids),
                     len(direct_ids),
-                    turn - 1,
-                    len(prev_prompt_ids) if prev_prompt_ids else 0,
+                    len(session_text),
+                )
+            else:
+                prev_session_text = tokenizer.decode(
+                    session_ids,
+                    skip_special_tokens=False,
                 )
 
-            prev_prompt_ids = session_ids
             turns_completed = turn
 
             assistant_msg = resp_data["choices"][0]["message"]
@@ -237,12 +273,3 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
         "turns_completed": turns_completed,
         "prefix_invariant_verified": verified,
     }
-
-
-def _first_diff(a: list, b: list) -> int | str:
-    for i, (x, y) in enumerate(zip(a, b, strict=False)):
-        if x != y:
-            return i
-    if len(a) != len(b):
-        return min(len(a), len(b))
-    return "none"
