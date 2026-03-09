@@ -30,13 +30,14 @@ class SingleUserTurnTrajectory(BaseModel):
 class SingleUserTurnTrajectoryManager:
     """Trajectory manager for single-user-turn sessions.
 
-    Assumes a conversation with at most one system message and exactly one
-    user message, followed by multiple tool-call steps
-    (assistant → tool → assistant → tool → …).
+    Assumes a conversation with exactly one user message, optionally preceded
+    by system messages, followed by multi-turn tool-call steps
+    (assistant → tool → assistant → tool → …).  Additional system messages
+    may be injected mid-conversation (e.g. retry prompts).
 
     The chat template rendering after the last user message must satisfy the
     append-only invariant: each new request's messages are a strict extension
-    of the previous request's messages, with only tool/assistant messages
+    of the previous request's messages, with only tool/system messages
     appended. This allows reusing pretokenized_token_ids across turns.
     """
 
@@ -84,10 +85,10 @@ class SingleUserTurnTrajectoryManager:
 
         Eligibility requires:
         1. The session has prior turns (token_ids is non-empty).
-        2. The prompt contains exactly one system message and one user message.
+        2. The prompt contains exactly one user message.
         3. The new messages are append-only relative to stored messages —
-           only new tool messages have been appended after the previous
-           assistant message.
+           only tool or system messages have been appended after the
+           previous assistant message.
         """
         with self._lock:
             session = self.sessions.get(session_id)
@@ -99,10 +100,7 @@ class SingleUserTurnTrajectoryManager:
                 return None
 
             if not self._validate_message_structure(request_messages):
-                # invalid message structure, includes multiple system or user messages
-                raise ValueError(
-                    "invalid message structure, includes multiple system or user messages, not supported for this single-run trajectory manager."
-                )
+                raise ValueError("invalid message structure: must contain exactly one user message")
 
             if not self._is_append_only(session.messages, request_messages):
                 # new messages are not append-only, includes new tool messages
@@ -152,16 +150,9 @@ class SingleUserTurnTrajectoryManager:
 
     @staticmethod
     def _validate_message_structure(messages: list[dict[str, Any]]) -> bool:
-        """Check that messages contain exactly one system and one user message."""
-        system_count = 0
-        user_count = 0
-        for msg in messages:
-            role = msg.get("role")
-            if role == "system":
-                system_count += 1
-            elif role == "user":
-                user_count += 1
-        return system_count <= 1 and user_count == 1
+        """Check that messages contain exactly one user message."""
+        user_count = sum(1 for msg in messages if msg.get("role") == "user")
+        return user_count == 1
 
     @staticmethod
     def _is_append_only(
@@ -184,9 +175,9 @@ class SingleUserTurnTrajectoryManager:
             if new_messages[i] != stored_msg:
                 return False
 
-        # All appended messages must be tool messages.
+        ALLOWED_APPEND_ROLES = {"tool", "system"}
         for msg in new_messages[len(stored_messages) :]:
-            if msg.get("role") != "tool":
+            if msg.get("role") not in ALLOWED_APPEND_ROLES:
                 return False
 
         return True

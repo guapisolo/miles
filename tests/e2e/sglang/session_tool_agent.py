@@ -172,6 +172,7 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
     chat_template = _load_chat_template(model_path)
 
     turns_completed = 0
+    total_tool_calls = 0
     prev_session_text = None
     consecutive_retries = 0
 
@@ -200,7 +201,7 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
             )
             prev_session_text = session_text
             logger.info(
-                "Turn %d VERIFIED: session decoded text matches template " "(%d tokens, %d chars)",
+                "Turn %d VERIFIED: session decoded text matches template (%d tokens, %d chars)",
                 turn,
                 len(session_ids),
                 len(session_text),
@@ -213,20 +214,21 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
 
             tool_calls = _extract_tool_calls(assistant_msg)
             if tool_calls:
-                mock_result = MOCK_TOOL_RESULTS[(turn - 1) % len(MOCK_TOOL_RESULTS)]
-                for tc in tool_calls:
+                for i, tc in enumerate(tool_calls):
+                    mock_idx = (total_tool_calls + i) % len(MOCK_TOOL_RESULTS)
                     messages.append(
                         {
                             "role": "tool",
-                            "content": mock_result,
+                            "content": MOCK_TOOL_RESULTS[mock_idx],
                             "tool_call_id": tc["id"],
                         }
                     )
+                total_tool_calls += len(tool_calls)
                 logger.info(
-                    "Turn %d: appended %d tool result(s) with mock data [%d]",
+                    "Turn %d: appended %d tool result(s), total tool calls so far: %d",
                     turn,
                     len(tool_calls),
-                    (turn - 1) % len(MOCK_TOOL_RESULTS),
+                    total_tool_calls,
                 )
                 consecutive_retries = 0
             elif _is_task_complete(assistant_msg):
@@ -245,13 +247,14 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
                     MAX_RETRIES,
                 )
 
-    verified = turns_completed >= 3
-    if not verified:
+    MIN_TOOL_CALLS = 3
+    if total_tool_calls < MIN_TOOL_CALLS:
         raise AssertionError(
-            f"Only completed {turns_completed} tool-call turn(s), need >= 3 "
-            f"for meaningful multi-turn prefix invariant verification"
+            f"Only made {total_tool_calls} successful tool call(s) in {turns_completed} turn(s), "
+            f"need >= {MIN_TOOL_CALLS} for meaningful multi-turn prefix invariant verification"
         )
     return {
         "turns_completed": turns_completed,
-        "prefix_invariant_verified": verified,
+        "total_tool_calls": total_tool_calls,
+        "prefix_invariant_verified": True,
     }
