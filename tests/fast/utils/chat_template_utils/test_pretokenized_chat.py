@@ -44,6 +44,7 @@ TEMPLATES_WITH_THINKING = {
     "qwen3_fixed": _load_fixed("Qwen/Qwen3-0.6B"),
     "qwen3.5": load_hf_chat_template("Qwen/Qwen3.5-0.8B"),
     "glm5": load_hf_chat_template("zai-org/GLM-5"),
+    "glm47_flash": load_hf_chat_template("zai-org/GLM-4.7-Flash"),
     "qwen3_thinking_2507_fixed": _load_fixed("Qwen/Qwen3-4B-Thinking-2507"),
     "qwen3_next_thinking_fixed": _load_fixed("Qwen/Qwen3-Next-80B-A3B-Thinking"),
 }
@@ -53,6 +54,7 @@ ALL_TEMPLATES = {
     "qwen3_instruct_2507": load_hf_chat_template("Qwen/Qwen3-4B-Instruct-2507"),
     "qwen3_next_instruct": load_hf_chat_template("Qwen/Qwen3-Next-80B-A3B-Instruct"),
     "qwen3_coder_next": load_hf_chat_template("Qwen/Qwen3-Coder-Next"),
+    "glm4": load_hf_chat_template("THUDM/glm-4-9b-chat"),
 }
 
 # Original (unfixed) HF templates referenced by negative tests
