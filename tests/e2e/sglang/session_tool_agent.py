@@ -8,40 +8,18 @@ The agent is loaded at runtime by ``agentic_tool_call.generate`` via
 ``--custom-agent-function-path tests.e2e.sglang.session_tool_agent.run_agent``.
 """
 
-import json
 import logging
 import os
-import re
-import threading
 
 import httpx
 from sglang.srt.entrypoints.openai.protocol import Tool
-from transformers import AutoTokenizer
 
 from miles.utils.chat_template_utils import try_get_fixed_chat_template
+from miles.utils.processing_utils import load_tokenizer
 
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = os.environ.get("SGLANG_E2E_MODEL_PATH", "Qwen/Qwen3-4B")
-TITO_STATS_PATH = "/tmp/tito_stats.json"
-
-_tito_lock = threading.Lock()
-_tito_total = 0
-_tito_mismatch = 0
-
-
-def _flush_tito_stats():
-    """Write current global TITO stats to a file for the test process to read."""
-    with _tito_lock:
-        total = _tito_total
-        mismatch = _tito_mismatch
-    matched = total - mismatch
-    rate = matched / total if total > 0 else 1.0
-    stats = {"total": total, "matched": matched, "mismatch": mismatch, "pass_rate": rate}
-    with open(TITO_STATS_PATH, "w") as f:
-        json.dump(stats, f)
-    return stats
-
 
 MAX_TOOL_TURNS = 8
 MAX_RETRIES = 2
@@ -80,12 +58,10 @@ MOCK_TOOL_RESULTS = [
 ]
 
 
-def _load_chat_template(model_path: str) -> str:
-    """Load the fixed chat template for the model."""
+def _load_tokenizer(model_path: str):
+    """Load tokenizer with the fixed chat template applied (if one exists)."""
     template_path = try_get_fixed_chat_template(model_path)
-    assert template_path is not None, f"No fixed chat template found for {model_path}"
-    with open(template_path) as f:
-        return f.read()
+    return load_tokenizer(model_path, chat_template_path=template_path, trust_remote_code=True)
 
 
 def _is_task_complete(assistant_msg: dict) -> bool:
@@ -131,42 +107,21 @@ async def _chat(
     return data, prompt_ids
 
 
-def _normalize_think_tags(text: str) -> str:
-    """Normalize whitespace around <think>/<​/think> tags for round-trip comparison.
-
-    The model may generate variable whitespace around think tags (e.g. single
-    newline after </think>) but the chat template always normalises to a
-    canonical form (<think>\\n … \\n</think>\\n\\n).  This function brings both
-    the decoded session text and the template-rendered text to the same
-    canonical form so that trivial whitespace differences don't count as
-    TITO mismatches.
-    """
-    text = re.sub(r"<think>\s*", "<think>\n", text)
-    text = re.sub(r"\s*</think>\s*", "\n</think>\n\n", text)
-    return text
-
-
 def _verify_turn(
     turn: int,
     session_prompt_ids: list[int],
     messages: list[dict],
     prev_prompt_ids: list[int] | None,
     tokenizer,
-    chat_template: str,
 ) -> bool:
     """Check TITO text match and prefix monotonicity. Returns True if text matched."""
-    global _tito_total, _tito_mismatch
-
     session_text = tokenizer.decode(session_prompt_ids, skip_special_tokens=False)
     tool_defs = [Tool(**t).function.model_dump() for t in TOOLS]
     expected_text = tokenizer.apply_chat_template(
-        messages, tools=tool_defs, chat_template=chat_template, tokenize=False, add_generation_prompt=True
+        messages, tools=tool_defs, tokenize=False, add_generation_prompt=True
     )
 
-    with _tito_lock:
-        _tito_total += 1
-
-    text_matched = _normalize_think_tags(session_text) == _normalize_think_tags(expected_text)
+    text_matched = session_text == expected_text
     if not text_matched:
         first_char_diff = next(
             (i for i, (a, b) in enumerate(zip(session_text, expected_text, strict=False)) if a != b),
@@ -174,8 +129,6 @@ def _verify_turn(
         )
         ctx_lo = max(0, first_char_diff - 80)
         ctx_hi = min(max(len(session_text), len(expected_text)), first_char_diff + 80)
-        with _tito_lock:
-            _tito_mismatch += 1
         logger.warning(
             "TITO TEXT MISMATCH on turn %d (non-fatal):\n"
             "Session decoded length: %d chars (%d tokens)\n"
@@ -212,12 +165,9 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
     messages = list(prompt)
 
     rk = {k: v for k, v in request_kwargs.items() if k not in ("tools",)}
-    rk.setdefault("return_prompt_token_ids", True)
-    rk.setdefault("logprobs", True)
 
     model_path = metadata.get("model_path", MODEL_NAME) if metadata else MODEL_NAME
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-    chat_template = _load_chat_template(model_path)
+    tokenizer = _load_tokenizer(model_path)
 
     turns_completed = 0
     total_tool_calls = 0
@@ -247,7 +197,6 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
                 messages,
                 prev_prompt_ids,
                 tokenizer,
-                chat_template,
             )
             prev_prompt_ids = list(session_ids)
             local_total += 1
@@ -311,21 +260,18 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
             MIN_TOOL_CALLS,
         )
 
-    stats = _flush_tito_stats()
     logger.info(
-        "Agent done: %d turns, %d tool_calls, local_mismatch=%d/%d, " "global TITO pass_rate=%.1f%% (%d/%d)",
+        "Agent done: %d turns, %d tool_calls, tito_mismatch=%d/%d",
         turns_completed,
         total_tool_calls,
         local_mismatch,
         local_total,
-        stats["pass_rate"] * 100,
-        stats["matched"],
-        stats["total"],
     )
 
     return {
         "turns_completed": turns_completed,
         "total_tool_calls": total_tool_calls,
-        "local_mismatch": local_mismatch,
-        "local_total": local_total,
+        "tito_session_mismatch": 1 if local_mismatch > 0 else 0,
+        "tito_local_total": local_total,
+        "tito_local_mismatch": local_mismatch,
     }
