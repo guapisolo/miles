@@ -15,23 +15,13 @@ import pytest
 
 import miles.utils.external_utils.command_utils as U
 
-MODEL_NAME = "Qwen3-0.6B"
+MODEL_NAME = "Qwen3-4B"
 PROMPT_DATA_PATH = "/root/datasets/session_tool_call.jsonl"
 
 
 def prepare():
     U.exec_command("mkdir -p /root/models /root/datasets")
     U.exec_command(f"huggingface-cli download Qwen/{MODEL_NAME} " f"--local-dir /root/models/{MODEL_NAME}")
-
-    user_content = (
-        "I need the weather for four cities. You MUST call get_weather exactly "
-        "4 times, one city per turn, in this order:\n"
-        "  Turn 1: Beijing\n"
-        "  Turn 2: Shanghai\n"
-        "  Turn 3: Tokyo\n"
-        "  Turn 4: New York\n"
-        "After all 4 tool results come back, summarize everything in one message."
-    )
 
     prompts = [
         {
@@ -42,24 +32,19 @@ def prepare():
                         "You are a helpful assistant with access to tools. "
                         "You MUST use the provided tools. Each turn you call "
                         "exactly one tool. Do NOT answer without using a tool "
-                        "until you have called it 4 times."
+                        "until you have called it 4 times. "
+                        "When you have finished all tool calls and are ready to give "
+                        "the final answer, wrap it in <final_answer>...</final_answer> tags."
                     ),
                 },
-                {"role": "user", "content": user_content},
-            ],
-        },
-        {
-            "messages": [
                 {
-                    "role": "system",
+                    "role": "user",
                     "content": (
-                        "You are a helpful assistant with access to tools. "
-                        "Always call the provided tool once per turn. Do NOT "
-                        "give a final answer until you have made all 4 tool "
-                        "calls."
+                        "I need the weather for four cities. Call get_weather "
+                        "4 times in order: Beijing, Shanghai, Tokyo, New York. "
+                        "Then summarize all results inside <final_answer>...</final_answer> tags."
                     ),
                 },
-                {"role": "user", "content": user_content},
             ],
         },
     ]
@@ -74,12 +59,12 @@ def execute():
     rollout_args = (
         f"--prompt-data {PROMPT_DATA_PATH} "
         "--input-key messages "
-        "--num-rollout 2 "
-        "--rollout-batch-size 2 "
-        "--n-samples-per-prompt 1 "
-        "--rollout-max-response-len 512 "
-        "--rollout-temperature 0 "
-        "--global-batch-size 2 "
+        "--num-rollout 1 "
+        "--rollout-batch-size 16 "
+        "--n-samples-per-prompt 4 "
+        "--rollout-max-response-len 1024 "
+        "--rollout-temperature 0.7 "
+        "--global-batch-size 64 "
     )
 
     generate_args = (

@@ -8,7 +8,6 @@ The agent is loaded at runtime by ``agentic_tool_call.generate`` via
 ``--custom-agent-function-path tests.e2e.sglang.session_tool_agent.run_agent``.
 """
 
-import json
 import logging
 import os
 
@@ -20,9 +19,16 @@ from miles.utils.chat_template_utils import try_get_fixed_chat_template
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.environ.get("SGLANG_E2E_MODEL_PATH", "Qwen/Qwen3-0.6B")
+MODEL_NAME = os.environ.get("SGLANG_E2E_MODEL_PATH", "Qwen/Qwen3-4B")
 
 MAX_TOOL_TURNS = 8
+MAX_RETRIES = 2
+
+RETRY_SYSTEM_MESSAGE = (
+    "Your previous response was not a valid tool call and did not contain a "
+    "final answer. Please either call a tool or provide your final answer "
+    "inside <final_answer>...</final_answer> tags."
+)
 
 TOOLS = [
     {
@@ -60,30 +66,22 @@ def _load_chat_template(model_path: str) -> str:
         return f.read()
 
 
+def _is_task_complete(assistant_msg: dict) -> bool:
+    """Check if the assistant has produced a final answer."""
+    content = assistant_msg.get("content") or ""
+    return "<final_answer>" in content and "</final_answer>" in content
+
+
 def _extract_tool_calls(assistant_msg: dict) -> list[dict] | None:
-    """Return structured tool_calls from the assistant message, or None."""
+    """Return structured tool_calls from the assistant message, or None.
+
+    Only trusts the structured ``tool_calls`` field populated by sglang's
+    tool-call parser.  No fallback parsing — if the parser didn't produce
+    structured output, the caller should treat it as a failed tool call
+    and retry via a system message.
+    """
     if assistant_msg.get("tool_calls"):
         return assistant_msg["tool_calls"]
-
-    # Fallback: small models may output tool calls as raw JSON text
-    # while sglang sets finish_reason=tool_calls without parsing them.
-    content = (assistant_msg.get("content") or "").strip()
-    try:
-        parsed, _ = json.JSONDecoder().raw_decode(content)
-        if isinstance(parsed, list) and parsed and "name" in parsed[0]:
-            return [
-                {
-                    "id": f"call_{i:05d}",
-                    "type": "function",
-                    "function": {
-                        "name": item["name"],
-                        "arguments": json.dumps(item.get("arguments") or item.get("parameters", {})),
-                    },
-                }
-                for i, item in enumerate(parsed)
-            ]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        pass
     return None
 
 
@@ -99,7 +97,6 @@ async def _chat(
     payload = {
         "messages": messages,
         "tools": TOOLS,
-        "chat_template_kwargs": {"enable_thinking": False},
         **rk,
     }
     if tool_choice is not None:
@@ -124,12 +121,7 @@ def _verify_turn(
     session_text = tokenizer.decode(session_prompt_ids, skip_special_tokens=False)
     tool_defs = [Tool(**t).function.model_dump() for t in TOOLS]
     expected_text = tokenizer.apply_chat_template(
-        messages,
-        tools=tool_defs,
-        chat_template=chat_template,
-        tokenize=False,
-        add_generation_prompt=True,
-        enable_thinking=False,
+        messages, tools=tool_defs, chat_template=chat_template, tokenize=False, add_generation_prompt=True
     )
 
     if session_text != expected_text:
@@ -181,8 +173,11 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
 
     turns_completed = 0
     prev_session_text = None
+    consecutive_retries = 0
 
-    async with httpx.AsyncClient(timeout=180) as client:
+    async with httpx.AsyncClient(
+        timeout=180, limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100)
+    ) as client:
         for turn in range(1, MAX_TOOL_TURNS + 1):
             label = f"Session Turn {turn}"
             resp_data, session_ids = await _chat(
@@ -217,25 +212,38 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
             messages.append(assistant_msg)
 
             tool_calls = _extract_tool_calls(assistant_msg)
-            if not tool_calls:
-                logger.info("Turn %d: no tool calls, skipping to next turn", turn)
-                continue
-
-            mock_result = MOCK_TOOL_RESULTS[(turn - 1) % len(MOCK_TOOL_RESULTS)]
-            for tc in tool_calls:
-                messages.append(
-                    {
-                        "role": "tool",
-                        "content": mock_result,
-                        "tool_call_id": tc["id"],
-                    }
+            if tool_calls:
+                mock_result = MOCK_TOOL_RESULTS[(turn - 1) % len(MOCK_TOOL_RESULTS)]
+                for tc in tool_calls:
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "content": mock_result,
+                            "tool_call_id": tc["id"],
+                        }
+                    )
+                logger.info(
+                    "Turn %d: appended %d tool result(s) with mock data [%d]",
+                    turn,
+                    len(tool_calls),
+                    (turn - 1) % len(MOCK_TOOL_RESULTS),
                 )
-            logger.info(
-                "Turn %d: appended %d tool result(s) with mock data [%d]",
-                turn,
-                len(tool_calls),
-                (turn - 1) % len(MOCK_TOOL_RESULTS),
-            )
+                consecutive_retries = 0
+            elif _is_task_complete(assistant_msg):
+                logger.info("Turn %d: task complete, ending loop", turn)
+                break
+            else:
+                consecutive_retries += 1
+                if consecutive_retries > MAX_RETRIES:
+                    logger.warning("Turn %d: exceeded %d retries, ending loop", turn, MAX_RETRIES)
+                    break
+                messages.append({"role": "system", "content": RETRY_SYSTEM_MESSAGE})
+                logger.info(
+                    "Turn %d: no tool calls and not complete, appended retry system message (%d/%d)",
+                    turn,
+                    consecutive_retries,
+                    MAX_RETRIES,
+                )
 
     verified = turns_completed >= 3
     if not verified:

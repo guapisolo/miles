@@ -60,6 +60,7 @@ def setup_session_routes(app, router: "MilesRouter"):
         # of whether the upstream agent (e.g. mini-swe-agent) requested them.
         request_body.setdefault("logprobs", True)
         request_body.setdefault("return_prompt_token_ids", True)
+        request_body.setdefault("no_stop_trim", False)
 
         # Try to inject pretokenized token IDs for prefix reuse.
         request_messages = request_body.get("messages", [])
