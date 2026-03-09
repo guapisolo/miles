@@ -10,18 +10,59 @@ Requires 1 GPU.
 
 import json
 import os
+from dataclasses import dataclass
 
 import pytest
 
 import miles.utils.external_utils.command_utils as U
 
-MODEL_NAME = "Qwen3-4B"
+# ---------------------------------------------------------------------------
+# Model family registry
+# ---------------------------------------------------------------------------
+
+MODEL_FAMILY = os.environ.get("SESSION_TEST_MODEL_FAMILY", "qwen35")
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    model_name: str
+    reasoning_parser: str
+    tool_call_parser: str | None = None
+
+
+MODEL_REGISTRY: dict[str, ModelConfig] = {
+    "qwen3": ModelConfig(
+        model_name="Qwen/Qwen3-4B",
+        reasoning_parser="qwen3",
+        tool_call_parser="qwen",
+    ),
+    "qwen35": ModelConfig(
+        model_name="Qwen/Qwen3.5-9B",
+        reasoning_parser="qwen3",
+        tool_call_parser="qwen3_coder",
+    ),
+    "glm47": ModelConfig(
+        model_name="zai-org/GLM-4.7-Flash",
+        reasoning_parser="glm45",
+        tool_call_parser="glm47",
+    ),
+}
+
 PROMPT_DATA_PATH = "/root/datasets/session_tool_call.jsonl"
 
 
+def _get_config() -> ModelConfig:
+    if MODEL_FAMILY not in MODEL_REGISTRY:
+        raise ValueError(f"Unknown model family {MODEL_FAMILY!r}. " f"Choose from: {list(MODEL_REGISTRY.keys())}")
+    return MODEL_REGISTRY[MODEL_FAMILY]
+
+
 def prepare():
+    cfg = _get_config()
     U.exec_command("mkdir -p /root/models /root/datasets")
-    U.exec_command(f"huggingface-cli download Qwen/{MODEL_NAME} " f"--local-dir /root/models/{MODEL_NAME}")
+    U.exec_command(
+        f"huggingface-cli download {cfg.model_name} " f"--local-dir /root/models/{cfg.model_name.split('/')[-1]}"
+    )
 
     prompts = [
         {
@@ -48,7 +89,10 @@ def prepare():
 
 
 def execute():
-    ckpt_args = f"--hf-checkpoint /root/models/{MODEL_NAME} "
+    cfg = _get_config()
+    local_model_dir = f"/root/models/{cfg.model_name.split('/')[-1]}"
+
+    ckpt_args = f"--hf-checkpoint {local_model_dir} "
 
     rollout_args = (
         f"--prompt-data {PROMPT_DATA_PATH} "
@@ -70,12 +114,10 @@ def execute():
 
     router_args = "--use-miles-router " "--chat-template-path autofix "
 
-    sglang_args = (
-        "--rollout-num-gpus-per-engine 1 "
-        "--sglang-reasoning-parser qwen3 "
-        "--sglang-tool-call-parser qwen "
-        "--rm-type random "
-    )
+    sglang_args = f"--rollout-num-gpus-per-engine 1 " f"--sglang-reasoning-parser {cfg.reasoning_parser} "
+    if cfg.tool_call_parser:
+        sglang_args += f"--sglang-tool-call-parser {cfg.tool_call_parser} "
+    sglang_args += "--rm-type random "
 
     infra_args = (
         "--debug-rollout-only "
