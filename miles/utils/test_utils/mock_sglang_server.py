@@ -149,20 +149,22 @@ class MockSGLangServer:
         pretokenized_ids = payload.get("pretokenized_token_ids")
         pretokenized_num = payload.get("pretokenized_num_message")
         if pretokenized_ids is not None and pretokenized_num is not None:
-            # Simulate sglang's _apply_pretokenized_template: trust the
-            # pretokenized prefix and only tokenize the remaining messages.
-            prefix_str = self.tokenizer.apply_chat_template(
-                messages[:pretokenized_num], tokenize=False, add_generation_prompt=False, tools=tools
+            # Simulate sglang's _apply_pretokenized_template using miles'
+            # AdditionalMessageTokenizer — same codepath as real sglang.
+            from miles.utils.chat_template_utils.additional_message_tokenizer import get_additional_message_tokenizer
+
+            additional_tokenizer_type = payload.get("additional_tokenizer", "default")
+            additional_tokenizer = get_additional_message_tokenizer(
+                self.tokenizer,
+                tokenizer_type=additional_tokenizer_type,
             )
-            assert prompt_str.startswith(prefix_str), (
-                f"Chat template prefix invariant violated: rendering {pretokenized_num} messages "
-                f"without generation prompt is not a prefix of rendering all {len(messages)} messages "
-                f"with generation prompt. This usually means the chat template uses loop.last or "
-                f"similar context-dependent logic that breaks the append-only property."
+            new_messages = messages[pretokenized_num:]
+            incremental_ids = additional_tokenizer.tokenize_additional(
+                new_messages=new_messages,
+                pretokenized_token_ids=pretokenized_ids,
+                tools=tools,
             )
-            remaining_str = prompt_str[len(prefix_str) :]
-            remaining_ids = self.tokenizer.encode(remaining_str, add_special_tokens=False)
-            prompt_ids = list(pretokenized_ids) + remaining_ids
+            prompt_ids = list(pretokenized_ids) + incremental_ids
         else:
             prompt_ids = self.tokenizer.encode(prompt_str, add_special_tokens=False)
 
@@ -198,6 +200,8 @@ class MockSGLangServer:
         else:
             message_content = process_result.text
 
+        output_token_logprobs = [(-1 / 128 * i, tid) for i, tid in enumerate(output_ids)]
+
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
@@ -215,6 +219,10 @@ class MockSGLangServer:
                     "response_token_ids": list(output_ids),
                     "prompt_token_ids": prompt_ids,
                     "finish_reason": finish_reason,
+                    "meta_info": {
+                        "output_token_logprobs": output_token_logprobs,
+                        "completion_tokens": len(output_ids),
+                    },
                 }
             ],
         }

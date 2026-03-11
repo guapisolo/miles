@@ -10,6 +10,7 @@ from transformers import AutoConfig
 
 from miles.backends.sglang_utils.arguments import add_sglang_arguments
 from miles.backends.sglang_utils.arguments import validate_args as sglang_validate_args
+from miles.utils.chat_template_utils.additional_message_tokenizer import AdditionalMessageTokenizerType
 from miles.utils.environ import enable_experimental_rollout_refactor
 from miles.utils.eval_config import EvalDatasetConfig, build_eval_dataset_configs, ensure_dataset_list
 from miles.utils.logging_utils import configure_logger
@@ -553,6 +554,15 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 "in agentic workflows (e.g. tool-call trajectories). "
                 "The path must be accessible on all Ray worker nodes "
                 "(e.g. a path inside the miles repo, or a shared filesystem like NFS).",
+            )
+            parser.add_argument(
+                "--additional-tokenizer",
+                type=str,
+                default="default",
+                choices=[t.value for t in AdditionalMessageTokenizerType],
+                help="Incremental message tokenizer type for pretokenized prefix reuse. "
+                "Controls how token IDs are computed for messages appended after "
+                "the pretokenized prefix in multi-turn agentic sessions.",
             )
             parser.add_argument("--input-key", type=str, default="input", help="JSON dataset key")
             parser.add_argument("--label-key", type=str, default=None, help="JSON dataset key")
