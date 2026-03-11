@@ -71,6 +71,7 @@ def setup_session_routes(app, router: "MilesRouter"):
         if pretokenized is not None:
             request_body["pretokenized_token_ids"] = pretokenized["pretokenized_token_ids"]
             request_body["pretokenized_num_message"] = pretokenized["pretokenized_num_message"]
+            request_body["additional_tokenizer"] = getattr(router.args, "additional_tokenizer", "default")
             logger.debug(
                 "Using pretokenized input: %d tokens, %d messages",
                 len(pretokenized["pretokenized_token_ids"]),
@@ -102,7 +103,33 @@ def setup_session_routes(app, router: "MilesRouter"):
         assistant_message = choice.get("message", {})
 
         prompt_token_ids = choice.get("prompt_token_ids")
-        completion_token_ids = [t[1] for t in choice["meta_info"]["output_token_logprobs"]]
+        meta_info = choice["meta_info"]
+        output_token_logprobs = meta_info["output_token_logprobs"]
+        completion_tokens = meta_info.get("completion_tokens")
+
+        if not isinstance(completion_tokens, int):
+            raise RuntimeError(
+                "meta_info.completion_tokens must be present and int when output_token_logprobs is returned; "
+                f"got {completion_tokens!r}"
+            )
+
+        actual_output_logprobs_len = len(output_token_logprobs)
+        if actual_output_logprobs_len != completion_tokens:
+            logger.error(
+                "Invalid response: len(output_token_logprobs) != completion_tokens "
+                "(%d != %d). status_code=%s, response_id=%s",
+                actual_output_logprobs_len,
+                completion_tokens,
+                result.get("status_code"),
+                response.get("id"),
+            )
+            raise RuntimeError(
+                "invalid chat completion response: "
+                f"len(output_token_logprobs)={actual_output_logprobs_len} "
+                f"!= completion_tokens={completion_tokens}"
+            )
+
+        completion_token_ids = [t[1] for t in output_token_logprobs]
 
         manager.update_pretokenized_state(
             session_id,
