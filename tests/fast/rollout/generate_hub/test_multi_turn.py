@@ -136,13 +136,17 @@ def expected_request(input_ids: list[int], sampling_params: dict | None = None) 
     }
 
 
-def expected_openai_request(messages: list[dict]) -> dict:
+def expected_openai_request(messages: list[dict], **extra) -> dict:
     return {
         "messages": messages,
         "model": "default",
         "tools": SAMPLE_TOOLS,
+        # Injected by the session route for TITO token tracking
         "logprobs": True,
         "return_prompt_token_ids": True,
+        "return_meta_info": True,
+        "no_stop_trim": False,
+        **extra,
     }
 
 
