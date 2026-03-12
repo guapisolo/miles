@@ -102,6 +102,11 @@ def setup_session_routes(app, router: "MilesRouter"):
             raise RuntimeError("meta_info and output_token_logprobs must be in choice (requires logprobs=True)")
 
         assistant_message = choice.get("message", {})
+        # SGLang sets content=None when the assistant only produces
+        # thinking + tool_calls (no text).  Jinja2 renders Python None
+        # as the literal string "None", so normalise to empty string.
+        if assistant_message.get("content") is None:
+            assistant_message["content"] = ""
 
         prompt_token_ids = choice.get("prompt_token_ids")
         meta_info = choice["meta_info"]
