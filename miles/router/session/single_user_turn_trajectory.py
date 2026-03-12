@@ -10,6 +10,26 @@ from miles.router.session.session_types import SessionRecord
 logger = logging.getLogger(__name__)
 
 
+def _messages_equal_relaxed(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Compare two messages treating content=None as equivalent to content=""."""
+    if a.keys() != b.keys():
+        # Also handle case where one dict omits the key entirely.
+        all_keys = a.keys() | b.keys()
+        for k in all_keys:
+            va, vb = a.get(k), b.get(k)
+            if k == "content" and (va or "") == (vb or ""):
+                continue
+            if va != vb:
+                return False
+        return True
+    for k in a:
+        if a[k] != b[k]:
+            if k == "content" and (a[k] or "") == (b[k] or ""):
+                continue
+            return False
+    return True
+
+
 class SingleUserTurnTrajectory(BaseModel):
     """State for a single-user-turn trajectory.
 
@@ -184,9 +204,13 @@ class SingleUserTurnTrajectoryManager:
             return False
 
         # Check that the stored prefix is unchanged.
+        # SGLang returns content=None for assistant messages with only
+        # tool_calls; we normalise to "" in update_pretokenized_state,
+        # so treat None and "" as equivalent here.
         for i, stored_msg in enumerate(stored_messages):
             if new_messages[i] != stored_msg:
-                return False
+                if not _messages_equal_relaxed(stored_msg, new_messages[i]):
+                    return False
 
         ALLOWED_APPEND_ROLES = {"tool", "system"}
         for msg in new_messages[len(stored_messages) :]:

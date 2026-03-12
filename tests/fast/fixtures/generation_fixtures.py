@@ -220,6 +220,8 @@ def with_miles_router(backend_url: str, model_name: str):
         rollout_health_check_interval=60,
         miles_router_health_check_failure_threshold=3,
         hf_checkpoint=model_name,
+        chat_template_path=None,
+        additional_tokenizer="default",
     )
     router = MilesRouter(router_args)
 
