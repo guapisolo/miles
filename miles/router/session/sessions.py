@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, Response
 
 from miles.router.session.session_types import GetSessionResponse, SessionRecord
 from miles.router.session.single_user_turn_trajectory import SingleUserTurnTrajectoryManager
+from miles.utils.chat_template_utils import get_additional_message_tokenizer
 from miles.utils.processing_utils import load_tokenizer
 
 if TYPE_CHECKING:
@@ -25,6 +26,11 @@ def setup_session_routes(app, router: "MilesRouter"):
 
     tokenizer = load_tokenizer(
         hf_checkpoint, chat_template_path=router.args.chat_template_path, trust_remote_code=True
+    )
+
+    additional_tokenizer = get_additional_message_tokenizer(
+        tokenizer,
+        tokenizer_type=getattr(router.args, "additional_tokenizer", "default"),
     )
 
     manager = SingleUserTurnTrajectoryManager(router.args, tokenizer)
@@ -93,11 +99,6 @@ def setup_session_routes(app, router: "MilesRouter"):
         choice = response.get("choices", [{}])[0]
 
         if "meta_info" not in choice or "output_token_logprobs" not in choice.get("meta_info", {}):
-            logger.error(
-                "Missing meta_info in choice. status_code=%s, message=%s",
-                result.get("status_code"),
-                response.get("message", ""),
-            )
             raise RuntimeError("meta_info and output_token_logprobs must be in choice (requires logprobs=True)")
 
         assistant_message = choice.get("message", {})
@@ -115,14 +116,6 @@ def setup_session_routes(app, router: "MilesRouter"):
 
         actual_output_logprobs_len = len(output_token_logprobs)
         if actual_output_logprobs_len != completion_tokens:
-            logger.error(
-                "Invalid response: len(output_token_logprobs) != completion_tokens "
-                "(%d != %d). status_code=%s, response_id=%s",
-                actual_output_logprobs_len,
-                completion_tokens,
-                result.get("status_code"),
-                response.get("id"),
-            )
             raise RuntimeError(
                 "invalid chat completion response: "
                 f"len(output_token_logprobs)={actual_output_logprobs_len} "
@@ -130,6 +123,10 @@ def setup_session_routes(app, router: "MilesRouter"):
             )
 
         completion_token_ids = [t[1] for t in output_token_logprobs]
+
+        # Strip trailing stop token so pretokenized + incremental matches
+        # full template rendering on the next turn.
+        completion_token_ids = additional_tokenizer.strip_trailing_stop_token(completion_token_ids)
 
         manager.update_pretokenized_state(
             session_id,
