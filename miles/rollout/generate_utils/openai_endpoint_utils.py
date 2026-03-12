@@ -8,6 +8,7 @@ from copy import deepcopy
 
 from miles.rollout.generate_utils.generate_endpoint_utils import get_rollout_topk_from_response
 from miles.router.session.sessions import GetSessionResponse, SessionRecord
+from miles.utils.chat_template_utils import get_additional_message_tokenizer
 from miles.utils.http_utils import post
 from miles.utils.types import Sample
 
@@ -47,11 +48,18 @@ class OpenAIEndpointTracer:
 def compute_samples_from_openai_records(
     args: Namespace, input_sample: Sample, records: list[SessionRecord], tokenizer
 ) -> list[Sample]:
-    return [_compute_sample_from_openai_record(args, input_sample, record, tokenizer) for record in records]
+    additional_tokenizer = get_additional_message_tokenizer(
+        tokenizer,
+        tokenizer_type=getattr(args, "additional_tokenizer", "default"),
+    )
+    return [
+        _compute_sample_from_openai_record(args, input_sample, record, tokenizer, additional_tokenizer)
+        for record in records
+    ]
 
 
 def _compute_sample_from_openai_record(
-    args: Namespace, input_sample: Sample, record: SessionRecord, tokenizer
+    args: Namespace, input_sample: Sample, record: SessionRecord, tokenizer, additional_tokenizer
 ) -> Sample:
     choice = record.response["choices"][0]
 
@@ -67,12 +75,20 @@ def _compute_sample_from_openai_record(
         assert (
             request_input_ids == prompt_token_ids
         ), "for prompt part, input_ids return by sglang should match with the request input_ids"
+
+    # Build full sample first (routed_experts reshape depends on len(tokens)-1).
     sample.tokens = prompt_token_ids + output_token_ids
     sample.rollout_log_probs = output_log_probs
     sample.response = tokenizer.decode(output_token_ids)
     sample.response_length = len(output_token_ids)
     sample.loss_mask = [1] * len(output_token_ids)
     sample.rollout_routed_experts = get_rollout_topk_from_response(args, choice, sample, "routed_experts")
+
+    # Strip trailing stop token so merge_samples prefix check works:
+    # turn N+1's prompt_token_ids comes from stripped pretokenized, so
+    # turn N's sample.tokens must also be stripped to align.
+    if additional_tokenizer.should_strip_trailing_stop_token(output_token_ids):
+        sample.strip_last_output_token(tokenizer)
 
     # TODO unify with Sample.update_from_meta_info
     match choice["finish_reason"]:

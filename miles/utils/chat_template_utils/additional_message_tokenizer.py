@@ -4,7 +4,7 @@
 after an already-tokenized prefix.  The default implementation uses a
 dummy-message diff (mirrors sglang's ``calc_additional_message_tokenization_by_dummy``).
 Model-specific subclasses handle quirks such as GLM 4.7's ambiguous boundary
-tokens and lack of mid-conversation system message support.
+tokens.
 """
 
 from __future__ import annotations
@@ -85,16 +85,25 @@ class AdditionalMessageTokenizer(ABC):
         """
         ...
 
-    def preprocess_messages(
-        self,
-        all_messages: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """Optional hook to transform messages before template application.
+    def should_strip_trailing_stop_token(self, token_ids: list[int]) -> bool:
+        """Check if the last token is a model stop token that should be stripped.
 
-        Default: identity (no-op).  GLM47 overrides to merge mid-conversation
-        system messages into user messages.
+        Model stop tokens (e.g. GLM 4.7's ``<|user|>``/``<|observation|>``) are
+        generation artifacts, not part of the template rendering.
+
+        Default: ``False`` (never strip).
         """
-        return all_messages
+        return False
+
+    def strip_trailing_stop_token(self, token_ids: list[int]) -> list[int]:
+        """Strip model stop token from end of token IDs if present.
+
+        Convenience wrapper around :meth:`should_strip_trailing_stop_token`.
+        Used in ``sessions.py`` to strip before storing ``session.token_ids``.
+        """
+        if self.should_strip_trailing_stop_token(token_ids):
+            return token_ids[:-1]
+        return token_ids
 
     def get_trim_trailing_ids(self) -> set[int]:
         """Token IDs to trim from sequence tails before comparison.
@@ -207,12 +216,14 @@ class Qwen3AdditionalMessageTokenizer(DefaultAdditionalMessageTokenizer):
 
 
 class GLM47AdditionalMessageTokenizer(DefaultAdditionalMessageTokenizer):
-    """GLM 4.7 variant: strips leading boundary token from incremental IDs.
+    """GLM 4.7 variant: strips trailing stop token from stored token IDs.
 
     ``<|user|>`` and ``<|observation|>`` are both assistant stop tokens *and*
-    next-message start tokens.  The completion already includes the stop token
-    at the end of ``pretokenized_token_ids``, so the corresponding start token
-    in ``incremental_ids`` must be stripped to avoid duplication.
+    next-message start tokens in the chat template.  By stripping the stop
+    token from ``session.token_ids`` before the next turn, the template's
+    boundary token (e.g. ``<|observation|>`` for tool responses, ``<|system|>``
+    for retry messages) is always the first token of ``incremental_ids``,
+    producing an exact match with full template rendering.
     """
 
     def __init__(
@@ -225,29 +236,11 @@ class GLM47AdditionalMessageTokenizer(DefaultAdditionalMessageTokenizer):
         self._user_id: int = tokenizer.convert_tokens_to_ids("<|user|>")
         self._ambiguous_boundary_ids: set[int] = {self._observation_id, self._user_id}
 
+    def should_strip_trailing_stop_token(self, token_ids: list[int]) -> bool:
+        return bool(token_ids) and token_ids[-1] in self._ambiguous_boundary_ids
+
     def get_trim_trailing_ids(self) -> set[int]:
         return set(self._ambiguous_boundary_ids)
-
-    def postprocess(
-        self,
-        incremental_ids: list[int],
-        tokens_without: list[int],
-        pretokenized_token_ids: list[int],
-    ) -> list[int]:
-        # The assistant's completion already includes its stop token
-        # (<|user|> or <|observation|>) at the end of pretokenized_token_ids.
-        # Strip the leading boundary token from incremental_ids to avoid
-        # duplication — regardless of whether it's the same boundary token,
-        # since the stop token already marks the turn boundary.
-        if (
-            incremental_ids
-            and pretokenized_token_ids
-            and pretokenized_token_ids[-1] in self._ambiguous_boundary_ids
-            and incremental_ids[0] in self._ambiguous_boundary_ids
-        ):
-            incremental_ids = incremental_ids[1:]
-
-        return incremental_ids
 
 
 # ---------------------------------------------------------------------------
