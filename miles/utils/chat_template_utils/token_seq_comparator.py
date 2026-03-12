@@ -27,13 +27,7 @@ class MismatchType(Enum):
     SPECIAL_TOKEN_COUNT = "special_token_count"
 
     # A special-token segment has the same position in both sequences but
-    # contains a different token ID.  This is acceptable for models like
-    # GLM 4.7 where certain special tokens (e.g. <|user|> / <|observation|>)
-    # double as both the assistant's stop token and the next turn's start
-    # token.  When tool-call parsing fails, the model may stop on
-    # <|observation|> (expecting a tool response) but the re-tokenized
-    # expected sequence has <|user|> (because a retry system message was
-    # inserted instead).  The content on both sides is still valid.
+    # contains a different token ID.
     SPECIAL_TOKEN_TYPE = "special_token_type"
 
     JSON = "json"
@@ -144,15 +138,8 @@ class TokenSeqComparator:
         expected_ids: list[int],
         actual_ids: list[int],
         trim_trailing_ids: set[int] | None = None,
-        equivalent_special_ids: set[int] | None = None,
     ) -> list[Mismatch]:
         """Compare two token-ID sequences and return a list of mismatches.
-
-        Args:
-            equivalent_special_ids: Set of special-token IDs that should be
-                treated as interchangeable (e.g. GLM 4.7's ``<|user|>`` and
-                ``<|observation|>`` which both serve as assistant stop / next
-                turn start tokens).
 
         Algorithm:
         1. Segment both sequences by special tokens.
@@ -160,9 +147,8 @@ class TokenSeqComparator:
            ``is_special`` pattern).  Any difference is reported as
            ``MismatchType.SPECIAL_TOKEN_COUNT``.
         3. For each pair of aligned segments:
-           - **Special-token segments**: token IDs must be identical (or both
-             in *equivalent_special_ids*) — ``MismatchType.SPECIAL_TOKEN_TYPE``
-             on mismatch.
+           - **Special-token segments**: token IDs must be identical —
+             ``MismatchType.SPECIAL_TOKEN_TYPE`` on mismatch.
            - **Tool-call / tool-response content segments** (preceded by a
              tool-start token and, when end tokens exist, followed by a
              tool-end token): decode both, parse as JSON, compare parsed
@@ -210,11 +196,7 @@ class TokenSeqComparator:
         mismatches: list[Mismatch] = []
         for idx, (exp, act) in enumerate(zip(expected_segs, actual_segs, strict=False)):
             if exp.is_special:
-                if exp.token_ids != act.token_ids and not (
-                    equivalent_special_ids
-                    and exp.token_ids[0] in equivalent_special_ids
-                    and act.token_ids[0] in equivalent_special_ids
-                ):
+                if exp.token_ids != act.token_ids:
                     mismatches.append(
                         Mismatch(
                             type=MismatchType.SPECIAL_TOKEN_TYPE,
