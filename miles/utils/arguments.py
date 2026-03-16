@@ -1669,7 +1669,7 @@ def miles_validate_args(args):
             args.no_load_optim = True
             args.no_load_rng = True
             args.finetune = True
-            args.load = args.ref_load
+            args.load = args.ref_load or args.hf_checkpoint
             if args.ref_ckpt_step is not None:
                 args.ckpt_step = args.ref_ckpt_step
             args.start_rollout_id = 0
