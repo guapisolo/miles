@@ -71,6 +71,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         records,
         input.state.tokenizer,
         accumulated_token_ids=session_metadata.get("accumulated_token_ids"),
+        max_trim_tokens=session_metadata.get("max_trim_tokens", 0),
     )
 
     for s in samples:

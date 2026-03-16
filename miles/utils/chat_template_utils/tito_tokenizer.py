@@ -57,6 +57,8 @@ def _build_dummy_assistant(tool_responses: list[dict[str, Any]]) -> dict[str, An
 class TITOTokenizer(ABC):
     """Base class for incremental tokenization and prefix merging."""
 
+    _max_trim_tokens: int = 0
+
     def __init__(
         self,
         tokenizer: Any,
@@ -190,6 +192,8 @@ class GLM47TITOTokenizer(DefaultTITOTokenizer):
     one of these boundary tokens — whether it matches the first incremental
     token (avoiding duplication) or differs (replacing a wrong prediction).
     """
+
+    _max_trim_tokens: int = 1
 
     def __init__(
         self,

@@ -47,6 +47,7 @@ def setup_session_routes(app, router: "MilesRouter"):
             return JSONResponse(status_code=404, content={"error": "session not found"})
         metadata = manager.compute_session_metadata(session_id)
         metadata["accumulated_token_ids"] = manager.get_session_token_ids(session_id)
+        metadata["max_trim_tokens"] = manager.max_trim_tokens
         return GetSessionResponse(
             session_id=session_id,
             records=records,

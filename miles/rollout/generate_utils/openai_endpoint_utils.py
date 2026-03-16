@@ -13,8 +13,6 @@ from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)
 
-MAX_TRIM_TOKENS = 2
-
 
 class OpenAIEndpointTracer:
     def __init__(self, router_url: str, session_id: str):
@@ -53,6 +51,7 @@ def compute_samples_from_openai_records(
     records: list[SessionRecord],
     tokenizer,
     accumulated_token_ids: list[int] | None = None,
+    max_trim_tokens: int = 0,
 ) -> list[Sample]:
     samples = []
     cursor = 0
@@ -73,8 +72,8 @@ def compute_samples_from_openai_records(
                 else:
                     break
             trim_count = len(output_ids) - matched
-            assert trim_count <= MAX_TRIM_TOKENS, (
-                f"trim_count {trim_count} exceeds {MAX_TRIM_TOKENS}; "
+            assert trim_count <= max_trim_tokens, (
+                f"trim_count {trim_count} exceeds max_trim_tokens={max_trim_tokens}; "
                 f"output_ids[-3:]={output_ids[-3:]}, "
                 f"accumulated[cursor:cursor+3]={accumulated_token_ids[cursor:cursor+3]}"
             )

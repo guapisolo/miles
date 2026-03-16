@@ -39,6 +39,61 @@ class SingleUserTurnTrajectory(BaseModel):
     def append_session_record(self, record: SessionRecord):
         self.records.append(record)
 
+    def _detect_and_rollback(
+        self,
+        request_messages: list[dict[str, Any]],
+    ) -> None:
+        """Detect if *request_messages* requires a rollback and perform it.
+
+        A rollback is triggered when *request_messages* diverges from
+        ``self.messages`` before reaching the end of stored messages.
+        The divergence point must fall after an assistant message (checkpoint
+        boundary).  The session state is truncated to that checkpoint.
+        """
+        stored = self.messages
+        if not stored or not self.trajectory_token_ids:
+            return
+
+        match_len = 0
+        for i in range(min(len(request_messages), len(stored))):
+            if message_matches(stored[i], request_messages[i]):
+                match_len = i + 1
+            else:
+                break
+
+        if match_len >= len(stored):
+            return
+
+        # Find the last assistant message within the matched prefix.
+        rollback_msg_end = None
+        checkpoint_index = -1
+        assistant_count = 0
+        for i in range(match_len):
+            if stored[i].get("role") == "assistant":
+                rollback_msg_end = i + 1
+                checkpoint_index = assistant_count
+                assistant_count += 1
+
+        if checkpoint_index < 0:
+            raise ValueError(
+                f"rollback failed: no assistant message found in the first "
+                f"{match_len} matched messages (stored has {len(stored)} messages, "
+                f"request has {len(request_messages)} messages)"
+            )
+
+        logger.info(
+            "Rolling back session: stored %d messages / %d checkpoints -> " "checkpoint %d (messages[:%d])",
+            len(stored),
+            self.num_assistant,
+            checkpoint_index,
+            rollback_msg_end,
+        )
+
+        self.messages = stored[:rollback_msg_end]
+        self.trajectory_token_ids = self.trajectory_token_ids[: checkpoint_index + 1]
+        self.records = self.records[: checkpoint_index + 1]
+        self.num_assistant = checkpoint_index + 1
+
 
 class SingleUserTurnTrajectoryManager:
     """Lightweight session manager for single-user-turn trajectories.
@@ -63,6 +118,10 @@ class SingleUserTurnTrajectoryManager:
         self._lock = threading.RLock()
         self._comparator = TokenSeqComparator(tokenizer) if tokenizer else None
         self._tito_tokenizer = tito_tokenizer
+
+    @property
+    def max_trim_tokens(self) -> int:
+        return self._tito_tokenizer._max_trim_tokens if self._tito_tokenizer else 0
 
     def create_session(self) -> str:
         with self._lock:
@@ -159,7 +218,7 @@ class SingleUserTurnTrajectoryManager:
                 return None
 
             self._assert_no_user_after_assistant(request_messages)
-            self._detect_and_rollback(session, request_messages)
+            session._detect_and_rollback(request_messages)
             assert_messages_append_only(session.messages, request_messages)
 
             if self._tito_tokenizer is None:
@@ -198,73 +257,33 @@ class SingleUserTurnTrajectoryManager:
             all_token_ids = prompt_token_ids + completion_token_ids
             session.messages = list(request_messages) + [assistant_message]
 
+            max_trim = self._tito_tokenizer._max_trim_tokens if self._tito_tokenizer else 0
             prev = session.token_ids
             if prev:
-                assert all_token_ids[: len(prev)] == prev, (
-                    f"pretokenized prefix mismatch: "
-                    f"stored {len(prev)} tokens are not a prefix of "
-                    f"prompt_token_ids + completion_token_ids "
-                    f"({len(all_token_ids)} tokens)"
-                )
+                check_len = len(prev) - max_trim
+                if check_len > 0 and all_token_ids[:check_len] != prev[:check_len]:
+                    first_mismatch = next(
+                        (
+                            i
+                            for i, (a, b) in enumerate(zip(all_token_ids[:check_len], prev[:check_len], strict=True))
+                            if a != b
+                        ),
+                        min(len(all_token_ids), check_len),
+                    )
+                    raise ValueError(
+                        f"pretokenized prefix mismatch: "
+                        f"stored {len(prev)} tokens (checking first {check_len}, "
+                        f"allowing {max_trim} trailing) are not a prefix of "
+                        f"prompt_token_ids + completion_token_ids "
+                        f"({len(all_token_ids)} tokens), "
+                        f"first mismatch at index {first_mismatch}, "
+                        f"matched {first_mismatch}/{check_len} prefix tokens\n"
+                        f"request_messages={request_messages}\n"
+                        f"assistant_message={assistant_message}"
+                    )
 
             session.trajectory_token_ids.append(all_token_ids)
             session.num_assistant += 1
-
-    @staticmethod
-    def _detect_and_rollback(
-        session: SingleUserTurnTrajectory,
-        request_messages: list[dict[str, Any]],
-    ) -> None:
-        """Detect if *request_messages* requires a rollback and perform it.
-
-        A rollback is triggered when *request_messages* diverges from
-        ``session.messages`` before reaching the end of stored messages.
-        The divergence point must fall after an assistant message (checkpoint
-        boundary).  The session state is truncated to that checkpoint.
-        """
-        stored = session.messages
-        if not stored or not session.trajectory_token_ids:
-            return
-
-        match_len = 0
-        for i in range(min(len(request_messages), len(stored))):
-            if message_matches(stored[i], request_messages[i]):
-                match_len = i + 1
-            else:
-                break
-
-        if match_len >= len(stored):
-            return
-
-        # Find the last assistant message within the matched prefix.
-        rollback_msg_end = None
-        checkpoint_index = -1
-        assistant_count = 0
-        for i in range(match_len):
-            if stored[i].get("role") == "assistant":
-                rollback_msg_end = i + 1
-                checkpoint_index = assistant_count
-                assistant_count += 1
-
-        if checkpoint_index < 0:
-            raise ValueError(
-                f"rollback failed: no assistant message found in the first "
-                f"{match_len} matched messages (stored has {len(stored)} messages, "
-                f"request has {len(request_messages)} messages)"
-            )
-
-        logger.info(
-            "Rolling back session: stored %d messages / %d checkpoints -> " "checkpoint %d (messages[:%d])",
-            len(stored),
-            session.num_assistant,
-            checkpoint_index,
-            rollback_msg_end,
-        )
-
-        session.messages = stored[:rollback_msg_end]
-        session.trajectory_token_ids = session.trajectory_token_ids[: checkpoint_index + 1]
-        session.records = session.records[: checkpoint_index + 1]
-        session.num_assistant = checkpoint_index + 1
 
     @staticmethod
     def _assert_no_user_after_assistant(messages: list[dict[str, Any]]) -> None:
