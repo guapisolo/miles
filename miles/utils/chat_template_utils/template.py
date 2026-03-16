@@ -166,7 +166,7 @@ def _normalize_value(value: Any) -> Any:
     return value
 
 
-def _message_matches(stored: dict[str, Any], new: dict[str, Any]) -> bool:
+def message_matches(stored: dict[str, Any], new: dict[str, Any]) -> bool:
     """Compare only the fields that affect chat-template tokenization.
 
     External client libraries (e.g. litellm) may inject extra keys like
@@ -193,10 +193,14 @@ def assert_messages_append_only(
         return
 
     if len(new_messages) < len(stored_messages):
-        raise ValueError(f"new messages ({len(new_messages)}) are fewer than stored messages ({len(stored_messages)})")
+        raise ValueError(
+            f"new messages ({len(new_messages)}) are fewer than stored messages ({len(stored_messages)})",
+            new_messages,
+            stored_messages,
+        )
 
     for i, stored_msg in enumerate(stored_messages):
-        if not _message_matches(stored_msg, new_messages[i]):
+        if not message_matches(stored_msg, new_messages[i]):
             diffs = {
                 key: {"stored": repr(stored_msg.get(key))[:200], "new": repr(new_messages[i].get(key))[:200]}
                 for key in _TEMPLATE_RELEVANT_KEYS

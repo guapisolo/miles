@@ -302,3 +302,200 @@ class TestSingleUserTurnPretokenized:
         bad = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "extra"}]
         with pytest.raises(ValueError, match="user message at index 4.*after the first assistant"):
             manager.try_prepare_pretokenized(sid, bad)
+
+
+class TestRollback:
+    """Tests for session rollback to a previous assistant checkpoint."""
+
+    def test_rollback_to_first_assistant(self, manager: SingleUserTurnTrajectoryManager):
+        """After 2 completions, rolling back to the first assistant checkpoint works."""
+        sid = manager.create_session()
+
+        # Turn 1: [sys, user] -> assistant1
+        t1_msgs = [SYS_MSG, USER_MSG]
+        manager.update_pretokenized_state(sid, t1_msgs, ASSISTANT_MSG_1, [1, 2, 3], [10, 11])
+
+        # Turn 2: [sys, user, asst1, tool1] -> assistant2
+        t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
+        manager.try_prepare_pretokenized(sid, t2_msgs)
+        manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 3, 10, 11, 20, 21], [30, 31])
+
+        session = manager.sessions[sid]
+        assert session.num_assistant == 2
+        assert len(session.trajectory_token_ids) == 2
+
+        # Rollback: send [sys, user, asst1, NEW_tool] — diverges after asst1
+        new_tool = {"role": "tool", "content": '{"temperature": 99}', "tool_call_id": "call_1"}
+        rollback_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool]
+        result = manager.try_prepare_pretokenized(sid, rollback_msgs)
+        assert result is not None
+
+        # State should be rolled back to checkpoint 0
+        assert session.num_assistant == 1
+        assert len(session.trajectory_token_ids) == 1
+        assert session.token_ids == [1, 2, 3, 10, 11]
+        assert session.messages == [SYS_MSG, USER_MSG, ASSISTANT_MSG_1]
+
+    def test_rollback_preserves_prefix_tokens(self, manager: SingleUserTurnTrajectoryManager):
+        """After rollback, token_ids equals the checkpoint's tokens."""
+        sid = manager.create_session()
+
+        t1_msgs = [SYS_MSG, USER_MSG]
+        t1_tokens = [1, 2, 3, 10, 11]
+        manager.update_pretokenized_state(sid, t1_msgs, ASSISTANT_MSG_1, [1, 2, 3], [10, 11])
+
+        t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
+        manager.try_prepare_pretokenized(sid, t2_msgs)
+        manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 3, 10, 11, 20, 21], [30, 31])
+
+        t3_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, TOOL_MSG_2]
+        manager.try_prepare_pretokenized(sid, t3_msgs)
+        manager.update_pretokenized_state(
+            sid, t3_msgs, ASSISTANT_MSG_FINAL, [1, 2, 3, 10, 11, 20, 21, 30, 31, 40], [50, 51]
+        )
+
+        assert len(manager.sessions[sid].trajectory_token_ids) == 3
+
+        # Rollback to checkpoint 0 (first assistant)
+        new_tool = {"role": "tool", "content": '{"alt": true}', "tool_call_id": "call_1"}
+        manager.try_prepare_pretokenized(sid, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
+
+        session = manager.sessions[sid]
+        assert session.token_ids == t1_tokens
+        assert session.num_assistant == 1
+
+    def test_rollback_then_continue_full_trajectory(self, manager: SingleUserTurnTrajectoryManager):
+        """Rollback and then complete a full new trajectory from the checkpoint."""
+        sid = manager.create_session()
+
+        # Turn 1
+        t1_msgs = [SYS_MSG, USER_MSG]
+        manager.update_pretokenized_state(sid, t1_msgs, ASSISTANT_MSG_1, [1, 2, 3], [10, 11])
+
+        # Turn 2
+        t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
+        manager.try_prepare_pretokenized(sid, t2_msgs)
+        manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 3, 10, 11, 20], [30])
+
+        # Rollback to asst1, send different tool
+        new_tool = {"role": "tool", "content": '{"retry": true}', "tool_call_id": "call_1"}
+        rollback_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool]
+        result = manager.try_prepare_pretokenized(sid, rollback_msgs)
+        assert result is not None
+
+        # Continue: complete a new turn from the rolled-back state
+        manager.update_pretokenized_state(sid, rollback_msgs, ASSISTANT_MSG_FINAL, [1, 2, 3, 10, 11, 40, 41], [50, 51])
+
+        session = manager.sessions[sid]
+        assert session.num_assistant == 2
+        assert len(session.trajectory_token_ids) == 2
+        assert session.token_ids == [1, 2, 3, 10, 11, 40, 41, 50, 51]
+        assert session.messages == [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool, ASSISTANT_MSG_FINAL]
+
+    def test_rollback_fewer_messages_than_stored(self, manager: SingleUserTurnTrajectoryManager):
+        """Rollback triggered when request has strictly fewer messages than stored."""
+        sid = manager.create_session()
+
+        # Turn 1: [sys, user] -> asst1
+        manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10])
+
+        # Turn 2: [sys, user, asst1, tool1] -> asst2
+        t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
+        manager.try_prepare_pretokenized(sid, t2_msgs)
+        manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 10, 20], [30])
+        # stored messages: [sys, user, asst1, tool1, asst2] (5 messages)
+
+        # Agent retries with only [sys, user, asst1, sys_retry] (4 messages)
+        retry_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, RETRY_SYS_MSG]
+        result = manager.try_prepare_pretokenized(sid, retry_msgs)
+        assert result is not None
+
+        session = manager.sessions[sid]
+        assert session.num_assistant == 1
+        assert session.messages == [SYS_MSG, USER_MSG, ASSISTANT_MSG_1]
+
+    def test_rollback_to_second_assistant(self, manager: SingleUserTurnTrajectoryManager):
+        """Rollback to the second checkpoint (skipping the third)."""
+        sid = manager.create_session()
+
+        # 3 completions
+        manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10])
+
+        t2 = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
+        manager.try_prepare_pretokenized(sid, t2)
+        manager.update_pretokenized_state(sid, t2, ASSISTANT_MSG_2, [1, 2, 10, 20], [30])
+
+        t3 = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, TOOL_MSG_2]
+        manager.try_prepare_pretokenized(sid, t3)
+        manager.update_pretokenized_state(sid, t3, ASSISTANT_MSG_FINAL, [1, 2, 10, 20, 30, 40], [50])
+
+        session = manager.sessions[sid]
+        assert session.num_assistant == 3
+
+        # Rollback: keep up to asst2, diverge at tool2
+        new_tool = {"role": "tool", "content": '{"alt": 1}', "tool_call_id": "call_2"}
+        rollback_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, new_tool]
+        result = manager.try_prepare_pretokenized(sid, rollback_msgs)
+        assert result is not None
+
+        assert session.num_assistant == 2
+        assert len(session.trajectory_token_ids) == 2
+        assert session.token_ids == [1, 2, 10, 20, 30]
+        assert session.messages == [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2]
+
+    def test_no_rollback_when_append_only(self, manager: SingleUserTurnTrajectoryManager):
+        """Normal append-only flow does not trigger rollback."""
+        sid = manager.create_session()
+
+        manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10])
+
+        # Append tool — not a rollback
+        t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
+        result = manager.try_prepare_pretokenized(sid, t2_msgs)
+        assert result is not None
+
+        session = manager.sessions[sid]
+        # State should NOT have been rolled back
+        assert session.num_assistant == 1
+        assert len(session.trajectory_token_ids) == 1
+        assert session.token_ids == [1, 2, 10]
+
+    def test_rollback_no_assistant_in_prefix_raises(self, manager: SingleUserTurnTrajectoryManager):
+        """Rollback raises if no assistant message exists in the matched prefix."""
+        sid = manager.create_session()
+        manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10])
+
+        # Diverge at user message (index 1) — only sys matched, no assistant
+        bad_msgs = [SYS_MSG, {"role": "user", "content": "different question"}]
+        with pytest.raises(ValueError, match="rollback failed.*no assistant"):
+            manager.try_prepare_pretokenized(sid, bad_msgs)
+
+    def test_rollback_records_truncated(self, manager: SingleUserTurnTrajectoryManager):
+        """Records are truncated in sync with trajectory_token_ids on rollback."""
+        sid = manager.create_session()
+
+        # Turn 1
+        manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10])
+        r1 = SessionRecord(
+            timestamp=1.0, method="POST", path="/v1/chat/completions", status_code=200, request={}, response={}
+        )
+        manager.append_session_record(sid, r1)
+
+        # Turn 2
+        t2 = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
+        manager.try_prepare_pretokenized(sid, t2)
+        manager.update_pretokenized_state(sid, t2, ASSISTANT_MSG_2, [1, 2, 10, 20], [30])
+        r2 = SessionRecord(
+            timestamp=2.0, method="POST", path="/v1/chat/completions", status_code=200, request={}, response={}
+        )
+        manager.append_session_record(sid, r2)
+
+        session = manager.sessions[sid]
+        assert len(session.records) == 2
+
+        # Rollback to checkpoint 0
+        new_tool = {"role": "tool", "content": '{"alt": 1}', "tool_call_id": "call_1"}
+        manager.try_prepare_pretokenized(sid, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
+
+        assert len(session.records) == 1
+        assert session.records[0].timestamp == 1.0

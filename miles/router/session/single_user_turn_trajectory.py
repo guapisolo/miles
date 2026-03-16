@@ -3,10 +3,10 @@ import threading
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from miles.router.session.session_types import SessionRecord
-from miles.utils.chat_template_utils import apply_chat_template, assert_messages_append_only
+from miles.utils.chat_template_utils import apply_chat_template, assert_messages_append_only, message_matches
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer
 from miles.utils.chat_template_utils.token_seq_comparator import TokenSeqComparator
 
@@ -18,11 +18,23 @@ class SingleUserTurnTrajectory(BaseModel):
 
     Tracks the full message history and accumulated token IDs for one session.
     The message sequence is: [system?, user, assistant, tool, assistant, tool, …].
+
+    Supports rollback to a previous assistant checkpoint: when the agent
+    framework retries by sending a prefix of the stored messages,
+    ``trajectory_token_ids`` is truncated to the matching checkpoint and
+    the conversation continues from there.
     """
 
     messages: list[dict[str, Any]] = Field(default_factory=list)
     records: list[SessionRecord] = Field(default_factory=list)
-    token_ids: list[int] = Field(default_factory=list)
+    trajectory_token_ids: list[list[int]] = Field(default_factory=list)
+    num_assistant: int = 0
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def token_ids(self) -> list[int]:
+        """Current token IDs — the latest assistant checkpoint."""
+        return self.trajectory_token_ids[-1] if self.trajectory_token_ids else []
 
     def append_session_record(self, record: SessionRecord):
         self.records.append(record)
@@ -38,6 +50,10 @@ class SingleUserTurnTrajectoryManager:
     The typical message sequence is:
     ``[system?, user?, assistant, tool, assistant, tool, …]``
     with optional system messages injected mid-conversation.
+
+    Supports rollback: if the agent sends messages that are a prefix of the
+    stored messages (ending at an assistant boundary), the session state is
+    rolled back to that checkpoint before proceeding.
     """
 
     def __init__(self, args, tokenizer: Any, *, tito_tokenizer: TITOTokenizer | None = None):
@@ -118,6 +134,10 @@ class SingleUserTurnTrajectoryManager:
         return it as ``input_ids`` for SGLang.
 
         Returns ``None`` on the first turn (no stored token_ids yet).
+
+        If *request_messages* is a prefix of the stored messages (ending at
+        an assistant boundary), the session state is rolled back to that
+        checkpoint before the append-only validation proceeds.
         """
         with self._lock:
             session = self.sessions.get(session_id)
@@ -139,6 +159,7 @@ class SingleUserTurnTrajectoryManager:
                 return None
 
             self._assert_no_user_after_assistant(request_messages)
+            self._detect_and_rollback(session, request_messages)
             assert_messages_append_only(session.messages, request_messages)
 
             if self._tito_tokenizer is None:
@@ -164,8 +185,9 @@ class SingleUserTurnTrajectoryManager:
     ) -> None:
         """Store raw token IDs after a successful response (no stripping).
 
-        Validates that the previously stored token_ids are a prefix of the
-        new ``prompt_token_ids + completion_token_ids``, confirming SGLang
+        Appends a new checkpoint to ``trajectory_token_ids``.  Validates that
+        the previously stored token_ids are a prefix of the new
+        ``prompt_token_ids + completion_token_ids``, confirming SGLang
         actually reused our pretokenized input.
         """
         with self._lock:
@@ -185,7 +207,64 @@ class SingleUserTurnTrajectoryManager:
                     f"({len(all_token_ids)} tokens)"
                 )
 
-            session.token_ids = all_token_ids
+            session.trajectory_token_ids.append(all_token_ids)
+            session.num_assistant += 1
+
+    @staticmethod
+    def _detect_and_rollback(
+        session: SingleUserTurnTrajectory,
+        request_messages: list[dict[str, Any]],
+    ) -> None:
+        """Detect if *request_messages* requires a rollback and perform it.
+
+        A rollback is triggered when *request_messages* diverges from
+        ``session.messages`` before reaching the end of stored messages.
+        The divergence point must fall after an assistant message (checkpoint
+        boundary).  The session state is truncated to that checkpoint.
+        """
+        stored = session.messages
+        if not stored or not session.trajectory_token_ids:
+            return
+
+        match_len = 0
+        for i in range(min(len(request_messages), len(stored))):
+            if message_matches(stored[i], request_messages[i]):
+                match_len = i + 1
+            else:
+                break
+
+        if match_len >= len(stored):
+            return
+
+        # Find the last assistant message within the matched prefix.
+        rollback_msg_end = None
+        checkpoint_index = -1
+        assistant_count = 0
+        for i in range(match_len):
+            if stored[i].get("role") == "assistant":
+                rollback_msg_end = i + 1
+                checkpoint_index = assistant_count
+                assistant_count += 1
+
+        if checkpoint_index < 0:
+            raise ValueError(
+                f"rollback failed: no assistant message found in the first "
+                f"{match_len} matched messages (stored has {len(stored)} messages, "
+                f"request has {len(request_messages)} messages)"
+            )
+
+        logger.info(
+            "Rolling back session: stored %d messages / %d checkpoints -> " "checkpoint %d (messages[:%d])",
+            len(stored),
+            session.num_assistant,
+            checkpoint_index,
+            rollback_msg_end,
+        )
+
+        session.messages = stored[:rollback_msg_end]
+        session.trajectory_token_ids = session.trajectory_token_ids[: checkpoint_index + 1]
+        session.records = session.records[: checkpoint_index + 1]
+        session.num_assistant = checkpoint_index + 1
 
     @staticmethod
     def _assert_no_user_after_assistant(messages: list[dict[str, Any]]) -> None:
