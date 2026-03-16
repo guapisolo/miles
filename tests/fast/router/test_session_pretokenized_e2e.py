@@ -238,7 +238,7 @@ def _run_trajectory_e2e(env):
 
 
 def _verify_pretokenized_injection(env, responses):
-    """Verify pretokenized fields in request_log and prefix consistency."""
+    """Verify input_ids in request_log and prompt consistency."""
     backend = env.backend
 
     for turn_idx in range(len(env.trajectory.turns)):
@@ -246,23 +246,22 @@ def _verify_pretokenized_injection(env, responses):
         resp_prompt_ids = responses[turn_idx]["choices"][0]["prompt_token_ids"]
 
         if turn_idx == 0:
-            assert "pretokenized_token_ids" not in req, "Turn 0 should not have pretokenized_token_ids"
+            assert "input_ids" not in req, "Turn 0 should not have input_ids"
         else:
-            assert "pretokenized_token_ids" in req, f"Turn {turn_idx} missing pretokenized_token_ids"
-            assert "pretokenized_num_message" in req, f"Turn {turn_idx} missing pretokenized_num_message"
+            assert "input_ids" in req, f"Turn {turn_idx} missing input_ids"
 
-            pretok_ids = req["pretokenized_token_ids"]
-            assert len(pretok_ids) > 0, f"Turn {turn_idx} pretokenized_token_ids is empty"
+            input_ids = req["input_ids"]
+            assert len(input_ids) > 0, f"Turn {turn_idx} input_ids is empty"
 
-            assert resp_prompt_ids[: len(pretok_ids)] == pretok_ids, (
-                f"Turn {turn_idx}: pretokenized_token_ids is NOT a prefix of prompt_token_ids.\n"
-                f"pretok len={len(pretok_ids)}, prompt len={len(resp_prompt_ids)}\n"
-                f"First diff at index {next((i for i, (a, b) in enumerate(zip(pretok_ids, resp_prompt_ids, strict=False)) if a != b), 'length')}"
+            assert resp_prompt_ids == input_ids, (
+                f"Turn {turn_idx}: input_ids does not match prompt_token_ids.\n"
+                f"input_ids len={len(input_ids)}, prompt len={len(resp_prompt_ids)}\n"
+                f"First diff at index {next((i for i, (a, b) in enumerate(zip(input_ids, resp_prompt_ids, strict=False)) if a != b), 'length')}"
             )
 
 
 def _verify_pretokenized_NOT_prefix(env, responses):
-    """Verify that pretokenized_token_ids is NOT a valid prefix on turn 2+.
+    """Verify that input_ids does NOT match prompt on turn 2+.
 
     This is the inverse of _verify_pretokenized_injection: it proves that a
     broken native template causes token mismatch in the e2e flow.
@@ -272,18 +271,18 @@ def _verify_pretokenized_NOT_prefix(env, responses):
 
     for turn_idx in range(1, len(env.trajectory.turns)):
         req = backend.request_log[turn_idx]
-        if "pretokenized_token_ids" not in req:
+        if "input_ids" not in req:
             continue
-        pretok_ids = req["pretokenized_token_ids"]
+        input_ids = req["input_ids"]
         resp_prompt_ids = responses[turn_idx]["choices"][0]["prompt_token_ids"]
 
-        if resp_prompt_ids[: len(pretok_ids)] != pretok_ids:
+        if resp_prompt_ids != input_ids:
             found_mismatch = True
             break
 
     assert found_mismatch, (
         "Expected prefix invariant to be violated with native template, "
-        "but pretokenized_token_ids was a valid prefix on all turns"
+        "but input_ids matched prompt_token_ids on all turns"
     )
 
 
@@ -344,13 +343,11 @@ class TestLongChainE2E:
 
         req1 = self._env.backend.request_log[1]
         req2 = self._env.backend.request_log[2]
-        pretok1 = req1["pretokenized_token_ids"]
-        pretok2 = req2["pretokenized_token_ids"]
-        assert len(pretok2) > len(
-            pretok1
-        ), f"Turn 2 pretokenized ({len(pretok2)}) should be longer than turn 1 ({len(pretok1)})"
+        ids1 = req1["input_ids"]
+        ids2 = req2["input_ids"]
+        assert len(ids2) > len(ids1), f"Turn 2 input_ids ({len(ids2)}) should be longer than turn 1 ({len(ids1)})"
 
-        assert pretok2[: len(pretok1)] == pretok1, "Turn 2 pretokenized should have turn 1's as prefix"
+        assert ids2[: len(ids1)] == ids1, "Turn 2 input_ids should have turn 1's as prefix"
 
     def test_session_records(self):
         session_id, responses = _run_trajectory_e2e(self._env)
@@ -400,10 +397,13 @@ class TestRetrySystemE2E:
 
 @pytest.mark.parametrize("config", BROKEN_CONFIGS.values(), ids=BROKEN_CONFIGS.keys())
 class TestNativeTemplatePrefixBreaks:
-    """Verify that using the native (unfixed) template breaks the prefix invariant in e2e flow.
+    """Verify that native (unfixed) templates break the prefix invariant in e2e flow.
 
-    With a broken template, the mock server's prefix invariant assertion fails on turn 1
-    (where pretokenized_token_ids are injected), resulting in a 500 error.
+    The mock server uses tito_tokenizer to build prompt tokens incrementally
+    (matching real sglang behaviour), so all turns succeed with 200.  We detect
+    the broken template by comparing the pretokenized_token_ids injected on
+    turn 1+ against a fresh full re-tokenization of the same messages — the two
+    must diverge if the native template is truly broken.
     """
 
     def test_prefix_invariant_violated(self, config):
@@ -414,41 +414,30 @@ class TestNativeTemplatePrefixBreaks:
 
         env = _make_router_env(tok, config, MultiTurnTrajectory)
         try:
-            trajectory = env.trajectory
-            env.process_fn.reset()
-            env.backend.reset_stats()
+            _session_id, _responses = _run_trajectory_e2e(env)
 
-            session_id = requests.post(f"{env.url}/sessions", timeout=5.0).json()["session_id"]
+            found_mismatch = False
+            for turn_idx in range(1, len(env.trajectory.turns)):
+                req = env.backend.request_log[turn_idx]
+                input_ids = req.get("input_ids")
+                if input_ids is None:
+                    continue
+                messages = req["messages"]
+                tools = req.get("tools")
+                full_prompt_str = tok.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    tools=tools,
+                )
+                full_prompt_ids = tok.encode(full_prompt_str, add_special_tokens=False)
+                if full_prompt_ids != list(input_ids):
+                    found_mismatch = True
+                    break
 
-            turn0 = trajectory.turns[0]
-            payload0 = {"messages": turn0.request_messages}
-            if trajectory.tools:
-                payload0["tools"] = trajectory.tools
-            resp0 = requests.post(
-                f"{env.url}/sessions/{session_id}/v1/chat/completions",
-                json=payload0,
-                timeout=10.0,
-            )
-            assert resp0.status_code == 200, f"Turn 0 should succeed: {resp0.text}"
-
-            assistant_msg = resp0.json()["choices"][0]["message"]
-            assistant_idx = next(i for i, m in enumerate(trajectory.full_messages) if m["role"] == "assistant")
-            followup_msgs = _get_followup_messages_after_assistant(trajectory.full_messages, assistant_idx)
-            response_tool_calls = assistant_msg.get("tool_calls") or []
-            remapped = _remap_followup_messages(followup_msgs, response_tool_calls)
-
-            turn1_messages = list(turn0.request_messages) + [assistant_msg] + remapped
-            payload1 = {"messages": turn1_messages}
-            if trajectory.tools:
-                payload1["tools"] = trajectory.tools
-            resp1 = requests.post(
-                f"{env.url}/sessions/{session_id}/v1/chat/completions",
-                json=payload1,
-                timeout=10.0,
-            )
-            assert resp1.status_code == 500, (
-                f"Turn 1 should fail with broken native template (prefix invariant violated), "
-                f"but got {resp1.status_code}"
+            assert found_mismatch, (
+                "Expected prefix invariant to be violated with native template, "
+                "but input_ids matched full re-tokenization on all turns"
             )
         finally:
             _teardown_router_env(env)

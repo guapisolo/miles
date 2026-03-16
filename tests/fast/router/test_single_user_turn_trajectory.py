@@ -5,17 +5,42 @@ logic in isolation (no HTTP server, no real tokenizer).
 """
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 from miles.router.session.session_types import SessionRecord
 from miles.router.session.single_user_turn_trajectory import SingleUserTurnTrajectoryManager
+from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer
+
+
+class _MockTITOTokenizer(TITOTokenizer):
+    """Returns pretokenized_token_ids unchanged — no incremental tokens."""
+
+    def tokenize_additional_non_assistant(
+        self,
+        old_messages: list[dict[str, Any]],
+        new_messages: list[dict[str, Any]],
+        pretokenized_token_ids: list[int],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> list[int]:
+        return []
+
+    def merge_tokens(
+        self,
+        old_messages: list[dict[str, Any]],
+        new_messages: list[dict[str, Any]],
+        pretokenized_token_ids: list[int],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> list[int]:
+        return list(pretokenized_token_ids)
 
 
 @pytest.fixture
 def manager():
     args = SimpleNamespace()
-    return SingleUserTurnTrajectoryManager(args, tokenizer=None)
+    mock_tito = _MockTITOTokenizer(tokenizer=None)
+    return SingleUserTurnTrajectoryManager(args, tokenizer=None, tito_tokenizer=mock_tito)
 
 
 class TestSessionCRUD:
@@ -128,8 +153,7 @@ class TestSingleUserTurnPretokenized:
         turn2_messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
         result = manager.try_prepare_pretokenized(sid, turn2_messages)
         assert result is not None
-        assert result["pretokenized_token_ids"] == [1, 2, 3, 4, 5, 10, 11, 12]
-        assert result["pretokenized_num_message"] == 3  # [sys, user, assistant]
+        assert result["input_ids"] == [1, 2, 3, 4, 5, 10, 11, 12]
 
         turn2_prompt_ids = [1, 2, 3, 4, 5, 10, 11, 12, 20, 21]
         turn2_completion_ids = [30, 31, 32]
@@ -151,17 +175,14 @@ class TestSingleUserTurnPretokenized:
         # Turn 2
         t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
         result = manager.try_prepare_pretokenized(sid, t2_msgs)
-        assert result == {"pretokenized_token_ids": [1, 2, 3, 10, 11], "pretokenized_num_message": 3}
+        assert result == {"input_ids": [1, 2, 3, 10, 11]}
 
         manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 3, 10, 11, 20, 21], [30, 31])
 
         # Turn 3
         t3_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, TOOL_MSG_2]
         result = manager.try_prepare_pretokenized(sid, t3_msgs)
-        assert result == {
-            "pretokenized_token_ids": [1, 2, 3, 10, 11, 20, 21, 30, 31],
-            "pretokenized_num_message": 5,  # [sys, user, ass1, tool1, ass2]
-        }
+        assert result == {"input_ids": [1, 2, 3, 10, 11, 20, 21, 30, 31]}
 
         manager.update_pretokenized_state(
             sid, t3_msgs, ASSISTANT_MSG_FINAL, [1, 2, 3, 10, 11, 20, 21, 30, 31, 40], [50, 51]
@@ -191,16 +212,16 @@ class TestSingleUserTurnPretokenized:
         manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10])
 
         bad_messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, {"role": "assistant", "content": "oops"}]
-        with pytest.raises(ValueError, match="not append-only"):
+        with pytest.raises(ValueError, match="role=.assistant.*allowed="):
             manager.try_prepare_pretokenized(sid, bad_messages)
 
-    def test_multiple_user_messages_raises(self, manager: SingleUserTurnTrajectoryManager):
-        """try_prepare raises when messages contain multiple user messages."""
+    def test_user_after_assistant_raises(self, manager: SingleUserTurnTrajectoryManager):
+        """try_prepare raises when user message appears after assistant."""
         sid = manager.create_session()
         manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10])
 
         bad_messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "second"}]
-        with pytest.raises(ValueError, match="invalid message structure"):
+        with pytest.raises(ValueError, match="user message at index 4.*after the first assistant"):
             manager.try_prepare_pretokenized(sid, bad_messages)
 
     def test_session_not_found_raises(self, manager: SingleUserTurnTrajectoryManager):
@@ -215,7 +236,7 @@ class TestSingleUserTurnPretokenized:
 
         t2_msgs = [USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
         result = manager.try_prepare_pretokenized(sid, t2_msgs)
-        assert result == {"pretokenized_token_ids": [1, 2, 10], "pretokenized_num_message": 2}
+        assert result == {"input_ids": [1, 2, 10]}
 
     def test_append_system_message_allowed(self, manager: SingleUserTurnTrajectoryManager):
         """Appending a system message after tool messages is allowed (e.g. retry prompt)."""
@@ -225,8 +246,7 @@ class TestSingleUserTurnPretokenized:
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, RETRY_SYS_MSG]
         result = manager.try_prepare_pretokenized(sid, messages)
         assert result is not None
-        assert result["pretokenized_token_ids"] == [1, 2, 3, 10, 11]
-        assert result["pretokenized_num_message"] == 3
+        assert result["input_ids"] == [1, 2, 3, 10, 11]
 
     def test_append_system_then_assistant_trajectory(self, manager: SingleUserTurnTrajectoryManager):
         """Full trajectory with a retry system message between tool-call turns."""
@@ -256,7 +276,6 @@ class TestSingleUserTurnPretokenized:
         t3_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, RETRY_SYS_MSG, ASSISTANT_MSG_2, TOOL_MSG_2]
         result = manager.try_prepare_pretokenized(sid, t3_msgs)
         assert result is not None
-        assert result["pretokenized_num_message"] == 6
 
     def test_multiple_system_messages_at_start(self, manager: SingleUserTurnTrajectoryManager):
         """Multiple system messages before the user message are allowed."""
@@ -273,7 +292,7 @@ class TestSingleUserTurnPretokenized:
         t2_msgs = [SYS_MSG, extra_sys, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
         result = manager.try_prepare_pretokenized(sid, t2_msgs)
         assert result is not None
-        assert result["pretokenized_token_ids"] == [1, 2, 3, 4, 10, 11]
+        assert result["input_ids"] == [1, 2, 3, 4, 10, 11]
 
     def test_not_append_only_rejects_user_message(self, manager: SingleUserTurnTrajectoryManager):
         """Appending a user message (not tool/system) is rejected."""
@@ -281,5 +300,5 @@ class TestSingleUserTurnPretokenized:
         manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10])
 
         bad = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "extra"}]
-        with pytest.raises(ValueError, match="invalid message structure"):
+        with pytest.raises(ValueError, match="user message at index 4.*after the first assistant"):
             manager.try_prepare_pretokenized(sid, bad)

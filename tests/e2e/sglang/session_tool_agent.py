@@ -14,15 +14,8 @@ import os
 
 import httpx
 
-from miles.utils.chat_template_utils import (
-    TokenSeqComparator,
-    apply_chat_template,
-    get_tito_tokenizer,
-    try_get_fixed_chat_template,
-)
+from miles.utils.chat_template_utils import TokenSeqComparator, apply_chat_template, try_get_fixed_chat_template
 from miles.utils.processing_utils import load_tokenizer
-
-TITO_MODEL_TYPE = os.environ.get("MILES_TITO_MODEL", "default")
 
 logger = logging.getLogger(__name__)
 
@@ -237,14 +230,10 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
         tokenize=True,
     )
 
-    tito_tokenizer = get_tito_tokenizer(tokenizer, tokenizer_type=TITO_MODEL_TYPE)
-    trim_trailing_ids = tito_tokenizer.get_trim_trailing_ids()
-
     comparator = TokenSeqComparator(tokenizer)
     mismatches = comparator.compare_sequences(
         expected_ids,
         actual_ids,
-        trim_trailing_ids=trim_trailing_ids or None,
     )
 
     for m in mismatches:

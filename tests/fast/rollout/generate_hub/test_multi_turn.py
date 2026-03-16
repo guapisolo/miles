@@ -159,7 +159,7 @@ def expected_openai_request(messages: list[dict], **extra) -> dict:
     }
 
 
-_SESSION_PRETOKENIZED_KEYS = {"pretokenized_token_ids", "pretokenized_num_message", "tito_model"}
+_SESSION_PRETOKENIZED_KEYS = {"input_ids"}
 
 
 def _strip_pretokenized(requests: list[dict]) -> list[dict]:
