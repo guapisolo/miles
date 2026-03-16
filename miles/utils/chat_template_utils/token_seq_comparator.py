@@ -95,16 +95,17 @@ class TokenSeqComparator:
 
     @staticmethod
     def _collect_special_ids(tokenizer) -> set[int]:
-        """Collect all special token IDs from the tokenizer.
+        """Collect all added-token IDs from the tokenizer.
 
-        ``tokenizer.all_special_ids`` is incomplete for some tokenizer
-        backends (e.g. GLM 4.7's ``TokenizersBackend``).  Fall back to
-        ``added_tokens_decoder`` which reliably marks ``special=True``.
+        All tokens in ``added_tokens_decoder`` are used as segment
+        boundaries, regardless of their ``special`` flag.  Tokens like
+        ``<arg_value>``, ``</arg_value>`` etc. may have ``special=False``
+        but still function as structural delimiters for comparison.
         """
         ids = set(tokenizer.all_special_ids)
         decoder = getattr(tokenizer, "added_tokens_decoder", None)
         if decoder:
-            ids |= {tid for tid, tok in decoder.items() if tok.special}
+            ids |= set(decoder.keys())
         return ids
 
     # ------------------------------------------------------------------
