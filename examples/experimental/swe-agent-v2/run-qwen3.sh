@@ -142,7 +142,6 @@ print(json.dumps({'env_vars': {
     'MILES_HOST_IP': '${MILES_HOST_IP:-$(hostname)}',
     'NCCL_NVLS_ENABLE': '0',
     'DEPRECATED_MEGATRON_COMPATIBLE': '1',
-    'MSWEA_STEP_LIMIT': '${MSWEA_STEP_LIMIT:-24}',
 }}))
 ")
 

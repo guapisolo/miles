@@ -166,7 +166,6 @@ class SingleUserTurnTrajectoryManager:
                     trim_trailing_ids=trim_ids,
                 )
                 result = {"tito_session_mismatch": [m.to_dict() for m in mismatches]}
-                print(f"[tito_session_mismatch] session={session_id}, mismatches={result['tito_session_mismatch']}")
                 return result
             except Exception:
                 logger.exception("Failed to compute tito_session_mismatch for session %s", session_id)

@@ -40,15 +40,15 @@ ROLLOUT_ARGS=(
 
   --num-rollout 1
   --rollout-batch-size 8
-  --n-samples-per-prompt 4
+  --n-samples-per-prompt 8
   --rollout-temperature 0.8
   --rollout-max-response-len 8192
-  --global-batch-size 32
+  --global-batch-size 64
   --balance-data
 )
 
 PERF_ARGS=(
-  --tensor-model-parallel-size 8
+  --tensor-model-parallel-size 4
   --pipeline-model-parallel-size 1
   --context-parallel-size 1
   --expert-model-parallel-size 1
@@ -146,7 +146,6 @@ print(json.dumps({'env_vars': {
     'MILES_HOST_IP': '${MILES_HOST_IP:-$(hostname)}',
     'NCCL_NVLS_ENABLE': '0',
     'DEPRECATED_MEGATRON_COMPATIBLE': '1',
-    'MSWEA_STEP_LIMIT': '${MSWEA_STEP_LIMIT:-24}',
 }}))
 ")
 
