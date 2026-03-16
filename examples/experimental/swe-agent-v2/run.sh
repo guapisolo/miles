@@ -40,10 +40,10 @@ ROLLOUT_ARGS=(
 
   --num-rollout 1
   --rollout-batch-size 8
-  --n-samples-per-prompt 8
+  --n-samples-per-prompt 4
   --rollout-temperature 0.8
   --rollout-max-response-len 8192
-  --global-batch-size 64
+  --global-batch-size 32
   --balance-data
 )
 
@@ -82,7 +82,11 @@ OPTIMIZER_ARGS=(
 )
 
 SGLANG_ARGS=(
-  --rollout-num-gpus-per-engine 1
+  --rollout-num-gpus-per-engine 4
+  # --sglang-speculative-algorithm EAGLE
+  # --sglang-speculative-num-steps 2
+  # --sglang-speculative-eagle-topk 1
+  # --sglang-speculative-num-draft-tokens 3
   --sglang-mem-fraction-static 0.7
   --sglang-tool-call-parser glm47
   --sglang-reasoning-parser glm45
