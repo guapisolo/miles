@@ -57,7 +57,7 @@ def _build_dummy_assistant(tool_responses: list[dict[str, Any]]) -> dict[str, An
 class TITOTokenizer(ABC):
     """Base class for incremental tokenization and prefix merging."""
 
-    _max_trim_tokens: int = 0
+    max_trim_tokens: int = 0
     _trailing_token_ids: frozenset[int] = frozenset()
 
     def get_comparator_ignore_trailing_ids(self) -> set[int] | None:
@@ -225,7 +225,7 @@ class GLM47TITOTokenizer(DefaultTITOTokenizer):
     token (avoiding duplication) or differs (replacing a wrong prediction).
     """
 
-    _max_trim_tokens: int = 1
+    max_trim_tokens: int = 1
 
     def __init__(
         self,

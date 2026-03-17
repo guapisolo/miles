@@ -119,10 +119,6 @@ class SingleUserTurnTrajectoryManager:
         self._comparator = TokenSeqComparator(tokenizer)
         self._tito_tokenizer = tito_tokenizer
 
-    @property
-    def max_trim_tokens(self) -> int:
-        return self._tito_tokenizer._max_trim_tokens if self._tito_tokenizer else 0
-
     def create_session(self) -> str:
         with self._lock:
             session_id = uuid.uuid4().hex
@@ -260,7 +256,7 @@ class SingleUserTurnTrajectoryManager:
             all_token_ids = prompt_token_ids + completion_token_ids
             session.messages = list(request_messages) + [assistant_message]
 
-            max_trim = self._tito_tokenizer._max_trim_tokens if self._tito_tokenizer else 0
+            max_trim = self._tito_tokenizer.max_trim_tokens if self._tito_tokenizer else 0
             prev = session.token_ids
             if prev:
                 check_len = len(prev) - max_trim
