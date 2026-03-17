@@ -1916,7 +1916,7 @@ def hf_validate_args(args, hf_config):
         ),
         ("rope_theta", "rotary_base", equal),
     ]:
-        if hasattr(hf_config, hf_config_name):
+        if hasattr(hf_config, hf_config_name) and hasattr(args, megatron_config_name):
             if not compare_fn(getattr(hf_config, hf_config_name), getattr(args, megatron_config_name)):
                 errors.append(
                     f"{hf_config_name} in hf config {getattr(hf_config, hf_config_name)} is not equal to "

@@ -68,7 +68,8 @@ def prepare():
     U.exec_command("mkdir -p /root/models /root/datasets")
     if MODEL_FAMILY == "glm47":
         U.exec_command(
-            "pip install git+https://github.com/huggingface/transformers.git@33a8e68d4955c13cf6d6c629e76f12fc81974fc5"
+            "pip install git+https://github.com/huggingface/transformers.git@"
+            "76732b4e7120808ff989edbd16401f61fa6a0afa --break-system-packages"
         )
     U.exec_command(f"hf download {cfg.model_name} --local-dir /root/models/{cfg.model_name.split('/')[-1]}")
 
@@ -163,4 +164,4 @@ if __name__ == "__main__":
         os.environ.pop(proxy_var, None)
     execute()
     if MODEL_FAMILY == "glm47":
-        U.exec_command("pip install transformers==4.57.1")
+        U.exec_command("pip install transformers==4.57.1 --break-system-packages")
