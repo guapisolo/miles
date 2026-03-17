@@ -22,7 +22,6 @@
 
 
 
-
 name: PR Test
 
 on:
@@ -1079,6 +1078,7 @@ jobs:
           ray stop --force 2>/dev/null || true
           rm -rf /tmp/ray/* 2>/dev/null || true
           sleep 3
+
 
       - name: Resolve dependency refs
         id: resolve-refs
