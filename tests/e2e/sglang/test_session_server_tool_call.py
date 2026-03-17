@@ -39,6 +39,12 @@ MODEL_REGISTRY: dict[str, ModelConfig] = {
         tool_call_parser="qwen25",
         tito_model="qwen3",
     ),
+    # qwen3.5 still has some small bugs.
+    # "qwen35": ModelConfig(
+    #     model_name="Qwen/Qwen3.5-4B",
+    #     reasoning_parser="qwen3",
+    #     tool_call_parser="qwen3_coder",
+    # ),
     "glm47": ModelConfig(
         model_name="zai-org/GLM-4.7-Flash",
         reasoning_parser="glm45",
