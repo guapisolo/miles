@@ -776,6 +776,10 @@ def compute_metrics_from_samples(args, samples):
             log_dict[f"tito_session_mismatch_rate/{mtype}"] = np.mean(
                 [any(m.get("type") == mtype for m in v) for v in tito_vals]
             ).item()
+        if args.ci_test:
+            assert (
+                log_dict["tito_session_mismatch_rate"] < 0.03
+            ), f"tito_session_mismatch_rate={log_dict['tito_session_mismatch_rate']:.4f} too high, plz check your tito model and chat template."
 
     return log_dict
 

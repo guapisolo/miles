@@ -130,6 +130,7 @@ def execute():
 
     infra_args = (
         "--debug-rollout-only "
+        "--ci-test "
         "--actor-num-nodes 1 "
         f"--actor-num-gpus-per-node {cfg.num_gpus} "
         "--colocate "

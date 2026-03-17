@@ -226,14 +226,17 @@ class TokenSeqComparator:
 
                 if self._is_tool_segment(expected_segs, idx):
                     mismatch = self._compare_tool_content(idx, exp_text, act_text)
+                    if mismatch is not None:
+                        mismatches.append(mismatch)
                 else:
-                    mismatch = Mismatch(
-                        type=MismatchType.TEXT,
-                        segment_index=idx,
-                        expected_text=exp_text,
-                        actual_text=act_text,
+                    mismatches.append(
+                        Mismatch(
+                            type=MismatchType.TEXT,
+                            segment_index=idx,
+                            expected_text=exp_text,
+                            actual_text=act_text,
+                        )
                     )
-                mismatches.append(mismatch)
 
         return mismatches
 
@@ -273,13 +276,19 @@ class TokenSeqComparator:
 
         return True
 
-    def _compare_tool_content(self, idx: int, exp_text: str, act_text: str) -> Mismatch:
-        """Compare two tool-segment texts via JSON parsing."""
+    _TOOL_CALL_RELEVANT_KEYS = ("name", "arguments")
+
+    def _compare_tool_content(self, idx: int, exp_text: str, act_text: str) -> Mismatch | None:
+        """Compare two tool-segment texts via JSON parsing.
+
+        Only the keys listed in ``_TOOL_CALL_RELEVANT_KEYS`` (``name``,
+        ``arguments``) are compared.  Extra fields (e.g. ``id``, ``type``)
+        are ignored.  Returns ``None`` when all relevant fields match.
+        """
         try:
             exp_parsed = json.loads(exp_text.strip())
             act_parsed = json.loads(act_text.strip())
         except json.JSONDecodeError:
-            # Fallback to text comparison if JSON parsing fails.
             return Mismatch(
                 type=MismatchType.TEXT,
                 segment_index=idx,
@@ -288,23 +297,17 @@ class TokenSeqComparator:
                 detail="tool segment but JSON parsing failed, falling back to text compare",
             )
 
-        if exp_parsed != act_parsed:
-            return Mismatch(
-                type=MismatchType.JSON,
-                segment_index=idx,
-                expected_text=exp_text,
-                actual_text=act_text,
-                detail="parsed JSON differs",
-            )
+        for key in self._TOOL_CALL_RELEVANT_KEYS:
+            if exp_parsed.get(key) != act_parsed.get(key):
+                return Mismatch(
+                    type=MismatchType.JSON,
+                    segment_index=idx,
+                    expected_text=exp_text,
+                    actual_text=act_text,
+                    detail=f"tool call field '{key}' differs",
+                )
 
-        # JSON semantically equal but raw text differs (e.g. formatting).
-        return Mismatch(
-            type=MismatchType.JSON,
-            segment_index=idx,
-            expected_text=exp_text,
-            actual_text=act_text,
-            detail="JSON semantically equal but raw text differs (formatting)",
-        )
+        return None
 
     def _describe_structure(self, segments: list[Segment]) -> str:
         """Human-readable summary of segment structure for error messages."""
