@@ -1118,7 +1118,7 @@ def _start_session_server(args):
             f"Run 'pkill -9 python' to kill stale processes, then retry."
         )
 
-    from miles.router.session.session_server import run_session_server
+    from miles.rollout.session.session_server import run_session_server
 
     process = multiprocessing.Process(target=run_session_server, args=(args,))
     process.daemon = True

@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from miles.router.session.sessions import setup_session_routes
+from miles.rollout.session.sessions import setup_session_routes
 from miles.utils.misc import load_function
 
 logger = logging.getLogger(__name__)

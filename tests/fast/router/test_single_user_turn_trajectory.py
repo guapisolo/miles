@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from miles.router.session.session_types import SessionRecord
-from miles.router.session.single_user_turn_trajectory import SingleUserTurnTrajectoryManager
+from miles.rollout.session.session_types import SessionRecord
+from miles.rollout.session.single_user_turn_trajectory import SingleUserTurnTrajectoryManager
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer
 
 

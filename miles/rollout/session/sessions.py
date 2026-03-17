@@ -7,8 +7,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from starlette.responses import Response as StarletteResponse
 
-from miles.router.session.session_types import GetSessionResponse, SessionRecord
-from miles.router.session.single_user_turn_trajectory import SingleUserTurnTrajectoryManager
+from miles.rollout.session.session_types import GetSessionResponse, SessionRecord
+from miles.rollout.session.single_user_turn_trajectory import SingleUserTurnTrajectoryManager
 from miles.utils.chat_template_utils import get_tito_tokenizer
 from miles.utils.processing_utils import load_tokenizer
 

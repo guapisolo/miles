@@ -7,7 +7,7 @@ from argparse import Namespace
 from copy import deepcopy
 
 from miles.rollout.generate_utils.generate_endpoint_utils import get_rollout_topk_from_response
-from miles.router.session.session_types import GetSessionResponse, SessionRecord
+from miles.rollout.session.session_types import GetSessionResponse, SessionRecord
 from miles.utils.http_utils import post
 from miles.utils.types import Sample
 
