@@ -3,12 +3,53 @@ import re
 import torch
 
 
+def _convert_mtp_layer(args, name, param, layer_idx):
+    """Convert MTP layer parameters from Megatron to HuggingFace format."""
+    if "enorm.weight" in name:
+        return [("mtp.pre_fc_norm_embedding.weight", param)]
+    if "hnorm.weight" in name:
+        return [("mtp.pre_fc_norm_hidden.weight", param)]
+    if "final_layernorm.weight" in name:
+        return [("mtp.norm.weight", param)]
+    if "eh_proj.weight" in name:
+        return [("mtp.fc.weight", param)]
+
+    if "transformer_layer" in name:
+        proxy_name = name.replace(f"mtp.layers.{layer_idx}.transformer_layer", f"decoder.layers.{layer_idx}")
+        mapped_params = convert_qwen3_5_to_hf(args, proxy_name, param)
+
+        final_params = []
+        for hf_name, tensor in mapped_params:
+            target_prefix = f"mtp.layers.{layer_idx}"
+            if f"model.language_model.layers.{layer_idx}" in hf_name:
+                new_hf_name = hf_name.replace(f"model.language_model.layers.{layer_idx}", target_prefix)
+                final_params.append((new_hf_name, tensor))
+            else:
+                final_params.append((hf_name, tensor))
+        return final_params
+
+    return None
+
+
 def convert_qwen3_5_to_hf(args, name, param):
     """Convert Qwen3.5 model parameters from Megatron to HuggingFace format.
 
     Qwen3.5 uses model.language_model.layers prefix and has separate
     in_proj_qkv, in_proj_z, in_proj_b, in_proj_a for linear attention.
     """
+    # Handle MTP layers
+    if "mtp.layers" in name:
+        parts = name.split(".")
+        try:
+            layer_idx_loc = parts.index("layers") + 1
+            layer_idx = parts[layer_idx_loc]
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Invalid MTP layer name format: {name}") from e
+
+        result = _convert_mtp_layer(args, name, param, layer_idx)
+        if result is not None:
+            return result
+
     if name == "module.module.embedding.word_embeddings.weight":
         return [("model.language_model.embed_tokens.weight", param)]
     if name == "module.module.output_layer.weight":
