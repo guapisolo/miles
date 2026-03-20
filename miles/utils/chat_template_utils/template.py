@@ -119,13 +119,13 @@ def apply_chat_template_from_str(
     tool_defs = extract_tool_dicts(tools)
     try:
         return _render(tool_defs)
-    except Exception:
+    except Exception as e:
         if tool_defs is not None:
             try:
                 return _render([{"function": t} for t in tool_defs])
-            except TemplateError as e:
-                raise ValueError(str(e)) from e
-        raise
+            except TemplateError as te:
+                raise ValueError(f"Chat template rendering failed (tool format fallback): {te}") from te
+        raise ValueError(f"Chat template rendering failed: {e}") from e
 
 
 _TEMPLATE_RELEVANT_KEYS = ("role", "content", "reasoning_content", "tool_calls")
@@ -224,7 +224,7 @@ def apply_chat_template(
         return tokenizer.apply_chat_template(
             messages, tokenize=tokenize, tools=tool_defs, return_dict=False, **render_kwargs
         )
-    except Exception:
+    except Exception as e:
         if tool_defs is not None:
             try:
                 return tokenizer.apply_chat_template(
@@ -234,6 +234,6 @@ def apply_chat_template(
                     return_dict=False,
                     **render_kwargs,
                 )
-            except TemplateError as e:
-                raise ValueError(str(e)) from e
-        raise
+            except TemplateError as te:
+                raise ValueError(f"Chat template rendering failed (tool format fallback): {te}") from te
+        raise ValueError(f"Chat template rendering failed: {e}") from e
