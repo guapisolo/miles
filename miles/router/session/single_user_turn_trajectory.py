@@ -17,11 +17,6 @@ class SingleUserTurnTrajectory(BaseModel):
 
     Tracks the full message history and accumulated token IDs for one session.
     The message sequence is: [system?, user, assistant, tool, assistant, tool, …].
-
-    Supports rollback to a previous assistant checkpoint: when the agent
-    framework retries by sending a prefix of the stored messages,
-    ``trajectory_token_ids`` is truncated to the matching checkpoint and
-    the conversation continues from there.
     """
 
     messages: list[dict[str, Any]] = Field(default_factory=list)
@@ -100,14 +95,6 @@ class SingleUserTurnTrajectoryManager:
     Handles session CRUD, message-level validation (append-only, no user
     after assistant), and token ID read/store.  All tokenization computation
     is delegated to ``TITOTokenizer``.
-
-    The typical message sequence is:
-    ``[system?, user?, assistant, tool, assistant, tool, …]``
-    with optional system messages injected mid-conversation.
-
-    Supports rollback: if the agent sends messages that are a prefix of the
-    stored messages (ending at an assistant boundary), the session state is
-    rolled back to that checkpoint before proceeding.
     """
 
     def __init__(self, args, tokenizer: Any, *, tito_tokenizer: TITOTokenizer):
@@ -194,10 +181,6 @@ class SingleUserTurnTrajectoryManager:
         return it as ``input_ids`` for SGLang.
 
         Returns ``None`` on the first turn (no stored token_ids yet).
-
-        If *request_messages* is a prefix of the stored messages (ending at
-        an assistant boundary), the session state is rolled back to that
-        checkpoint before the append-only validation proceeds.
         """
         with self._lock:
             session = self.sessions.get(session_id)
