@@ -274,12 +274,11 @@ def get_tito_tokenizer(
             segments (e.g. ``"<|im_start|>assistant"``).  Auto-detected from
             the chat template by default; pass explicitly to override.
     """
+    if tokenizer is None:
+        raise ValueError("tokenizer must not be None")
     if isinstance(tokenizer_type, str):
-        resolved = TITOTokenizerType(tokenizer_type)
-    else:
-        resolved = tokenizer_type
-
-    cls = _TOKENIZER_REGISTRY[resolved]
+        tokenizer_type = TITOTokenizerType(tokenizer_type)
+    cls = _TOKENIZER_REGISTRY[tokenizer_type]
     kwargs: dict[str, Any] = {"chat_template_kwargs": chat_template_kwargs}
     if assistant_start_str is not None:
         kwargs["assistant_start_str"] = assistant_start_str
