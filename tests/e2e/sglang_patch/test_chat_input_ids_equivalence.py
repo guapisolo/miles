@@ -48,12 +48,13 @@ def test_generate_and_chat_completions_equivalence(sglang_server):
 
     # --- output token ids ---
     gen_token_ids = [t[1] for t in gen_resp["meta_info"]["output_token_logprobs"]]
-    chat_token_ids = [t["token_id"] for t in chat_choice["logprobs"]["content"]]
+    chat_output_token_logprobs = chat_choice["meta_info"]["output_token_logprobs"]
+    chat_token_ids = [t[1] for t in chat_output_token_logprobs]
     assert gen_token_ids == chat_token_ids, "output token ids mismatch"
 
     # --- output logprobs ---
     gen_logprobs = [t[0] for t in gen_resp["meta_info"]["output_token_logprobs"]]
-    chat_logprobs = [t["logprob"] for t in chat_choice["logprobs"]["content"]]
+    chat_logprobs = [t[0] for t in chat_output_token_logprobs]
     assert len(gen_logprobs) == len(chat_logprobs)
     for i, (g, c) in enumerate(zip(gen_logprobs, chat_logprobs, strict=True)):
         assert math.isclose(g, c, abs_tol=LOGPROB_TOL), f"logprob mismatch at {i}: {g} vs {c}"
