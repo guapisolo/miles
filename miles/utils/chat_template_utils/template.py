@@ -74,8 +74,7 @@ def extract_tool_dicts(tools: list[dict] | None) -> list[dict] | None:
 
     Matches SGLang's tool canonicalization before ``apply_chat_template``:
     SGLang validates tools with ``protocol.Tool`` (Pydantic) and then passes
-    ``item.function.model_dump()`` into the template.  This stabilizes field
-    order and injects defaults like ``strict=False``.
+    ``item.function.model_dump()`` into the template.
     """
     if not tools:
         return None
