@@ -230,6 +230,8 @@ class TokenSeqComparator:
         content — mismatches there are expected and non-severe.
 
         """
+        if self._assistant_start_str is None:
+            return False
         if segments[idx].is_special:
             return False
         if idx == 0:

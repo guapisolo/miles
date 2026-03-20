@@ -19,10 +19,9 @@ from enum import Enum
 from typing import Any
 
 from miles.utils.chat_template_utils.template import apply_chat_template, assert_messages_append_only
-from miles.utils.chat_template_utils.token_seq_comparator import Mismatch, TokenSeqComparator
+from miles.utils.chat_template_utils.token_seq_comparator import TokenSeqComparator
 
 logger = logging.getLogger(__name__)
-
 
 _DUMMY_USER: dict[str, Any] = {"role": "user", "content": "dummy"}
 
@@ -68,21 +67,53 @@ class TITOTokenizer:
     """
 
     max_trim_tokens: int = 0
-    _trailing_token_ids: frozenset[int] = frozenset()
-    _assistant_start_str: str | None = None
-
-    def get_comparator_ignore_trailing_ids(self) -> set[int] | None:
-        """Return token IDs that the comparator should strip from sequence
-        tails before comparison, or ``None`` if no stripping is needed."""
-        return set(self._trailing_token_ids) if self._trailing_token_ids else None
+    trailing_token_ids: frozenset[int] = frozenset()
 
     def __init__(
         self,
         tokenizer: Any,
         chat_template_kwargs: dict[str, Any] | None = None,
+        assistant_start_str: str | None = None,
     ):
         self.tokenizer = tokenizer
         self.chat_template_kwargs = chat_template_kwargs or {}
+        if assistant_start_str is None:
+            assistant_start_str = self._detect_assistant_start()
+        self._assistant_start_str = assistant_start_str
+
+    def _detect_assistant_start(self) -> str:
+        """Auto-detect the assistant generation prompt by diffing
+        ``add_generation_prompt=True`` vs ``False``.
+
+        Raises :class:`ValueError` if detection fails — pass
+        ``assistant_start_str`` explicitly in that case.
+        """
+        messages = [{"role": "user", "content": "hi"}]
+        without = apply_chat_template(
+            messages,
+            tokenizer=self.tokenizer,
+            tokenize=False,
+            add_generation_prompt=False,
+            **self.chat_template_kwargs,
+        )
+        with_prompt = apply_chat_template(
+            messages,
+            tokenizer=self.tokenizer,
+            tokenize=False,
+            add_generation_prompt=True,
+            **self.chat_template_kwargs,
+        )
+        if with_prompt.startswith(without):
+            diff = with_prompt[len(without) :]
+            if diff:
+                result = diff.rstrip("\n")
+                logger.info("Auto-detected assistant_start_str=%r", result)
+                return result
+        raise ValueError(
+            "Could not auto-detect assistant_start_str from the chat template "
+            "(generation prompt diff was empty or not a clean suffix). "
+            "Pass assistant_start_str= explicitly."
+        )
 
     def create_comparator(self) -> TokenSeqComparator:
         """Create a :class:`TokenSeqComparator` configured with this
@@ -90,23 +121,6 @@ class TITOTokenizer:
         return TokenSeqComparator(
             self.tokenizer,
             assistant_start_str=self._assistant_start_str,
-        )
-
-    def compare_sequences(
-        self,
-        expected_ids: list[int],
-        actual_ids: list[int],
-    ) -> list[Mismatch]:
-        """Compare two token-ID sequences, passing model-specific trailing
-        token IDs to the comparator for trimming.  The comparator is lazily
-        created and cached via :meth:`create_comparator`.
-        """
-        if not hasattr(self, "_comparator"):
-            self._comparator = self.create_comparator()
-        return self._comparator.compare_sequences(
-            expected_ids,
-            actual_ids,
-            trim_trailing_ids=self.get_comparator_ignore_trailing_ids(),
         )
 
     def tokenize_additional_non_assistant(
@@ -189,19 +203,18 @@ class Qwen3TITOTokenizer(TITOTokenizer):
     prefix matches the canonical template output.
     """
 
-    _assistant_start_str = "<|im_start|>assistant"
-
     def __init__(
         self,
         tokenizer: Any,
         chat_template_kwargs: dict[str, Any] | None = None,
+        assistant_start_str: str | None = "<|im_start|>assistant",
     ):
-        super().__init__(tokenizer, chat_template_kwargs)
+        super().__init__(tokenizer, chat_template_kwargs, assistant_start_str)
         nl_ids = tokenizer.encode("\n", add_special_tokens=False)
         assert len(nl_ids) == 1, f"Expected single newline token, got {nl_ids}"
         self._newline_id: int = nl_ids[0]
         self._im_end_id: int = tokenizer.convert_tokens_to_ids("<|im_end|>")
-        self._trailing_token_ids = frozenset({self._newline_id})
+        self.trailing_token_ids = frozenset({self._newline_id})
 
     def merge_tokens(
         self,
@@ -234,18 +247,18 @@ class GLM47TITOTokenizer(TITOTokenizer):
     """
 
     max_trim_tokens: int = 1
-    _assistant_start_str = "<|assistant|>"
 
     def __init__(
         self,
         tokenizer: Any,
         chat_template_kwargs: dict[str, Any] | None = None,
+        assistant_start_str: str | None = "<|assistant|>",
     ):
-        super().__init__(tokenizer, chat_template_kwargs)
+        super().__init__(tokenizer, chat_template_kwargs, assistant_start_str)
         self._observation_id: int = tokenizer.convert_tokens_to_ids("<|observation|>")
         self._user_id: int = tokenizer.convert_tokens_to_ids("<|user|>")
         self._ambiguous_boundary_ids: set[int] = {self._observation_id, self._user_id}
-        self._trailing_token_ids = frozenset(self._ambiguous_boundary_ids)
+        self.trailing_token_ids = frozenset(self._ambiguous_boundary_ids)
 
     def merge_tokens(
         self,
@@ -283,6 +296,7 @@ def get_tito_tokenizer(
     tokenizer: Any,
     tokenizer_type: TITOTokenizerType | str = TITOTokenizerType.DEFAULT,
     chat_template_kwargs: dict[str, Any] | None = None,
+    assistant_start_str: str | None = None,
 ) -> TITOTokenizer:
     """Create a ``TITOTokenizer`` instance.
 
@@ -291,6 +305,9 @@ def get_tito_tokenizer(
         tokenizer_type: Explicit type (string or enum).  Corresponds to the
             ``--tito-model`` CLI argument.
         chat_template_kwargs: Extra kwargs forwarded to ``apply_chat_template``.
+        assistant_start_str: Decoded text prefix identifying assistant content
+            segments (e.g. ``"<|im_start|>assistant"``).  Auto-detected from
+            the chat template by default; pass explicitly to override.
     """
     if isinstance(tokenizer_type, str):
         resolved = TITOTokenizerType(tokenizer_type)
@@ -298,4 +315,4 @@ def get_tito_tokenizer(
         resolved = tokenizer_type
 
     cls = _TOKENIZER_REGISTRY[resolved]
-    return cls(tokenizer, chat_template_kwargs=chat_template_kwargs)
+    return cls(tokenizer, chat_template_kwargs=chat_template_kwargs, assistant_start_str=assistant_start_str)

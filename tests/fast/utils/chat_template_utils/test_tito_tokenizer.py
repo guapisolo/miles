@@ -1,8 +1,4 @@
-"""Tests for TITOTokenizer.create_comparator() and compare_sequences().
-
-Verifies that model-specific subclasses produce correctly-configured
-comparators with the right assistant detection and trailing-ID trimming.
-"""
+"""Tests for TITOTokenizer auto-detection, create_comparator(), and subclass configuration."""
 
 from __future__ import annotations
 
@@ -49,23 +45,38 @@ def default_tito() -> TITOTokenizer:
 
 
 # ---------------------------------------------------------------------------
-# create_comparator — assistant detection config
+# Auto-detected assistant_start_str
+# ---------------------------------------------------------------------------
+
+
+class TestAssistantStartStr:
+    def test_qwen3_hardcoded(self, qwen3_tito: Qwen3TITOTokenizer):
+        assert qwen3_tito._assistant_start_str == "<|im_start|>assistant"
+
+    def test_glm47_hardcoded(self, glm47_tito: GLM47TITOTokenizer):
+        assert glm47_tito._assistant_start_str == "<|assistant|>"
+
+    def test_base_class_auto_detects(self, default_tito: TITOTokenizer):
+        """Base class (no hardcoded default) auto-detects from the chat template."""
+        assert default_tito._assistant_start_str is not None
+        assert "assistant" in default_tito._assistant_start_str
+
+    def test_explicit_override(self):
+        tok = _get_tokenizer("Qwen/Qwen3-4B")
+        tito = TITOTokenizer(tok, assistant_start_str="custom")
+        assert tito._assistant_start_str == "custom"
+
+    def test_propagated_to_comparator(self, qwen3_tito: Qwen3TITOTokenizer):
+        comp = qwen3_tito.create_comparator()
+        assert comp._assistant_start_str == qwen3_tito._assistant_start_str
+
+
+# ---------------------------------------------------------------------------
+# create_comparator
 # ---------------------------------------------------------------------------
 
 
 class TestCreateComparator:
-    def test_qwen3_has_assistant_config(self, qwen3_tito: Qwen3TITOTokenizer):
-        comp = qwen3_tito.create_comparator()
-        assert comp._assistant_start_str == "<|im_start|>assistant"
-
-    def test_glm47_has_assistant_config(self, glm47_tito: GLM47TITOTokenizer):
-        comp = glm47_tito.create_comparator()
-        assert comp._assistant_start_str == "<|assistant|>"
-
-    def test_default_has_no_assistant_config(self, default_tito: TITOTokenizer):
-        comp = default_tito.create_comparator()
-        assert comp._assistant_start_str is None
-
     def test_returns_new_instance(self, qwen3_tito: Qwen3TITOTokenizer):
         """Each call creates a fresh comparator."""
         comp1 = qwen3_tito.create_comparator()
@@ -92,61 +103,21 @@ class TestSubclassInit:
 
 
 # ---------------------------------------------------------------------------
-# get_comparator_ignore_trailing_ids / max_trim_tokens
+# trailing_token_ids / max_trim_tokens
 # ---------------------------------------------------------------------------
 
 
 class TestTrailingConfig:
     def test_default_no_trailing(self, default_tito: TITOTokenizer):
-        assert default_tito.get_comparator_ignore_trailing_ids() is None
+        assert default_tito.trailing_token_ids == frozenset()
         assert default_tito.max_trim_tokens == 0
 
     def test_qwen3_trailing_newline(self, qwen3_tito: Qwen3TITOTokenizer):
-        trailing = qwen3_tito.get_comparator_ignore_trailing_ids()
-        assert trailing == {qwen3_tito._newline_id}
+        assert qwen3_tito.trailing_token_ids == frozenset({qwen3_tito._newline_id})
 
     def test_glm47_trailing_boundary(self, glm47_tito: GLM47TITOTokenizer):
-        trailing = glm47_tito.get_comparator_ignore_trailing_ids()
-        assert trailing == {glm47_tito._user_id, glm47_tito._observation_id}
+        assert glm47_tito.trailing_token_ids == frozenset({glm47_tito._user_id, glm47_tito._observation_id})
         assert glm47_tito.max_trim_tokens == 1
-
-
-# ---------------------------------------------------------------------------
-# compare_sequences — convenience method
-# ---------------------------------------------------------------------------
-
-
-class TestCompareSequences:
-    def test_identical_sequences(self, qwen3_tito: Qwen3TITOTokenizer):
-        ids = list(range(10))
-        assert qwen3_tito.compare_sequences(ids, ids) == []
-
-    def test_caches_comparator(self, qwen3_tito: Qwen3TITOTokenizer):
-        """compare_sequences lazily creates and reuses the comparator."""
-        ids = list(range(5))
-        qwen3_tito.compare_sequences(ids, ids)
-        comp = qwen3_tito._comparator
-        qwen3_tito.compare_sequences(ids, ids)
-        assert qwen3_tito._comparator is comp
-
-    def test_qwen3_trailing_newline_trimmed(self, qwen3_tito: Qwen3TITOTokenizer):
-        """Qwen3's trailing newline should be trimmed before comparison."""
-        tok = qwen3_tito.tokenizer
-        nl_id = tok.encode("\n", add_special_tokens=False)[0]
-        base = [tok.convert_tokens_to_ids("<|im_start|>"), 100, tok.convert_tokens_to_ids("<|im_end|>")]
-        with_nl = base + [nl_id]
-        # With trailing newline trimming, these should be equivalent.
-        assert qwen3_tito.compare_sequences(base, with_nl) == []
-
-    def test_glm47_trailing_boundary_trimmed(self, glm47_tito: GLM47TITOTokenizer):
-        """GLM47's ambiguous boundary tokens should be trimmed before comparison."""
-        tok = glm47_tito.tokenizer
-        user_id = tok.convert_tokens_to_ids("<|user|>")
-        obs_id = tok.convert_tokens_to_ids("<|observation|>")
-        base = [tok.convert_tokens_to_ids("<|assistant|>"), 100]
-        # Both trailing <|user|> and <|observation|> should be trimmed.
-        assert glm47_tito.compare_sequences(base, base + [user_id]) == []
-        assert glm47_tito.compare_sequences(base, base + [obs_id]) == []
 
 
 # ---------------------------------------------------------------------------
@@ -154,27 +125,29 @@ class TestCompareSequences:
 # ---------------------------------------------------------------------------
 
 
-class TestFactoryAssistantConfig:
+class TestFactory:
     def test_factory_qwen3(self):
         tok = _get_tokenizer("Qwen/Qwen3-4B")
         tito = get_tito_tokenizer(tok, tokenizer_type="qwen3")
         assert isinstance(tito, Qwen3TITOTokenizer)
-        comp = tito.create_comparator()
-        assert comp._assistant_start_str == "<|im_start|>assistant"
+        assert tito._assistant_start_str == "<|im_start|>assistant"
 
     def test_factory_glm47(self):
         tok = _get_tokenizer("zai-org/GLM-4.7-Flash")
         tito = get_tito_tokenizer(tok, tokenizer_type="glm47")
         assert isinstance(tito, GLM47TITOTokenizer)
-        comp = tito.create_comparator()
-        assert comp._assistant_start_str == "<|assistant|>"
+        assert tito._assistant_start_str == "<|assistant|>"
 
     def test_factory_default(self):
         tok = _get_tokenizer("Qwen/Qwen3-4B")
         tito = get_tito_tokenizer(tok, tokenizer_type="default")
         assert isinstance(tito, TITOTokenizer)
-        comp = tito.create_comparator()
-        assert comp._assistant_start_str is None
+        assert tito._assistant_start_str is not None
+
+    def test_factory_explicit_override(self):
+        tok = _get_tokenizer("Qwen/Qwen3-4B")
+        tito = get_tito_tokenizer(tok, tokenizer_type="qwen3", assistant_start_str="custom")
+        assert tito._assistant_start_str == "custom"
 
     def test_factory_enum_input(self):
         tok = _get_tokenizer("Qwen/Qwen3-4B")

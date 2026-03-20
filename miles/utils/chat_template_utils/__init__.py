@@ -10,7 +10,7 @@ from miles.utils.chat_template_utils.template import (
     message_matches,
 )
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer, TITOTokenizerType, get_tito_tokenizer
-from miles.utils.chat_template_utils.token_seq_comparator import Mismatch, MismatchType, Segment, TokenSeqComparator
+from miles.utils.chat_template_utils.token_seq_comparator import Mismatch, MismatchType, TokenSeqComparator
 
 __all__ = [
     "TITOTokenizer",
@@ -27,5 +27,4 @@ __all__ = [
     "Mismatch",
     "TokenSeqComparator",
     "MismatchType",
-    "Segment",
 ]
