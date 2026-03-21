@@ -82,6 +82,7 @@ class TITOTokenizer:
         return TokenSeqComparator(
             self.tokenizer,
             assistant_start_str=self._assistant_start_str,
+            trim_trailing_ids=self.trailing_token_ids or None,
         )
 
     def tokenize_additional_non_assistant(

@@ -361,6 +361,13 @@ class TestAssistantTextClassification:
 
 
 class TestTrimTrailingIds:
+    def _make_comparator(self, env: TokenizerEnv, trim_trailing_ids: set[int]) -> TokenSeqComparator:
+        return TokenSeqComparator(
+            env.tokenizer,
+            assistant_start_str=env.config.assistant_start_str,
+            trim_trailing_ids=trim_trailing_ids,
+        )
+
     def test_trim_removes_trailing_specials(self, env: TokenizerEnv):
         """Trailing eos-like tokens are stripped before comparison."""
         sp = env.token_id(env.config.known_special_tokens[0])
@@ -371,9 +378,9 @@ class TestTrimTrailingIds:
         # Without trim → segment count differs
         result_no_trim = env.comparator.compare_sequences(expected, actual)
         assert len(result_no_trim) > 0
-        # With trim → matches
-        result_trim = env.comparator.compare_sequences(expected, actual, trim_trailing_ids={eos})
-        assert result_trim == []
+        # With trim at construction → matches
+        comp = self._make_comparator(env, trim_trailing_ids={eos})
+        assert comp.compare_sequences(expected, actual) == []
 
     def test_trim_does_not_affect_middle(self, env: TokenizerEnv):
         """trim_trailing_ids only strips from the end, not the middle."""
@@ -381,9 +388,24 @@ class TestTrimTrailingIds:
         eos = env.token_id(env.config.known_special_tokens[-1])
         text_ids = env.encode("content")
         # eos in the middle should not be stripped
+        comp = self._make_comparator(env, trim_trailing_ids={eos})
         seq = [sp] + text_ids + [eos] + text_ids + [sp]
-        result = env.comparator.compare_sequences(seq, seq, trim_trailing_ids={eos})
-        assert result == []
+        assert comp.compare_sequences(seq, seq) == []
+
+    def test_call_time_ids_unioned_with_init_ids(self, env: TokenizerEnv):
+        """trim_trailing_ids passed at call time are unioned with init-time ids."""
+        sp_tokens = env.config.known_special_tokens
+        sp = env.token_id(sp_tokens[0])
+        eos1 = env.token_id(sp_tokens[-1])
+        eos2 = env.token_id(sp_tokens[1])
+        text_ids = env.encode("same content")
+        expected = [sp] + text_ids + [sp]
+        actual = [sp] + text_ids + [sp, eos1, eos2]  # two different trailing tokens
+        # Init with eos1 only → still mismatches (eos2 not trimmed)
+        comp = self._make_comparator(env, trim_trailing_ids={eos1})
+        assert len(comp.compare_sequences(expected, actual)) > 0
+        # Pass eos2 at call time → union trims both → matches
+        assert comp.compare_sequences(expected, actual, trim_trailing_ids={eos2}) == []
 
 
 # ===========================================================================

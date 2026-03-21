@@ -66,6 +66,11 @@ class TokenSeqComparator:
         Decoded text prefix identifying assistant content segments, e.g.
         ``"<|im_start|>assistant"`` (Qwen3) or ``"<|assistant|>"`` (GLM).
         Used to classify content mismatches as assistant vs non-assistant.
+    trim_trailing_ids : set[int] | None
+        Token IDs to strip from both sequence tails before comparison
+        (see :func:`_trim_trailing`).  Stored as a default; callers of
+        :meth:`compare_sequences` may supply additional IDs that are
+        **unioned** with this set.
     """
 
     def __init__(
@@ -73,12 +78,14 @@ class TokenSeqComparator:
         tokenizer,
         assistant_start_str: str,
         special_token_ids: set[int] | None = None,
+        trim_trailing_ids: set[int] | None = None,
     ):
         self.tokenizer = tokenizer
         self._special_ids = self._collect_special_ids(tokenizer)
         if special_token_ids is not None:
             self._special_ids |= set(special_token_ids)
         self._assistant_start_str = assistant_start_str
+        self._trim_trailing_ids: set[int] | None = set(trim_trailing_ids) if trim_trailing_ids else None
 
     @staticmethod
     def _collect_special_ids(tokenizer) -> set[int]:
@@ -139,12 +146,15 @@ class TokenSeqComparator:
         Parameters
         ----------
         trim_trailing_ids : set[int] | None
-            Token IDs to strip from both sequence tails before comparison
-            (see :func:`_trim_trailing` for rationale).
+            Additional token IDs to strip from both sequence tails before
+            comparison.  **Unioned** with the IDs passed at construction time.
         """
+        trim = self._trim_trailing_ids or set()
         if trim_trailing_ids:
-            expected_ids = _trim_trailing(expected_ids, trim_trailing_ids)
-            actual_ids = _trim_trailing(actual_ids, trim_trailing_ids)
+            trim = trim | trim_trailing_ids
+        if trim:
+            expected_ids = _trim_trailing(expected_ids, trim)
+            actual_ids = _trim_trailing(actual_ids, trim)
 
         exp_segs = self.segment_by_special_tokens(expected_ids)
         act_segs = self.segment_by_special_tokens(actual_ids)
