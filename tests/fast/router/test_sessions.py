@@ -23,9 +23,15 @@ def router_env():
 
     def patched_chat_response(self, payload: dict) -> dict:
         response = original_chat_response(self, payload)
-        logprobs_content = response["choices"][0]["logprobs"]["content"]
-        for item in logprobs_content:
-            item["token_id"] = self.tokenizer.convert_tokens_to_ids(item["token"])
+        choice = response["choices"][0]
+        logprobs_content = choice["logprobs"]["content"]
+        output_token_logprobs = [
+            (item["logprob"], self.tokenizer.convert_tokens_to_ids(item["token"])) for item in logprobs_content
+        ]
+        choice["meta_info"] = {
+            "output_token_logprobs": output_token_logprobs,
+            "completion_tokens": len(output_token_logprobs),
+        }
         return response
 
     with patch.object(MockSGLangServer, "_compute_chat_completions_response", new=patched_chat_response):
