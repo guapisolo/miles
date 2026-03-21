@@ -126,7 +126,7 @@ def execute():
         "tests.e2e.sglang.session_tool_agent.run_agent "
     )
 
-    router_args = "--chat-template-path autofix " f"--tito-model {cfg.tito_model} "
+    router_args = f"--tito-model {cfg.tito_model} "
     if USE_MILES_ROUTER:
         router_args = "--use-miles-router " + router_args
 

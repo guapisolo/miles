@@ -11,8 +11,8 @@ from copy import deepcopy
 
 import pytest
 
-from miles.utils.chat_template_utils.autofix import try_get_fixed_chat_template
 from miles.utils.chat_template_utils.template import load_hf_chat_template
+from miles.utils.chat_template_utils.tito_tokenizer import TITO_MODEL_FIXED_TEMPLATES, TITOTokenizerType
 from miles.utils.test_utils.chat_template_verify import assert_pretokenized_equals_standard, simulate_pretokenized_path
 from miles.utils.test_utils.mock_trajectories import (
     MultiTurnTrajectory,
@@ -26,20 +26,17 @@ from miles.utils.test_utils.mock_trajectories import (
 # ---------------------------------------------------------------------------
 
 
-def _load_fixed(hf_id: str) -> str:
-    path = try_get_fixed_chat_template(hf_id)
-    assert path is not None, f"try_get_fixed_chat_template should resolve {hf_id}"
+def _load_fixed(tito_model_type: TITOTokenizerType) -> str:
+    path = TITO_MODEL_FIXED_TEMPLATES.get(tito_model_type)
+    assert path is not None, f"fixed chat template not found for {tito_model_type}"
     with open(path) as f:
         return f.read()
 
 
 TEMPLATES_WITH_THINKING = {
-    "qwen3_fixed": _load_fixed("Qwen/Qwen3-0.6B"),
-    "qwen3.5_fixed": _load_fixed("Qwen/Qwen3.5-0.8B"),
+    "qwen3_fixed": _load_fixed(TITOTokenizerType.QWEN3),
     "glm5": load_hf_chat_template("zai-org/GLM-5"),
     "glm47_flash": load_hf_chat_template("zai-org/GLM-4.7-Flash"),
-    "qwen3_thinking_2507_fixed": _load_fixed("Qwen/Qwen3-4B-Thinking-2507"),
-    "qwen3_next_thinking_fixed": _load_fixed("Qwen/Qwen3-Next-80B-A3B-Thinking"),
 }
 
 ALL_TEMPLATES = {

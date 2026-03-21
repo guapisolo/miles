@@ -4,7 +4,7 @@
 
 In agentic workflows (multi-turn tool-calling), miles uses sglang's **pretokenized prefix** mechanism to avoid re-tokenizing the entire conversation history on every turn. This requires the chat template to satisfy an **append-only invariant**: rendering the first N messages must produce a string that is an exact prefix of rendering all messages. Some model families (e.g. certain Qwen3 variants) ship templates that use `loop.last` or similar context-dependent Jinja logic, which breaks this property.
 
-miles ships a one-click verification tool and an autofix mechanism to handle this.
+miles ships a one-click verification tool and fixed templates mapping to handle this.
 
 ## Quick Start
 
@@ -39,12 +39,12 @@ Results: 2/13 passed, 11 failed
 Verdict: FAIL - template is NOT append-only after last user message
 ```
 
-### Verify with autofix
+### Verify with tito-model
 
-If miles has a built-in fix for the model, use `--autofix` to test the fixed version:
+If miles has a built-in fixed template for a specific `tito-model`, use `--tito-model` to test the fixed version:
 
 ```shell
-python scripts/tools/verify_chat_template.py --model Qwen/Qwen3-0.6B --autofix
+python scripts/tools/verify_chat_template.py --model Qwen/Qwen3-0.6B --tito-model qwen3
 ```
 
 ```
@@ -75,7 +75,7 @@ python scripts/tools/verify_chat_template.py --template path/to/my_template.jinj
 For models that support `enable_thinking` (e.g. Qwen3.5, GLM-5), add `--thinking` to also run thinking-specific test cases:
 
 ```shell
-python scripts/tools/verify_chat_template.py --model Qwen/Qwen3.5-0.8B --autofix --thinking
+python scripts/tools/verify_chat_template.py --model Qwen/Qwen3.5-0.8B --tito-model qwen3 --thinking
 ```
 
 This runs 29 cases in total (13 standard + 16 thinking with `enable_thinking=True/False`).
@@ -84,14 +84,14 @@ This runs 29 cases in total (13 standard + 16 thinking with `enable_thinking=Tru
 
 ```
 usage: verify_chat_template.py (--template PATH | --model MODEL_ID)
-                               [--autofix] [--thinking]
+                               [--tito-model TITO_MODEL] [--thinking]
 ```
 
 | Argument | Description |
 | :--- | :--- |
 | `--template PATH` | Path to a local `.jinja` chat template file |
 | `--model MODEL_ID` | HuggingFace model ID (e.g. `Qwen/Qwen3-0.6B`) |
-| `--autofix` | When using `--model`, apply miles' fixed template if one exists |
+| `--tito-model TITO_MODEL` | When using `--model`, apply miles' fixed template for this `tito-model` if one exists |
 | `--thinking` | Also run thinking-specific cases (`enable_thinking=True/False`) |
 
 The script exits with code **0** if all cases pass, or **1** if any case fails.
@@ -109,27 +109,22 @@ This is tested across 13 diverse cases covering 9 trajectory patterns (single-tu
 
 When `--thinking` is enabled, an additional 16 cases are added: 6 thinking-specific trajectory patterns × 2 (`enable_thinking=True/False`) + 2 intermediate system thinking patterns × 2.
 
-## Autofix: Built-in Template Fixes
+## TITO Model Fixed Templates
 
-miles includes fixed templates for model families known to break the append-only invariant. When you pass `--chat-template-path autofix` in your training command, miles automatically selects the right fix:
+miles includes fixed templates for certain model families known to break the append-only invariant. When you specify a `--tito-model` (e.g. `qwen3`), miles automatically selects the right fixed template:
 
-| Model Pattern | Fixed Template |
+| tito-model | Fixed Template |
 | :--- | :--- |
-| `Qwen3.5-*` (e.g. Qwen3.5-0.8B, Qwen3.5-32B) | `qwen3.5_fixed.jinja` |
-| `Qwen3-Next-*-Thinking` | `qwen3_thinking_2507_and_next_fixed.jinja` |
-| `Qwen3-*B-Thinking-2507` | `qwen3_thinking_2507_and_next_fixed.jinja` |
-| `Qwen3-*` (base, e.g. Qwen3-0.6B, Qwen3-4B) | `qwen3_fixed.jinja` |
+| `qwen3` | `qwen3_fixed.jinja` |
 
-Rules are matched in order (first match wins), so more specific patterns take priority over the general `Qwen3-*` rule.
+Models that are already append-only (e.g. GLM-5, GLM-4, GLM-4.7-Flash, Qwen3-Instruct-2507, Qwen3-Next-Instruct, Qwen3-Coder-Next) do not need a fixed template.
 
-Models that are already append-only (e.g. GLM-5, GLM-4, GLM-4.7-Flash, Qwen3-Instruct-2507, Qwen3-Next-Instruct, Qwen3-Coder-Next) do not need a fix.
-
-### Using autofix in training
+### Using tito-model fixed templates in training
 
 ```shell
 python run.py \
     --hf-checkpoint Qwen/Qwen3-4B \
-    --chat-template-path autofix \
+    --tito-model qwen3 \
     ...
 ```
 
@@ -138,6 +133,6 @@ python run.py \
 The verification logic is covered by comprehensive unit tests:
 
 ```shell
-# Run all chat template tests (autofix mapping + append-only verification)
+# Run all chat template tests (tito-model mapping + append-only verification)
 python -m pytest tests/fast/utils/chat_template_utils/ -v
 ```

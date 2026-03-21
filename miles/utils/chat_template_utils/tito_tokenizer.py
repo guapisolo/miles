@@ -14,11 +14,17 @@ quirks at the junction.
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from miles.utils.chat_template_utils.template import apply_chat_template, assert_messages_append_only
 from miles.utils.chat_template_utils.token_seq_comparator import TokenSeqComparator
+
+logger = logging.getLogger(__name__)
+
+TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 _DUMMY_USER: dict[str, Any] = {"role": "user", "content": "dummy"}
 
@@ -249,6 +255,11 @@ class TITOTokenizerType(str, Enum):
     DEFAULT = "default"
     QWEN3 = "qwen3"
     GLM47 = "glm47"
+
+
+TITO_MODEL_FIXED_TEMPLATES: dict[TITOTokenizerType, str] = {
+    TITOTokenizerType.QWEN3: str(TEMPLATE_DIR / "qwen3_fixed.jinja"),
+}
 
 
 _TOKENIZER_REGISTRY: dict[TITOTokenizerType, type[TITOTokenizer]] = {

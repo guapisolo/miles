@@ -33,7 +33,7 @@ import pytest
 import requests
 
 from miles.router.router import MilesRouter
-from miles.utils.chat_template_utils import try_get_fixed_chat_template
+from miles.utils.chat_template_utils.tito_tokenizer import TITO_MODEL_FIXED_TEMPLATES, TITOTokenizerType
 from miles.utils.http_utils import find_available_port
 from miles.utils.processing_utils import load_tokenizer
 from miles.utils.test_utils.mock_sglang_server import MockSGLangServer
@@ -60,18 +60,18 @@ class ModelTemplateConfig:
 WORKING_CONFIGS: dict[str, ModelTemplateConfig] = {
     "qwen3-fixed": ModelTemplateConfig(
         "Qwen/Qwen3-0.6B",
-        try_get_fixed_chat_template("Qwen/Qwen3-0.6B"),
+        TITO_MODEL_FIXED_TEMPLATES.get(TITOTokenizerType.QWEN3),
     ),
     "qwen3-thinking2507-fixed": ModelTemplateConfig(
         "Qwen/Qwen3-4B-Thinking-2507",
-        try_get_fixed_chat_template("Qwen/Qwen3-4B-Thinking-2507"),
+        TITO_MODEL_FIXED_TEMPLATES.get(TITOTokenizerType.QWEN3),
     ),
     "glm5-native": ModelTemplateConfig("zai-org/GLM-5", None),
     "qwen3.5-native": ModelTemplateConfig("Qwen/Qwen3.5-0.8B", None),
     "qwen3-next-instruct-native": ModelTemplateConfig("Qwen/Qwen3-Next-80B-A3B-Instruct", None),
     "qwen3-next-thinking-fixed": ModelTemplateConfig(
         "Qwen/Qwen3-Next-80B-A3B-Thinking",
-        try_get_fixed_chat_template("Qwen/Qwen3-Next-80B-A3B-Thinking"),
+        TITO_MODEL_FIXED_TEMPLATES.get(TITOTokenizerType.QWEN3),
     ),
 }
 
@@ -253,11 +253,9 @@ def _verify_pretokenized_injection(env, responses):
             input_ids = req["input_ids"]
             assert len(input_ids) > 0, f"Turn {turn_idx} input_ids is empty"
 
-            assert resp_prompt_ids == input_ids, (
-                f"Turn {turn_idx}: input_ids does not match prompt_token_ids.\n"
-                f"input_ids len={len(input_ids)}, prompt len={len(resp_prompt_ids)}\n"
-                f"First diff at index {next((i for i, (a, b) in enumerate(zip(input_ids, resp_prompt_ids, strict=False)) if a != b), 'length')}"
-            )
+            assert (
+                resp_prompt_ids == input_ids
+            ), f"Turn {turn_idx}: input_ids does not match prompt_token_ids.\ninput_ids len={len(input_ids)}, prompt len={len(resp_prompt_ids)}\nFirst diff at index {next((i for i, (a, b) in enumerate(zip(input_ids, resp_prompt_ids, strict=False)) if a != b), 'length')}"
 
 
 def _verify_pretokenized_NOT_prefix(env, responses):
@@ -280,10 +278,9 @@ def _verify_pretokenized_NOT_prefix(env, responses):
             found_mismatch = True
             break
 
-    assert found_mismatch, (
-        "Expected prefix invariant to be violated with native template, "
-        "but input_ids matched prompt_token_ids on all turns"
-    )
+    assert (
+        found_mismatch
+    ), "Expected prefix invariant to be violated with native template, but input_ids matched prompt_token_ids on all turns"
 
 
 # ===========================================================================
@@ -435,9 +432,8 @@ class TestNativeTemplatePrefixBreaks:
                     found_mismatch = True
                     break
 
-            assert found_mismatch, (
-                "Expected prefix invariant to be violated with native template, "
-                "but input_ids matched full re-tokenization on all turns"
-            )
+            assert (
+                found_mismatch
+            ), "Expected prefix invariant to be violated with native template, but input_ids matched full re-tokenization on all turns"
         finally:
             _teardown_router_env(env)

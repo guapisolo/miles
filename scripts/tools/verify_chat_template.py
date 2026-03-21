@@ -9,8 +9,8 @@ Usage examples::
     # Verify a HuggingFace model's chat template
     python scripts/tools/verify_chat_template.py --model Qwen/Qwen3-0.6B
 
-    # Verify with autofix (use our fixed template if available)
-    python scripts/tools/verify_chat_template.py --model Qwen/Qwen3-0.6B --autofix
+    # Verify with tito-model (use our fixed template if available)
+    python scripts/tools/verify_chat_template.py --model Qwen/Qwen3-0.6B --tito-model qwen3
 
     # Also run thinking-specific cases
     python scripts/tools/verify_chat_template.py --model Qwen/Qwen3.5-0.8B --thinking
@@ -27,14 +27,14 @@ def _load_template_from_file(path: str) -> str:
         return f.read()
 
 
-def _load_template_from_model(model_id: str, *, autofix: bool) -> tuple[str, str]:
+def _load_template_from_model(model_id: str, *, tito_model: str | None) -> tuple[str, str]:
     """Load chat template for a HF model. Returns (template_str, source_description)."""
-    if autofix:
-        from miles.utils.chat_template_utils.autofix import try_get_fixed_chat_template
+    if tito_model is not None and tito_model != "default":
+        from miles.utils.chat_template_utils.tito_tokenizer import TITO_MODEL_FIXED_TEMPLATES, TITOTokenizerType
 
-        fixed_path = try_get_fixed_chat_template(model_id)
+        fixed_path = TITO_MODEL_FIXED_TEMPLATES.get(TITOTokenizerType(tito_model))
         if fixed_path:
-            return _load_template_from_file(fixed_path), f"fixed template: {fixed_path}"
+            return _load_template_from_file(fixed_path), f"fixed template for {tito_model}: {fixed_path}"
 
     from miles.utils.chat_template_utils.template import load_hf_chat_template
 
@@ -61,9 +61,10 @@ def main() -> int:
     )
 
     parser.add_argument(
-        "--autofix",
-        action="store_true",
-        help="When using --model, apply our fixed template if one exists.",
+        "--tito-model",
+        type=str,
+        default=None,
+        help="When using --model, apply the fixed template for this tito-model if one exists.",
     )
     parser.add_argument(
         "--thinking",
@@ -78,7 +79,7 @@ def main() -> int:
         chat_template = _load_template_from_file(args.template)
         source_desc = f"file: {args.template}"
     else:
-        chat_template, source_desc = _load_template_from_model(args.model, autofix=args.autofix)
+        chat_template, source_desc = _load_template_from_model(args.model, tito_model=args.tito_model)
 
     print(f"Template source: {source_desc}")
     print(f"Thinking cases:  {'enabled' if args.thinking else 'disabled'}")

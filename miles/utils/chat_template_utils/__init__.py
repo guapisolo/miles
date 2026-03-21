@@ -1,6 +1,5 @@
 """Chat template utilities for agentic-workflow token consistency."""
 
-from miles.utils.chat_template_utils.autofix import TEMPLATE_DIR, try_get_fixed_chat_template
 from miles.utils.chat_template_utils.template import (
     apply_chat_template,
     apply_chat_template_from_str,
@@ -9,7 +8,13 @@ from miles.utils.chat_template_utils.template import (
     load_hf_chat_template,
     message_matches,
 )
-from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer, TITOTokenizerType, get_tito_tokenizer
+from miles.utils.chat_template_utils.tito_tokenizer import (
+    TEMPLATE_DIR,
+    TITO_MODEL_FIXED_TEMPLATES,
+    TITOTokenizer,
+    TITOTokenizerType,
+    get_tito_tokenizer,
+)
 from miles.utils.chat_template_utils.token_seq_comparator import Mismatch, MismatchType, TokenSeqComparator
 
 __all__ = [
@@ -17,7 +22,7 @@ __all__ = [
     "TITOTokenizerType",
     "get_tito_tokenizer",
     "TEMPLATE_DIR",
-    "try_get_fixed_chat_template",
+    "TITO_MODEL_FIXED_TEMPLATES",
     "load_hf_chat_template",
     "apply_chat_template",
     "apply_chat_template_from_str",
