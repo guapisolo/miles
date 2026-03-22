@@ -21,6 +21,9 @@ from typing import Any
 
 from huggingface_hub import hf_hub_download
 from jinja2 import TemplateError
+from pydantic import TypeAdapter
+from sglang.srt.entrypoints.openai.protocol import Tool
+from transformers.utils.chat_template_utils import render_jinja_template
 
 
 def load_hf_chat_template(model_id: str) -> str:
@@ -64,8 +67,9 @@ def _normalize_tool_arguments(messages: list[dict]) -> list[dict]:
                 msg["content"] = ""
             if "tool_calls" in msg and isinstance(msg["tool_calls"], list):
                 for item in msg["tool_calls"]:
-                    if "arguments" in item["function"] and isinstance(item["function"]["arguments"], str):
-                        item["function"]["arguments"] = json.loads(item["function"]["arguments"])
+                    func = item.get("function")
+                    if func and "arguments" in func and isinstance(func["arguments"], str):
+                        func["arguments"] = json.loads(func["arguments"])
     return normalized
 
 
@@ -78,9 +82,6 @@ def extract_tool_dicts(tools: list[dict] | None) -> list[dict] | None:
     """
     if not tools:
         return None
-
-    from pydantic import TypeAdapter
-    from sglang.srt.entrypoints.openai.protocol import Tool
 
     wrapped = [t if isinstance(t, dict) and "function" in t else {"type": "function", "function": t} for t in tools]
     validated = TypeAdapter(list[Tool]).validate_python(wrapped)
@@ -103,7 +104,6 @@ def apply_chat_template_from_str(
     Applies SGLang-style normalizations (tool argument parsing, tool dict
     canonicalization, tool format fallback).
     """
-    from transformers.utils.chat_template_utils import render_jinja_template
 
     def _render(tool_defs):
         rendered, _ = render_jinja_template(
@@ -119,7 +119,7 @@ def apply_chat_template_from_str(
     tool_defs = extract_tool_dicts(tools)
     try:
         return _render(tool_defs)
-    except Exception as e:
+    except TemplateError as e:
         if tool_defs is not None:
             try:
                 return _render([t["function"] if "function" in t else t for t in tool_defs])
@@ -224,11 +224,12 @@ def apply_chat_template(
     messages = _normalize_tool_arguments(messages)
     tool_defs = extract_tool_dicts(tools)
     render_kwargs = dict(add_generation_prompt=add_generation_prompt, **kwargs)
+
     try:
         return tokenizer.apply_chat_template(
             messages, tokenize=tokenize, tools=tool_defs, return_dict=False, **render_kwargs
         )
-    except Exception as e:
+    except TemplateError as e:
         if tool_defs is not None:
             try:
                 return tokenizer.apply_chat_template(
