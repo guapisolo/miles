@@ -1675,7 +1675,7 @@ def miles_validate_args(args):
             args.no_load_optim = True
             args.no_load_rng = True
             args.finetune = True
-            args.load = args.ref_load or args.hf_checkpoint
+            args.load = args.ref_load
             if args.ref_ckpt_step is not None:
                 args.ckpt_step = args.ref_ckpt_step
             args.start_rollout_id = 0
@@ -1907,7 +1907,7 @@ def hf_validate_args(args, hf_config):
         ("tie_word_embeddings", "untie_embeddings_and_output_weights", lambda x, y: not x == y),
         (
             "rms_norm_eps",
-            "layernorm_epsilon",
+            "norm_epsilon" if os.getenv("DEPRECATED_MEGATRON_COMPATIBLE", "0") == "1" else "layernorm_epsilon",
             equal,
         ),
         ("rope_theta", "rotary_base", equal),
