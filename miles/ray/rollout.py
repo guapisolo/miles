@@ -1091,27 +1091,19 @@ def _resolve_sglang_config(args) -> SglangConfig:
 
 
 def _start_session_server(args):
-    """Start a standalone session server when session/TITO support is needed.
+    """Start a standalone session server when ``--use-session-server`` is set.
 
     The session server runs as a separate process with its own port and proxies
-    inference requests to the backend router (sglang or miles).  It is started
-    when ``hf_checkpoint`` and ``chat_template_path`` are both set, indicating
-    that TITO pre-tokenization is desired.
-
-    When ``--use-miles-router`` is active, sessions are already embedded in the
-    Miles Router so we skip the standalone server and simply alias the session
-    server address to the router address.
+    inference requests directly to SGLang worker engines.  It is always started
+    as a standalone process regardless of whether ``--use-miles-router`` is active.
     """
+    if not getattr(args, "use_session_server", False):
+        return
+
     hf_checkpoint = getattr(args, "hf_checkpoint", None)
     chat_template_path = getattr(args, "chat_template_path", None)
     if not hf_checkpoint or not chat_template_path:
-        return
-
-    if args.use_miles_router:
-        # Miles Router already serves session routes on the router port.
-        args.session_server_ip = args.sglang_router_ip
-        args.session_server_port = args.sglang_router_port
-        return
+        raise ValueError("--use-session-server requires both --hf-checkpoint and " "--chat-template-path to be set.")
 
     if getattr(args, "session_server_ip", None) is None:
         args.session_server_ip = args.sglang_router_ip

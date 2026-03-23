@@ -5,9 +5,10 @@ then runs the agentic_tool_call generate function with a custom agent that
 performs multi-turn tool calls and asserts the pretokenized prefix invariant
 on every turn.
 
-Supports two router modes controlled by ``SESSION_TEST_USE_MILES_ROUTER``:
-  - "1" (default): Miles Router with embedded session routes
-  - "0": SGLang Rust Router + standalone session server
+The standalone session server (``--use-session-server``) is always started.
+``SESSION_TEST_USE_MILES_ROUTER`` controls only which inference router is used:
+  - "1" (default): Miles Router
+  - "0": SGLang Rust Router
 
 Requires 1 GPU.
 """
@@ -126,7 +127,7 @@ def execute():
         "tests.e2e.sglang.session_tool_agent.run_agent "
     )
 
-    router_args = "--chat-template-path autofix " f"--tito-model {cfg.tito_model} "
+    router_args = "--use-session-server " "--chat-template-path autofix " f"--tito-model {cfg.tito_model} "
     if USE_MILES_ROUTER:
         router_args = "--use-miles-router " + router_args
 

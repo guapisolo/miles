@@ -26,6 +26,13 @@ def add_sglang_router_arguments(parser):
         help="Timeout for requests to the SGLang router in seconds",
     )
     parser.add_argument(
+        "--use-session-server",
+        action="store_true",
+        default=False,
+        help="Start a standalone session server for TITO/session support. "
+        "Requires --hf-checkpoint and --chat-template-path to also be set.",
+    )
+    parser.add_argument(
         "--session-server-ip",
         type=str,
         default=None,

@@ -22,8 +22,13 @@ class OpenAIEndpointTracer:
 
     @staticmethod
     async def create(args: Namespace):
-        session_ip = getattr(args, "session_server_ip", None) or args.sglang_router_ip
-        session_port = getattr(args, "session_server_port", None) or args.sglang_router_port
+        session_ip = getattr(args, "session_server_ip", None)
+        session_port = getattr(args, "session_server_port", None)
+        if not session_ip or not session_port:
+            raise RuntimeError(
+                "session_server_ip/session_server_port are not set. "
+                "Pass --use-session-server to start the session server."
+            )
         session_url = f"http://{session_ip}:{session_port}"
         response = await post(f"{session_url}/sessions", {}, action="post")
         session_id = response["session_id"]
