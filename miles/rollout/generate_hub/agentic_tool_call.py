@@ -43,6 +43,11 @@ logger = logging.getLogger(__name__)
 
 
 async def generate(input: GenerateFnInput) -> GenerateFnOutput:
+    if not getattr(input.args, "session_server_ip", None) or not getattr(input.args, "session_server_port", None):
+        raise ValueError(
+            "agentic_tool_call generate requires a running session server. "
+            "Pass --use-session-server (along with --hf-checkpoint and --chat-template-path)."
+        )
     tracer = await OpenAIEndpointTracer.create(input.args)
 
     custom_agent_function: Callable = load_function(input.args.custom_agent_function_path)
