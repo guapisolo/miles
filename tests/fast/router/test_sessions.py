@@ -42,7 +42,7 @@ def router_env():
                 chat_template_path=None,
                 trajectory_manager="single_user_turn_trajectory",
             )
-            server_obj = SessionServer(args, worker_urls=[backend.url])
+            server_obj = SessionServer(args, backend_url=backend.url)
 
             port = find_available_port(31000)
             server = UvicornThreadServer(server_obj.app, host="127.0.0.1", port=port)

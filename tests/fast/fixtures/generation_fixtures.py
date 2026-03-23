@@ -236,7 +236,7 @@ def with_session_server(
         tito_model="default",
         use_rollout_routing_replay=use_rollout_routing_replay,
     )
-    session_server = SessionServer(args, worker_urls=[backend_url])
+    session_server = SessionServer(args, backend_url=backend_url)
 
     port = find_available_port(31000)
     server = UvicornThreadServer(session_server.app, host="127.0.0.1", port=port)

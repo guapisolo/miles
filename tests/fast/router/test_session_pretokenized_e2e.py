@@ -135,7 +135,7 @@ def _make_router_env(tokenizer, model_config, trajectory_cls):
         chat_template_path=model_config.chat_template_path,
         trajectory_manager="single_user_turn_trajectory",
     )
-    session_server = SessionServer(args, worker_urls=[backend.url])
+    session_server = SessionServer(args, backend_url=backend.url)
 
     port = find_available_port(31000)
     server = UvicornThreadServer(session_server.app, host="127.0.0.1", port=port)
