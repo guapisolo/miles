@@ -171,12 +171,6 @@ class ServerGroup:
                 base_port=base_port,
             )
 
-        if not hasattr(self.args, "sglang_worker_urls") or self.args.sglang_worker_urls is None:
-            self.args.sglang_worker_urls = []
-        self.args.sglang_worker_urls.extend(
-            [f"http://{ap['host']}:{ap['port']}" for ap in addr_and_ports.values() if "host" in ap and "port" in ap]
-        )
-
         init_handles = [
             engine.init.remote(
                 **(addr_and_ports[rank]),
@@ -1101,9 +1095,8 @@ def _start_session_server(args):
         return
 
     hf_checkpoint = getattr(args, "hf_checkpoint", None)
-    chat_template_path = getattr(args, "chat_template_path", None)
-    if not hf_checkpoint or not chat_template_path:
-        raise ValueError("--use-session-server requires both --hf-checkpoint and " "--chat-template-path to be set.")
+    if not hf_checkpoint:
+        raise ValueError("--use-session-server requires --hf-checkpoint to be set.")
 
     if getattr(args, "session_server_ip", None) is None:
         args.session_server_ip = args.sglang_router_ip
@@ -1117,16 +1110,11 @@ def _start_session_server(args):
             f"Run 'pkill -9 python' to kill stale processes, then retry."
         )
 
-    worker_urls = getattr(args, "sglang_worker_urls", None)
-    if not worker_urls:
-        worker_urls = [f"http://{args.sglang_router_ip}:{args.sglang_router_port}"]
-        logger.warning("No worker URLs available; session server will proxy through the router.")
-    else:
-        worker_urls = list(dict.fromkeys(worker_urls))
+    router_url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}"
 
     from miles.rollout.session.session_server import run_session_server
 
-    process = multiprocessing.Process(target=run_session_server, args=(args, worker_urls))
+    process = multiprocessing.Process(target=run_session_server, args=(args, router_url))
     process.daemon = True
     process.start()
     time.sleep(3)
