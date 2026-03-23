@@ -32,7 +32,7 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-from miles.router.router import MilesRouter
+from miles.rollout.session.session_server import SessionServer
 from miles.utils.chat_template_utils import try_get_fixed_chat_template
 from miles.utils.http_utils import find_available_port
 from miles.utils.processing_utils import load_tokenizer
@@ -113,7 +113,7 @@ def tokenizer(model_config):
 
 
 def _make_router_env(tokenizer, model_config, trajectory_cls):
-    """Create a MilesRouter + mock backend wired for a given trajectory."""
+    """Create a SessionServer + mock backend wired for a given trajectory."""
     trajectory = build_trajectory(tokenizer, trajectory_cls)
     process_fn = SequentialProcessFn(trajectory)
 
@@ -130,24 +130,19 @@ def _make_router_env(tokenizer, model_config, trajectory_cls):
     ctx["backend"] = backend
 
     args = SimpleNamespace(
-        miles_router_max_connections=10,
         miles_router_timeout=30,
-        miles_router_middleware_paths=[],
-        rollout_health_check_interval=60,
-        miles_router_health_check_failure_threshold=3,
         hf_checkpoint=model_config.hf_checkpoint,
         chat_template_path=model_config.chat_template_path,
         trajectory_manager="single_user_turn_trajectory",
     )
-    router = MilesRouter(args)
+    session_server = SessionServer(args, worker_urls=[backend.url])
 
     port = find_available_port(31000)
-    server = UvicornThreadServer(router.app, host="127.0.0.1", port=port)
+    server = UvicornThreadServer(session_server.app, host="127.0.0.1", port=port)
     server.start()
     ctx["server"] = server
 
     url = f"http://127.0.0.1:{port}"
-    requests.post(f"{url}/add_worker", json={"url": backend.url}, timeout=5.0)
 
     return SimpleNamespace(url=url, backend=backend, trajectory=trajectory, process_fn=process_fn, _ctx=ctx)
 

@@ -279,7 +279,6 @@ class TestTITOTrailingTokenTrim:
 
     def test_three_turn_trim_trailing_stop_tokens(self):
         """Three-turn retry: non-final turns have 1 trailing stop token trimmed."""
-        args = _mock_args()
         tok = _mock_tokenizer()
 
         #   prompt: [1, 2, 3]  output: [10, STOP]
@@ -296,7 +295,7 @@ class TestTITOTrailingTokenTrim:
         input_sample = _make_input_sample()
 
         samples = compute_samples_from_openai_records(
-            args,
+            _ARGS,
             input_sample,
             records,
             tok,
@@ -317,7 +316,7 @@ class TestTITOTrailingTokenTrim:
 
     def test_no_trim_when_no_trailing_stop(self):
         """When output tokens fully match accumulated, trim_count=0 for all turns."""
-        args = _mock_args()
+
         tok = _mock_tokenizer()
 
         # Two turns, no trailing stop tokens — output aligns perfectly
@@ -332,7 +331,7 @@ class TestTITOTrailingTokenTrim:
         input_sample = _make_input_sample()
 
         samples = compute_samples_from_openai_records(
-            args,
+            _ARGS,
             input_sample,
             records,
             tok,
@@ -348,7 +347,7 @@ class TestTITOTrailingTokenTrim:
 
     def test_single_turn_no_trim(self):
         """Single turn: last turn never trims, even with accumulated_token_ids."""
-        args = _mock_args()
+
         tok = _mock_tokenizer()
 
         records = [
@@ -358,7 +357,7 @@ class TestTITOTrailingTokenTrim:
         input_sample = _make_input_sample()
 
         samples = compute_samples_from_openai_records(
-            args,
+            _ARGS,
             input_sample,
             records,
             tok,
@@ -372,7 +371,7 @@ class TestTITOTrailingTokenTrim:
 
     def test_no_accumulated_skips_trimming(self):
         """Without accumulated_token_ids, no trimming is performed at all."""
-        args = _mock_args()
+
         tok = _mock_tokenizer()
 
         records = [
@@ -382,7 +381,7 @@ class TestTITOTrailingTokenTrim:
         input_sample = _make_input_sample()
 
         samples = compute_samples_from_openai_records(
-            args,
+            _ARGS,
             input_sample,
             records,
             tok,
@@ -398,7 +397,7 @@ class TestTITOTrailingTokenTrim:
 
     def test_trim_exceeding_max_raises(self):
         """If trailing tokens exceed max_trim_tokens, assert fires."""
-        args = _mock_args()
+
         tok = _mock_tokenizer()
 
         # Output has 2 trailing tokens that don't match, but max_trim_tokens=1
@@ -411,7 +410,7 @@ class TestTITOTrailingTokenTrim:
 
         with pytest.raises(AssertionError, match="trim_count 2 exceeds allowed=1"):
             compute_samples_from_openai_records(
-                args,
+                _ARGS,
                 input_sample,
                 records,
                 tok,
@@ -421,7 +420,7 @@ class TestTITOTrailingTokenTrim:
 
     def test_cursor_covers_entire_accumulated(self):
         """After processing all records, cursor must equal len(accumulated)."""
-        args = _mock_args()
+
         tok = _mock_tokenizer()
 
         # accumulated is shorter than what records imply — cursor won't reach end
@@ -435,7 +434,7 @@ class TestTITOTrailingTokenTrim:
 
         with pytest.raises(AssertionError, match="cursor .* != len\\(accumulated_token_ids\\)"):
             compute_samples_from_openai_records(
-                args,
+                _ARGS,
                 input_sample,
                 records,
                 tok,
