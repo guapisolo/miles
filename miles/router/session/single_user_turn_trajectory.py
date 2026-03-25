@@ -16,7 +16,10 @@ class SingleUserTurnTrajectory(BaseModel):
     """State for a single-user-turn trajectory.
 
     Tracks the full message history and accumulated token IDs for one session.
-    The message sequence is: [system?, user, assistant, tool, assistant, tool, …].
+    The typical message sequence is: [system?, user, assistant, tool, assistant, tool, …],
+    but the agent may retry from an earlier point (e.g. re-running a tool call),
+    in which case the session is rolled back to the last matching assistant
+    checkpoint and re-extended from there.
     """
 
     messages: list[dict[str, Any]] = Field(default_factory=list)
@@ -33,7 +36,7 @@ class SingleUserTurnTrajectory(BaseModel):
     def append_session_record(self, record: SessionRecord):
         self.records.append(record)
 
-    def _detect_and_rollback(
+    def _try_detect_and_rollback_to_assistant_checkpoint(
         self,
         request_messages: list[dict[str, Any]],
     ) -> None:
@@ -155,7 +158,9 @@ class SingleUserTurnTrajectoryManager:
     def compute_session_mismatch(self, session_id: str) -> list[dict] | None:
         """Compare accumulated token IDs against canonical chat template output.
 
-        Returns a list of mismatch dicts, or None if comparison is not possible.
+        Returns a list of mismatch dicts from ``TokenSeqComparator.compare_sequences``,
+        each containing ``{position, expected_token, actual_token, context}``,
+        or ``None`` if the session doesn't exist / has no token IDs yet.
         """
         with self._lock:
             session = self.sessions.get(session_id)
@@ -191,7 +196,7 @@ class SingleUserTurnTrajectoryManager:
             session.append_session_record(record)
             return True
 
-    def try_prepare_pretokenized(
+    def prepare_pretokenized(
         self,
         session_id: str,
         request_messages: list[dict[str, Any]],
@@ -222,7 +227,7 @@ class SingleUserTurnTrajectoryManager:
                 return None
 
             self._assert_no_user_after_assistant(request_messages)
-            session._detect_and_rollback(request_messages)
+            session._try_detect_and_rollback_to_assistant_checkpoint(request_messages)
             assert_messages_append_only(session.messages, request_messages)
 
             merged = self.tito_tokenizer.merge_tokens(
@@ -243,11 +248,14 @@ class SingleUserTurnTrajectoryManager:
         prompt_token_ids: list[int],
         completion_token_ids: list[int],
     ) -> None:
-        """Store raw token IDs after a successful response (no stripping).
+        """Store raw token IDs after a successful response.
 
-        Appends a new checkpoint to ``trajectory_token_ids``.  Validates that
-        the previously stored token_ids are a prefix of the new
-        ``prompt_token_ids + completion_token_ids``, confirming SGLang
+        Appends ``prompt_token_ids + completion_token_ids`` as-is (no
+        stripping or modification) as a new checkpoint in
+        ``trajectory_token_ids``.  Validates that the previously stored
+        token_ids are a prefix of the new checkpoint, tolerating up to
+        ``max_trim_tokens`` trailing tokens that may differ due to
+        chat-template boundary re-tokenization.  This confirms SGLang
         actually reused our pretokenized input.
         """
         with self._lock:

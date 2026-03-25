@@ -66,15 +66,24 @@ def setup_session_routes(app, router: "MilesRouter"):
 
     @app.post("/sessions/{session_id}/v1/chat/completions")
     async def chat_completions(request: Request, session_id: str):
+        """Proxy a chat completion through SGLang with TITO token tracking.
+
+        Flow: prepare pretokenized input_ids (if not first turn) → inject
+        SGLang flags → proxy to backend → validate response → update
+        trajectory checkpoint → append session record.
+        """
         body = await request.body()
         request_body = json.loads(body) if body else {}
 
-        # TITO token tracking requires per-token info from SGLang responses.
-        # These are hardcoded (not setdefault) to prevent agent-side overrides
-        # from breaking the token accumulation invariants.
-        request_body["logprobs"] = True  # returns output_token_logprobs: [(logprob, token_id), ...]
-        request_body["return_prompt_token_ids"] = True  # returns prompt token IDs for checkpoint construction
-        request_body["return_meta_info"] = True  # wraps the above in choice.meta_info
+        # TITO token tracking requires three SGLang flags working together:
+        #   logprobs=True            → populates meta_info.output_token_logprobs
+        #   return_prompt_token_ids  → adds choice.prompt_token_ids
+        #   return_meta_info         → wraps the above in choice.meta_info
+        # All three are hardcoded (not setdefault) to prevent agent-side
+        # overrides from breaking the token accumulation invariants.
+        request_body["logprobs"] = True
+        request_body["return_prompt_token_ids"] = True
+        request_body["return_meta_info"] = True
         if getattr(router.args, "use_rollout_routing_replay", False):
             request_body["return_routed_experts"] = True
         # Must be False so stop tokens are trimmed from output: otherwise the
@@ -83,7 +92,7 @@ def setup_session_routes(app, router: "MilesRouter"):
         request_body["no_stop_trim"] = False
 
         request_messages = request_body.get("messages", [])
-        pretokenized = manager.try_prepare_pretokenized(session_id, request_messages, tools=request_body.get("tools"))
+        pretokenized = manager.prepare_pretokenized(session_id, request_messages, tools=request_body.get("tools"))
         if pretokenized is not None:
             request_body["input_ids"] = pretokenized["input_ids"]
             logger.debug(

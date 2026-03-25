@@ -128,13 +128,13 @@ RETRY_SYS_MSG = {"role": "system", "content": "Please try using the tools to ans
 
 
 class TestSingleUserTurnPretokenized:
-    """Test try_prepare_pretokenized and update_pretokenized_state across turns."""
+    """Test prepare_pretokenized and update_pretokenized_state across turns."""
 
     def test_first_turn_returns_none(self, manager: SingleUserTurnTrajectoryManager):
         """First turn has no prior token_ids, so try_prepare returns None."""
         sid = manager.create_session()
         messages = [SYS_MSG, USER_MSG]
-        result = manager.try_prepare_pretokenized(sid, messages)
+        result = manager.prepare_pretokenized(sid, messages)
         assert result is None
 
     def test_two_turn_trajectory(self, manager: SingleUserTurnTrajectoryManager):
@@ -143,7 +143,7 @@ class TestSingleUserTurnPretokenized:
 
         # --- Turn 1: [sys, user] -> assistant with tool_call ---
         turn1_messages = [SYS_MSG, USER_MSG]
-        assert manager.try_prepare_pretokenized(sid, turn1_messages) is None
+        assert manager.prepare_pretokenized(sid, turn1_messages) is None
 
         turn1_prompt_ids = [1, 2, 3, 4, 5]
         turn1_completion_ids = [10, 11, 12]
@@ -155,7 +155,7 @@ class TestSingleUserTurnPretokenized:
 
         # --- Turn 2: [sys, user, assistant, tool] -> final answer ---
         turn2_messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        result = manager.try_prepare_pretokenized(sid, turn2_messages)
+        result = manager.prepare_pretokenized(sid, turn2_messages)
         assert result is not None
         assert result["input_ids"] == [1, 2, 3, 4, 5, 10, 11, 12]
 
@@ -178,14 +178,14 @@ class TestSingleUserTurnPretokenized:
 
         # Turn 2
         t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        result = manager.try_prepare_pretokenized(sid, t2_msgs)
+        result = manager.prepare_pretokenized(sid, t2_msgs)
         assert result == {"input_ids": [1, 2, 3, 10, 11]}
 
         manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 3, 10, 11, 20, 21], [30, 31])
 
         # Turn 3
         t3_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, TOOL_MSG_2]
-        result = manager.try_prepare_pretokenized(sid, t3_msgs)
+        result = manager.prepare_pretokenized(sid, t3_msgs)
         assert result == {"input_ids": [1, 2, 3, 10, 11, 20, 21, 30, 31]}
 
         manager.update_pretokenized_state(
@@ -217,7 +217,7 @@ class TestSingleUserTurnPretokenized:
 
         bad_messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, {"role": "assistant", "content": "oops"}]
         with pytest.raises(ValueError, match="role=.assistant.*allowed="):
-            manager.try_prepare_pretokenized(sid, bad_messages)
+            manager.prepare_pretokenized(sid, bad_messages)
 
     def test_user_after_assistant_raises(self, manager: SingleUserTurnTrajectoryManager):
         """try_prepare raises when user message appears after assistant."""
@@ -226,11 +226,11 @@ class TestSingleUserTurnPretokenized:
 
         bad_messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "second"}]
         with pytest.raises(ValueError, match="user message at index 4.*after the first assistant"):
-            manager.try_prepare_pretokenized(sid, bad_messages)
+            manager.prepare_pretokenized(sid, bad_messages)
 
     def test_session_not_found_raises(self, manager: SingleUserTurnTrajectoryManager):
         with pytest.raises(ValueError, match="session not found"):
-            manager.try_prepare_pretokenized("nonexistent", [SYS_MSG, USER_MSG])
+            manager.prepare_pretokenized("nonexistent", [SYS_MSG, USER_MSG])
 
     def test_no_system_message(self, manager: SingleUserTurnTrajectoryManager):
         """Works without system message (system is optional)."""
@@ -239,7 +239,7 @@ class TestSingleUserTurnPretokenized:
         manager.update_pretokenized_state(sid, msgs, ASSISTANT_MSG_1, [1, 2], [10])
 
         t2_msgs = [USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        result = manager.try_prepare_pretokenized(sid, t2_msgs)
+        result = manager.prepare_pretokenized(sid, t2_msgs)
         assert result == {"input_ids": [1, 2, 10]}
 
     def test_append_system_message_allowed(self, manager: SingleUserTurnTrajectoryManager):
@@ -248,7 +248,7 @@ class TestSingleUserTurnPretokenized:
         manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11])
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, RETRY_SYS_MSG]
-        result = manager.try_prepare_pretokenized(sid, messages)
+        result = manager.prepare_pretokenized(sid, messages)
         assert result is not None
         assert result["input_ids"] == [1, 2, 3, 10, 11]
 
@@ -262,7 +262,7 @@ class TestSingleUserTurnPretokenized:
 
         # Turn 2: append tool + system_retry -> assistant(tool_call)
         t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, RETRY_SYS_MSG]
-        result = manager.try_prepare_pretokenized(sid, t2_msgs)
+        result = manager.prepare_pretokenized(sid, t2_msgs)
         assert result is not None
 
         manager.update_pretokenized_state(
@@ -278,7 +278,7 @@ class TestSingleUserTurnPretokenized:
 
         # Turn 3: append tool after the second assistant
         t3_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, RETRY_SYS_MSG, ASSISTANT_MSG_2, TOOL_MSG_2]
-        result = manager.try_prepare_pretokenized(sid, t3_msgs)
+        result = manager.prepare_pretokenized(sid, t3_msgs)
         assert result is not None
 
     def test_multiple_system_messages_at_start(self, manager: SingleUserTurnTrajectoryManager):
@@ -286,7 +286,7 @@ class TestSingleUserTurnPretokenized:
         sid = manager.create_session()
         extra_sys = {"role": "system", "content": "Extra instructions."}
         msgs = [SYS_MSG, extra_sys, USER_MSG]
-        result = manager.try_prepare_pretokenized(sid, msgs)
+        result = manager.prepare_pretokenized(sid, msgs)
         assert result is None  # first turn, no prior tokens
 
         manager.update_pretokenized_state(sid, msgs, ASSISTANT_MSG_1, [1, 2, 3, 4], [10, 11])
@@ -294,7 +294,7 @@ class TestSingleUserTurnPretokenized:
         assert session.messages == [SYS_MSG, extra_sys, USER_MSG, ASSISTANT_MSG_1]
 
         t2_msgs = [SYS_MSG, extra_sys, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        result = manager.try_prepare_pretokenized(sid, t2_msgs)
+        result = manager.prepare_pretokenized(sid, t2_msgs)
         assert result is not None
         assert result["input_ids"] == [1, 2, 3, 4, 10, 11]
 
@@ -305,7 +305,7 @@ class TestSingleUserTurnPretokenized:
 
         bad = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "extra"}]
         with pytest.raises(ValueError, match="user message at index 4.*after the first assistant"):
-            manager.try_prepare_pretokenized(sid, bad)
+            manager.prepare_pretokenized(sid, bad)
 
 
 class TestRollback:
@@ -321,7 +321,7 @@ class TestRollback:
 
         # Turn 2: [sys, user, asst1, tool1] -> assistant2
         t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        manager.try_prepare_pretokenized(sid, t2_msgs)
+        manager.prepare_pretokenized(sid, t2_msgs)
         manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 3, 10, 11, 20, 21], [30, 31])
 
         session = manager.sessions[sid]
@@ -331,7 +331,7 @@ class TestRollback:
         # Rollback: send [sys, user, asst1, NEW_tool] — diverges after asst1
         new_tool = {"role": "tool", "content": '{"temperature": 99}', "tool_call_id": "call_1"}
         rollback_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool]
-        result = manager.try_prepare_pretokenized(sid, rollback_msgs)
+        result = manager.prepare_pretokenized(sid, rollback_msgs)
         assert result is not None
 
         # State should be rolled back to checkpoint 0
@@ -349,11 +349,11 @@ class TestRollback:
         manager.update_pretokenized_state(sid, t1_msgs, ASSISTANT_MSG_1, [1, 2, 3], [10, 11])
 
         t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        manager.try_prepare_pretokenized(sid, t2_msgs)
+        manager.prepare_pretokenized(sid, t2_msgs)
         manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 3, 10, 11, 20, 21], [30, 31])
 
         t3_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, TOOL_MSG_2]
-        manager.try_prepare_pretokenized(sid, t3_msgs)
+        manager.prepare_pretokenized(sid, t3_msgs)
         manager.update_pretokenized_state(
             sid, t3_msgs, ASSISTANT_MSG_FINAL, [1, 2, 3, 10, 11, 20, 21, 30, 31, 40], [50, 51]
         )
@@ -362,7 +362,7 @@ class TestRollback:
 
         # Rollback to checkpoint 0 (first assistant)
         new_tool = {"role": "tool", "content": '{"alt": true}', "tool_call_id": "call_1"}
-        manager.try_prepare_pretokenized(sid, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
+        manager.prepare_pretokenized(sid, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
 
         session = manager.sessions[sid]
         assert session.token_ids == t1_tokens
@@ -378,13 +378,13 @@ class TestRollback:
 
         # Turn 2
         t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        manager.try_prepare_pretokenized(sid, t2_msgs)
+        manager.prepare_pretokenized(sid, t2_msgs)
         manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 3, 10, 11, 20], [30])
 
         # Rollback to asst1, send different tool
         new_tool = {"role": "tool", "content": '{"retry": true}', "tool_call_id": "call_1"}
         rollback_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool]
-        result = manager.try_prepare_pretokenized(sid, rollback_msgs)
+        result = manager.prepare_pretokenized(sid, rollback_msgs)
         assert result is not None
 
         # Continue: complete a new turn from the rolled-back state
@@ -405,13 +405,13 @@ class TestRollback:
 
         # Turn 2: [sys, user, asst1, tool1] -> asst2
         t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        manager.try_prepare_pretokenized(sid, t2_msgs)
+        manager.prepare_pretokenized(sid, t2_msgs)
         manager.update_pretokenized_state(sid, t2_msgs, ASSISTANT_MSG_2, [1, 2, 10, 20], [30])
         # stored messages: [sys, user, asst1, tool1, asst2] (5 messages)
 
         # Agent retries with only [sys, user, asst1, sys_retry] (4 messages)
         retry_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, RETRY_SYS_MSG]
-        result = manager.try_prepare_pretokenized(sid, retry_msgs)
+        result = manager.prepare_pretokenized(sid, retry_msgs)
         assert result is not None
 
         session = manager.sessions[sid]
@@ -426,11 +426,11 @@ class TestRollback:
         manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10])
 
         t2 = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        manager.try_prepare_pretokenized(sid, t2)
+        manager.prepare_pretokenized(sid, t2)
         manager.update_pretokenized_state(sid, t2, ASSISTANT_MSG_2, [1, 2, 10, 20], [30])
 
         t3 = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, TOOL_MSG_2]
-        manager.try_prepare_pretokenized(sid, t3)
+        manager.prepare_pretokenized(sid, t3)
         manager.update_pretokenized_state(sid, t3, ASSISTANT_MSG_FINAL, [1, 2, 10, 20, 30, 40], [50])
 
         session = manager.sessions[sid]
@@ -439,7 +439,7 @@ class TestRollback:
         # Rollback: keep up to asst2, diverge at tool2
         new_tool = {"role": "tool", "content": '{"alt": 1}', "tool_call_id": "call_2"}
         rollback_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, new_tool]
-        result = manager.try_prepare_pretokenized(sid, rollback_msgs)
+        result = manager.prepare_pretokenized(sid, rollback_msgs)
         assert result is not None
 
         assert session.num_assistant == 2
@@ -455,7 +455,7 @@ class TestRollback:
 
         # Append tool — not a rollback
         t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        result = manager.try_prepare_pretokenized(sid, t2_msgs)
+        result = manager.prepare_pretokenized(sid, t2_msgs)
         assert result is not None
 
         session = manager.sessions[sid]
@@ -472,7 +472,7 @@ class TestRollback:
         # Diverge at user message (index 1) — only sys matched, no assistant
         bad_msgs = [SYS_MSG, {"role": "user", "content": "different question"}]
         with pytest.raises(ValueError, match="rollback failed.*no assistant"):
-            manager.try_prepare_pretokenized(sid, bad_msgs)
+            manager.prepare_pretokenized(sid, bad_msgs)
 
     def test_rollback_records_truncated(self, manager: SingleUserTurnTrajectoryManager):
         """Records are truncated in sync with trajectory_token_ids on rollback."""
@@ -487,7 +487,7 @@ class TestRollback:
 
         # Turn 2
         t2 = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
-        manager.try_prepare_pretokenized(sid, t2)
+        manager.prepare_pretokenized(sid, t2)
         manager.update_pretokenized_state(sid, t2, ASSISTANT_MSG_2, [1, 2, 10, 20], [30])
         r2 = SessionRecord(
             timestamp=2.0, method="POST", path="/v1/chat/completions", status_code=200, request={}, response={}
@@ -499,7 +499,7 @@ class TestRollback:
 
         # Rollback to checkpoint 0
         new_tool = {"role": "tool", "content": '{"alt": 1}', "tool_call_id": "call_1"}
-        manager.try_prepare_pretokenized(sid, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
+        manager.prepare_pretokenized(sid, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
 
         assert len(session.records) == 1
         assert session.records[0].timestamp == 1.0
