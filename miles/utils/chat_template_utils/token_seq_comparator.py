@@ -221,8 +221,8 @@ class TokenSeqComparator:
                 )
             return None
 
-        exp_text = self._decode(exp.token_ids).strip()
-        act_text = self._decode(act.token_ids).strip()
+        exp_text = self._decode(exp.token_ids)
+        act_text = self._decode(act.token_ids)
         if exp_text == act_text:
             return None
 
