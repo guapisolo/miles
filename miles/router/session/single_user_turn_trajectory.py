@@ -261,6 +261,11 @@ class SingleUserTurnTrajectoryManager:
         with self._lock:
             session = self.sessions.get(session_id)
             if session is None:
+                logger.warning(
+                    "update_pretokenized_state called for missing session %s — "
+                    "the session may have been deleted mid-request",
+                    session_id,
+                )
                 return
 
             all_token_ids = prompt_token_ids + completion_token_ids

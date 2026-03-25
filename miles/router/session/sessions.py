@@ -114,7 +114,8 @@ def setup_session_routes(app, router: "MilesRouter"):
 
         choice = response.get("choices", [{}])[0]
 
-        if "meta_info" not in choice or "output_token_logprobs" not in choice.get("meta_info", {}):
+        meta_info = choice.get("meta_info")
+        if not isinstance(meta_info, dict) or "output_token_logprobs" not in meta_info:
             raise RuntimeError("meta_info and output_token_logprobs must be in choice (requires logprobs=True)")
 
         assistant_message = choice.get("message", {})
@@ -125,7 +126,6 @@ def setup_session_routes(app, router: "MilesRouter"):
             )
 
         prompt_token_ids = choice.get("prompt_token_ids")
-        meta_info = choice["meta_info"]
         output_token_logprobs = meta_info["output_token_logprobs"]
         completion_tokens = meta_info["completion_tokens"]
 
