@@ -4,11 +4,14 @@ Tests the trajectory manager's session CRUD and pretokenized state management
 logic in isolation (no HTTP server, no real tokenizer).
 """
 
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from miles.router.session.session_errors import MessageValidationError, SessionNotFoundError, TokenizationError
 from miles.router.session.session_types import SessionRecord
 from miles.router.session.single_user_turn_trajectory import SingleUserTurnTrajectoryManager
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer
@@ -60,14 +63,15 @@ class TestSessionCRUD:
         assert records == []
 
     def test_get_session_records_by_id_not_found(self, manager: SingleUserTurnTrajectoryManager):
-        records = manager.get_session_records_by_id("nonexistent")
-        assert records is None
+        with pytest.raises(SessionNotFoundError):
+            manager.get_session_records_by_id("nonexistent")
 
     def test_delete_session_by_id(self, manager: SingleUserTurnTrajectoryManager):
         session_id = manager.create_session()
         assert manager.delete_session_by_id(session_id) is True
         assert session_id not in manager.sessions
-        assert manager.delete_session_by_id(session_id) is None
+        with pytest.raises(SessionNotFoundError):
+            manager.delete_session_by_id(session_id)
 
     def test_append_session_record(self, manager: SingleUserTurnTrajectoryManager):
         session_id = manager.create_session()
@@ -97,8 +101,8 @@ class TestSessionCRUD:
             request={},
             response={},
         )
-        appended = manager.append_session_record("missing", record)
-        assert appended is None
+        with pytest.raises(SessionNotFoundError):
+            manager.append_session_record("missing", record)
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +205,7 @@ class TestSingleUserTurnPretokenized:
         sid = manager.create_session()
         manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11])
 
-        with pytest.raises(ValueError, match="pretokenized prefix mismatch"):
+        with pytest.raises(TokenizationError, match="pretokenized prefix mismatch"):
             manager.update_pretokenized_state(
                 sid,
                 [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1],
@@ -216,7 +220,7 @@ class TestSingleUserTurnPretokenized:
         manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10])
 
         bad_messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, {"role": "assistant", "content": "oops"}]
-        with pytest.raises(ValueError, match="role=.assistant.*allowed="):
+        with pytest.raises(MessageValidationError, match="role=.assistant.*allowed="):
             manager.prepare_pretokenized(sid, bad_messages)
 
     def test_user_after_assistant_raises(self, manager: SingleUserTurnTrajectoryManager):
@@ -225,11 +229,11 @@ class TestSingleUserTurnPretokenized:
         manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10])
 
         bad_messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "second"}]
-        with pytest.raises(ValueError, match="user message at index 4.*after the first assistant"):
+        with pytest.raises(MessageValidationError, match="user message at index 4.*after the first assistant"):
             manager.prepare_pretokenized(sid, bad_messages)
 
     def test_session_not_found_raises(self, manager: SingleUserTurnTrajectoryManager):
-        with pytest.raises(ValueError, match="session not found"):
+        with pytest.raises(SessionNotFoundError, match="session not found"):
             manager.prepare_pretokenized("nonexistent", [SYS_MSG, USER_MSG])
 
     def test_no_system_message(self, manager: SingleUserTurnTrajectoryManager):
@@ -304,7 +308,7 @@ class TestSingleUserTurnPretokenized:
         manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10])
 
         bad = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "extra"}]
-        with pytest.raises(ValueError, match="user message at index 4.*after the first assistant"):
+        with pytest.raises(MessageValidationError, match="user message at index 4.*after the first assistant"):
             manager.prepare_pretokenized(sid, bad)
 
 
@@ -471,7 +475,7 @@ class TestRollback:
 
         # Diverge at user message (index 1) — only sys matched, no assistant
         bad_msgs = [SYS_MSG, {"role": "user", "content": "different question"}]
-        with pytest.raises(ValueError, match="rollback failed.*no assistant"):
+        with pytest.raises(MessageValidationError, match="rollback failed.*no assistant"):
             manager.prepare_pretokenized(sid, bad_msgs)
 
     def test_rollback_records_truncated(self, manager: SingleUserTurnTrajectoryManager):
@@ -503,3 +507,103 @@ class TestRollback:
 
         assert len(session.records) == 1
         assert session.records[0].timestamp == 1.0
+
+
+class TestUpdatePretokenizedStateMissingSession:
+    """update_pretokenized_state raises SessionNotFoundError for unknown session."""
+
+    def test_raises_on_missing_session(self, manager: SingleUserTurnTrajectoryManager):
+        with pytest.raises(SessionNotFoundError, match="session not found"):
+            manager.update_pretokenized_state(
+                "nonexistent",
+                [SYS_MSG, USER_MSG],
+                ASSISTANT_MSG_1,
+                [1, 2, 3],
+                [10],
+            )
+
+
+class TestComputeSessionMismatch:
+    """Tests for compute_session_mismatch."""
+
+    def test_returns_none_for_missing_session(self, manager: SingleUserTurnTrajectoryManager):
+        assert manager.compute_session_mismatch("nonexistent") is None
+
+    def test_returns_none_for_empty_token_ids(self, manager: SingleUserTurnTrajectoryManager):
+        sid = manager.create_session()
+        assert manager.compute_session_mismatch(sid) is None
+
+    @patch("miles.router.session.single_user_turn_trajectory.apply_chat_template")
+    def test_returns_empty_list_when_no_mismatch(self, mock_template, manager: SingleUserTurnTrajectoryManager):
+        sid = manager.create_session()
+        manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11])
+
+        # Simulate: template returns same IDs as stored
+        mock_template.return_value = [1, 2, 3, 10, 11]
+
+        # Need a real comparator; replace the None one
+        mock_comparator = MagicMock()
+        mock_comparator.compare_sequences.return_value = []
+        manager.comparator = mock_comparator
+
+        result = manager.compute_session_mismatch(sid)
+        assert result == []
+        mock_comparator.compare_sequences.assert_called_once_with([1, 2, 3, 10, 11], [1, 2, 3, 10, 11])
+
+    @patch("miles.router.session.single_user_turn_trajectory.apply_chat_template")
+    def test_returns_mismatch_dicts(self, mock_template, manager: SingleUserTurnTrajectoryManager):
+        sid = manager.create_session()
+        manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11])
+
+        mock_template.return_value = [1, 2, 99, 10, 11]
+
+        @dataclass
+        class FakeMismatch:
+            position: int
+
+            def to_dict(self):
+                return {"position": self.position, "detail": "mismatch"}
+
+        mock_comparator = MagicMock()
+        mock_comparator.compare_sequences.return_value = [FakeMismatch(position=2)]
+        manager.comparator = mock_comparator
+
+        result = manager.compute_session_mismatch(sid)
+        assert result == [{"position": 2, "detail": "mismatch"}]
+
+    @patch("miles.router.session.single_user_turn_trajectory.apply_chat_template")
+    def test_returns_none_on_exception(self, mock_template, manager: SingleUserTurnTrajectoryManager):
+        sid = manager.create_session()
+        manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11])
+
+        mock_template.side_effect = RuntimeError("tokenizer failed")
+
+        result = manager.compute_session_mismatch(sid)
+        assert result is None
+
+    @patch("miles.router.session.single_user_turn_trajectory.apply_chat_template")
+    def test_uses_tools_from_last_record(self, mock_template, manager: SingleUserTurnTrajectoryManager):
+        sid = manager.create_session()
+        manager.update_pretokenized_state(sid, [SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10])
+
+        tools = [{"type": "function", "function": {"name": "get_weather"}}]
+        record = SessionRecord(
+            timestamp=1.0,
+            method="POST",
+            path="/v1/chat/completions",
+            status_code=200,
+            request={"tools": tools},
+            response={},
+        )
+        manager.append_session_record(sid, record)
+
+        mock_template.return_value = [1, 2, 10]
+        mock_comparator = MagicMock()
+        mock_comparator.compare_sequences.return_value = []
+        manager.comparator = mock_comparator
+
+        manager.compute_session_mismatch(sid)
+
+        # Verify tools were passed to apply_chat_template
+        _, kwargs = mock_template.call_args
+        assert kwargs["tools"] == tools

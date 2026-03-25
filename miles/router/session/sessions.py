@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
+from miles.router.session.session_errors import SessionError, UpstreamResponseError
 from miles.router.session.session_types import GetSessionResponse, SessionRecord
 from miles.router.session.single_user_turn_trajectory import SingleUserTurnTrajectoryManager
 from miles.utils.chat_template_utils import get_tito_tokenizer
@@ -35,6 +36,10 @@ def setup_session_routes(app, router: "MilesRouter"):
 
     manager = SingleUserTurnTrajectoryManager(router.args, tokenizer, tito_tokenizer=tito_tokenizer)
 
+    @app.exception_handler(SessionError)
+    async def session_error_handler(request: Request, exc: SessionError):
+        return JSONResponse(status_code=exc.status_code, content={"error": str(exc)})
+
     @app.post("/sessions")
     async def create_session():
         session_id = manager.create_session()
@@ -43,8 +48,6 @@ def setup_session_routes(app, router: "MilesRouter"):
     @app.get("/sessions/{session_id}")
     async def get_session(session_id: str):
         records = manager.get_session_records_by_id(session_id)
-        if records is None:
-            return JSONResponse(status_code=404, content={"error": "session not found"})
         metadata = {}
         mismatch = manager.compute_session_mismatch(session_id)
         if mismatch is not None:
@@ -59,9 +62,7 @@ def setup_session_routes(app, router: "MilesRouter"):
 
     @app.delete("/sessions/{session_id}")
     async def delete_session(session_id: str):
-        deleted = manager.delete_session_by_id(session_id)
-        if deleted is None:
-            return JSONResponse(status_code=404, content={"error": "session not found"})
+        manager.delete_session_by_id(session_id)
         return Response(status_code=204)
 
     @app.post("/sessions/{session_id}/v1/chat/completions")
@@ -116,11 +117,13 @@ def setup_session_routes(app, router: "MilesRouter"):
 
         meta_info = choice.get("meta_info")
         if not isinstance(meta_info, dict) or "output_token_logprobs" not in meta_info:
-            raise RuntimeError("meta_info and output_token_logprobs must be in choice (requires logprobs=True)")
+            raise UpstreamResponseError(
+                "meta_info and output_token_logprobs must be in choice (requires logprobs=True)"
+            )
 
         assistant_message = choice.get("message", {})
         if assistant_message.get("content") is None:
-            raise RuntimeError(
+            raise UpstreamResponseError(
                 "assistant message content is None, when tool call parser failed SGLang should still return "
                 "an empty content rather than None. Please check your modified SGLang version."
             )
@@ -131,7 +134,7 @@ def setup_session_routes(app, router: "MilesRouter"):
 
         actual_output_logprobs_len = len(output_token_logprobs)
         if actual_output_logprobs_len != completion_tokens:
-            raise RuntimeError(
+            raise UpstreamResponseError(
                 "invalid chat completion response: "
                 f"len(output_token_logprobs)={actual_output_logprobs_len} "
                 f"!= completion_tokens={completion_tokens}. "
@@ -156,9 +159,7 @@ def setup_session_routes(app, router: "MilesRouter"):
             request=request_body,
             response=response,
         )
-        appended = manager.append_session_record(session_id, record)
-        if appended is None:
-            return JSONResponse(status_code=404, content={"error": "session not found"})
+        manager.append_session_record(session_id, record)
         return router._build_proxy_response(result)
 
     @app.api_route("/sessions/{session_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])

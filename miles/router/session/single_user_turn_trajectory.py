@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, computed_field
 
+from miles.router.session.session_errors import MessageValidationError, SessionNotFoundError, TokenizationError
 from miles.router.session.session_types import SessionRecord
 from miles.utils.chat_template_utils import apply_chat_template, assert_messages_append_only, message_matches
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer
@@ -99,7 +100,7 @@ class SingleUserTurnTrajectory(BaseModel):
                 assistant_count += 1
 
         if checkpoint_index < 0:
-            raise ValueError(
+            raise MessageValidationError(
                 f"rollback failed: no assistant message found in the first "
                 f"{match_len} matched messages (stored has {len(stored)} messages, "
                 f"request has {len(request_messages)} messages)"
@@ -141,18 +142,18 @@ class SingleUserTurnTrajectoryManager:
             self.sessions[session_id] = SingleUserTurnTrajectory()
             return session_id
 
-    def get_session_records_by_id(self, session_id: str) -> list[SessionRecord] | None:
+    def get_session_records_by_id(self, session_id: str) -> list[SessionRecord]:
         with self._lock:
             session = self.sessions.get(session_id)
             if session is None:
-                return None
+                raise SessionNotFoundError(f"session not found: session_id={session_id}")
             return session.records
 
     def get_session_token_ids(self, session_id: str) -> list[int]:
         with self._lock:
             session = self.sessions.get(session_id)
             if session is None:
-                return []
+                raise SessionNotFoundError(f"session not found: session_id={session_id}")
             return session.token_ids
 
     def compute_session_mismatch(self, session_id: str) -> list[dict] | None:
@@ -181,18 +182,18 @@ class SingleUserTurnTrajectoryManager:
                 logger.exception("Failed to compute tito_session_mismatch for session %s", session_id)
                 return None
 
-    def delete_session_by_id(self, session_id: str) -> bool | None:
+    def delete_session_by_id(self, session_id: str) -> bool:
         with self._lock:
             session = self.sessions.pop(session_id, None)
             if session is None:
-                return None
+                raise SessionNotFoundError(f"session not found: session_id={session_id}")
             return True
 
-    def append_session_record(self, session_id: str, record: SessionRecord) -> bool | None:
+    def append_session_record(self, session_id: str, record: SessionRecord) -> bool:
         with self._lock:
             session = self.sessions.get(session_id)
             if session is None:
-                return None
+                raise SessionNotFoundError(f"session not found: session_id={session_id}")
             session.append_session_record(record)
             return True
 
@@ -214,7 +215,7 @@ class SingleUserTurnTrajectoryManager:
                     f"[{i}] role={m.get('role')}, content={(m.get('content') or '')[:100]!r}"
                     for i, m in enumerate(request_messages)
                 ]
-                raise ValueError(
+                raise SessionNotFoundError(
                     f"session not found: session_id={session_id}, "
                     f"num_messages={len(request_messages)}\n"
                     + "\n".join(previews)
@@ -226,9 +227,16 @@ class SingleUserTurnTrajectoryManager:
             if not session.token_ids:
                 return None
 
+            # Validate and reconcile request_messages against stored session state:
+            # 1. Reject multi-turn (user after assistant) — single-user-turn only.
             self._assert_no_user_after_assistant(request_messages)
+            # 2. Detect agent retries and roll back to the last matching checkpoint.
             session._try_detect_and_rollback_to_assistant_checkpoint(request_messages)
-            assert_messages_append_only(session.messages, request_messages)
+            # 3. Confirm the (possibly rolled-back) stored messages are a prefix of request.
+            try:
+                assert_messages_append_only(session.messages, request_messages)
+            except ValueError as e:
+                raise MessageValidationError(str(e)) from e
 
             merged = self.tito_tokenizer.merge_tokens(
                 old_messages=session.messages,
@@ -261,12 +269,7 @@ class SingleUserTurnTrajectoryManager:
         with self._lock:
             session = self.sessions.get(session_id)
             if session is None:
-                logger.warning(
-                    "update_pretokenized_state called for missing session %s — "
-                    "the session may have been deleted mid-request",
-                    session_id,
-                )
-                return
+                raise SessionNotFoundError(f"update_pretokenized_state: session not found: session_id={session_id}")
 
             all_token_ids = prompt_token_ids + completion_token_ids
             session.messages = list(request_messages) + [assistant_message]
@@ -284,7 +287,7 @@ class SingleUserTurnTrajectoryManager:
                         ),
                         min(len(all_token_ids), check_len),
                     )
-                    raise ValueError(
+                    raise TokenizationError(
                         f"pretokenized prefix mismatch: "
                         f"stored {len(prev)} tokens (checking first {check_len}, "
                         f"allowing {max_trim} trailing) are not a prefix of "
@@ -308,7 +311,7 @@ class SingleUserTurnTrajectoryManager:
             if role == "assistant":
                 seen_assistant = True
             elif role == "user" and seen_assistant:
-                raise ValueError(
+                raise MessageValidationError(
                     f"invalid message structure: user message at index {i} "
                     f"appears after the first assistant message"
                 )
