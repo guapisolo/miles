@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from miles.router.session.session_errors import SessionError, UpstreamResponseError
+from miles.router.session.session_errors import SessionError, TokenizationError, UpstreamResponseError
 from miles.router.session.session_types import GetSessionResponse, SessionRecord
 from miles.router.session.single_user_turn_trajectory import SingleUserTurnTrajectoryManager
 from miles.utils.chat_template_utils import get_tito_tokenizer
@@ -49,7 +49,11 @@ def setup_session_routes(app, router: "MilesRouter"):
     async def get_session(session_id: str):
         records = manager.get_session_records_by_id(session_id)
         metadata = {}
-        mismatch = manager.compute_session_mismatch(session_id)
+        try:
+            mismatch = manager.compute_session_mismatch(session_id)
+        except TokenizationError:
+            logger.exception("Failed to compute tito_session_mismatch for session %s", session_id)
+            mismatch = None
         if mismatch is not None:
             metadata["tito_session_mismatch"] = mismatch
         metadata["accumulated_token_ids"] = manager.get_session_token_ids(session_id)

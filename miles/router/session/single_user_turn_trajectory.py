@@ -71,9 +71,6 @@ class SingleUserTurnTrajectory(BaseModel):
         - The stored history is empty.
         - *request_messages* is a strict extension of stored messages
           (``match_len >= len(stored)``).
-
-        Raises ``ValueError`` if a rollback is needed but no assistant message
-        exists in the matched prefix (cannot determine a safe truncation point).
         """
         stored = self.messages
         if not stored or not self.trajectory_token_ids:
@@ -161,11 +158,13 @@ class SingleUserTurnTrajectoryManager:
 
         Returns a list of mismatch dicts from ``TokenSeqComparator.compare_sequences``,
         each containing ``{position, expected_token, actual_token, context}``,
-        or ``None`` if the session doesn't exist / has no token IDs yet.
+        or ``None`` if the session has no token IDs yet.
         """
         with self._lock:
             session = self.sessions.get(session_id)
-            if session is None or not session.token_ids:
+            if session is None:
+                raise SessionNotFoundError(f"session not found: session_id={session_id}")
+            if not session.token_ids:
                 return None
             try:
                 tools = session.records[-1].request.get("tools") if session.records else None
@@ -178,9 +177,10 @@ class SingleUserTurnTrajectoryManager:
                 )
                 mismatches = self.comparator.compare_sequences(expected_ids, session.token_ids)
                 return [m.to_dict() for m in mismatches]
-            except Exception:
-                logger.exception("Failed to compute tito_session_mismatch for session %s", session_id)
-                return None
+            except Exception as e:
+                raise TokenizationError(
+                    f"failed to compute tito_session_mismatch for session {session_id}: {e}"
+                ) from e
 
     def delete_session_by_id(self, session_id: str) -> bool:
         with self._lock:
