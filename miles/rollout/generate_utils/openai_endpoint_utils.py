@@ -42,7 +42,7 @@ class OpenAIEndpointTracer:
         except Exception as e:
             logger.warning(f"Failed to delete session {self.session_id} after collecting records: {e}")
 
-        return records or [], metadata
+        return (records or []), metadata
 
 
 def compute_samples_from_openai_records(
