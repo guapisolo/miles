@@ -19,14 +19,22 @@ expert arrays are also compared.
 
 import logging
 import statistics
+from collections.abc import Callable
 from copy import deepcopy
 
 import numpy as np
 import pybase64
 
 from miles.rollout.base_types import GenerateFnInput, GenerateFnOutput
-from miles.rollout.generate_hub.agentic_tool_call import _finalize, _generate_core
+from miles.rollout.generate_hub.agentic_tool_call import build_chat_request_kwargs
+from miles.rollout.generate_utils.openai_endpoint_utils import (
+    OpenAIEndpointTracer,
+    compute_samples_from_openai_records,
+    truncate_samples_by_total_tokens,
+)
+from miles.rollout.generate_utils.sample_utils import merge_samples
 from miles.utils.http_utils import post
+from miles.utils.misc import load_function
 from miles.utils.types import Sample
 
 logger = logging.getLogger(__name__)
@@ -36,33 +44,60 @@ LOGPROB_WARN_TOL = 0.0  # any nonzero diff is worth logging
 
 
 async def generate(input: GenerateFnInput) -> GenerateFnOutput:
-    """Run the production agentic flow, then verify logprobs via re-prefill."""
+    """Run the production agentic flow, then verify logprobs via re-prefill.
 
-    # === Step 1: run the real production agentic_tool_call core ===
-    core = await _generate_core(input)
-    if core is None:
+    Inlines the core flow from ``agentic_tool_call.generate`` so that we
+    can insert verification between record collection and finalization,
+    without modifying the production code.
+    """
+
+    # === Step 1: core agentic flow (same as production generate) ===
+    tracer = await OpenAIEndpointTracer.create(input.args)
+
+    custom_agent_function: Callable = load_function(input.args.custom_agent_function_path)
+    assert (
+        custom_agent_function is not None
+    ), f"Custom agent function {input.args.custom_agent_function_path} not found"
+
+    max_seq_len = getattr(input.args, "max_seq_len", None)
+
+    metadata = input.sample.metadata
+    if max_seq_len is not None:
+        metadata = {**metadata, "max_seq_len": max_seq_len}
+
+    agent_metadata = await custom_agent_function(
+        base_url=tracer.base_url,
+        prompt=input.sample.prompt,
+        request_kwargs=build_chat_request_kwargs(input.sampling_params),
+        metadata=metadata,
+    )
+
+    records, session_metadata = await tracer.collect_records()
+
+    if not records:
+        logger.warning("No model calls recorded for sample")
         sample = deepcopy(input.sample)
         sample.status = Sample.Status.ABORTED
         return GenerateFnOutput(samples=sample)
 
     # === Step 2: session-level checks ===
-    mismatch = core.session_metadata.get("tito_session_mismatch")
+    mismatch = session_metadata.get("tito_session_mismatch")
     assert mismatch == [], f"tito_session_mismatch is not empty: {mismatch}"
 
-    accumulated = core.session_metadata.get("accumulated_token_ids")
+    accumulated = session_metadata.get("accumulated_token_ids")
     assert accumulated and len(accumulated) > 0, "accumulated_token_ids is empty"
 
-    max_trim_tokens = core.session_metadata.get("max_trim_tokens", 0)
+    max_trim_tokens = session_metadata.get("max_trim_tokens", 0)
 
     # === Step 3: re-prefill verification ===
-    assert len(core.records) >= 2, f"Expected at least 2 turns for TITO verification, got {len(core.records)}"
+    assert len(records) >= 2, f"Expected at least 2 turns for TITO verification, got {len(records)}"
 
     sglang_url = f"http://{input.args.sglang_router_ip}:{input.args.sglang_router_port}"
     use_r3 = getattr(input.args, "use_rollout_routing_replay", False)
 
     await _verify_logprobs_via_reprefill(
         sglang_url,
-        core.records,
+        records,
         accumulated,
         max_trim_tokens=max_trim_tokens,
         use_r3=use_r3,
@@ -70,12 +105,38 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
     logger.info(
         "Logprob equivalence verified: %d turns, %d accumulated tokens",
-        len(core.records),
+        len(records),
         len(accumulated),
     )
 
-    # === Step 4: finalize using the same production path ===
-    return _finalize(input, core)
+    # === Step 4: finalize (same as production generate) ===
+    samples = compute_samples_from_openai_records(
+        input.args,
+        input.sample,
+        records,
+        input.state.tokenizer,
+        accumulated_token_ids=accumulated,
+        max_trim_tokens=max_trim_tokens,
+    )
+
+    for s in samples:
+        s.metadata.update(agent_metadata or {})
+
+    if max_seq_len is not None:
+        samples = truncate_samples_by_total_tokens(samples, max_seq_len, input.state.tokenizer)
+
+    if not samples:
+        logger.warning("All samples truncated (prompt already exceeds max_seq_len)")
+        sample = deepcopy(input.sample)
+        sample.status = Sample.Status.ABORTED
+        return GenerateFnOutput(samples=sample)
+
+    if not input.args.generate_multi_samples:
+        samples = merge_samples(samples, input.state.tokenizer)
+        samples.metadata.update(session_metadata)
+    else:
+        samples[-1].metadata.update(session_metadata)
+    return GenerateFnOutput(samples=samples)
 
 
 # reuse the same CLI arguments as agentic_tool_call
