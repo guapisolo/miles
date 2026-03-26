@@ -81,7 +81,7 @@ class TestSessionRoutes:
     def test_get_session_not_found(self, router_env):
         response = requests.get(f"{router_env.url}/sessions/nonexistent", timeout=5.0)
         assert response.status_code == 404
-        assert response.json()["error"] == "session not found"
+        assert response.json()["error"] == "session not found: session_id=nonexistent"
 
     def test_delete_session(self, router_env):
         session_id = requests.post(f"{router_env.url}/sessions", timeout=5.0).json()["session_id"]
@@ -95,7 +95,7 @@ class TestSessionRoutes:
     def test_delete_session_not_found(self, router_env):
         response = requests.delete(f"{router_env.url}/sessions/nonexistent", timeout=5.0)
         assert response.status_code == 404
-        assert response.json()["error"] == "session not found"
+        assert response.json()["error"] == "session not found: session_id=nonexistent"
 
 
 class TestSessionProxy:
