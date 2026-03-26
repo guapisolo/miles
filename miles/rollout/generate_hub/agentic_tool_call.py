@@ -26,6 +26,7 @@ import argparse
 import logging
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass, field
 from typing import Any
 
 from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest
@@ -43,7 +44,21 @@ from miles.utils.types import Sample
 logger = logging.getLogger(__name__)
 
 
-async def generate(input: GenerateFnInput) -> GenerateFnOutput:
+@dataclass
+class _CoreResult:
+    """Internal result from the core agentic generate flow."""
+
+    samples: list[Sample]
+    records: list = field(repr=False)
+    session_metadata: dict = field(repr=False)
+    agent_metadata: dict | None = None
+
+
+async def _generate_core(input: GenerateFnInput) -> _CoreResult | None:
+    """Core agentic flow: tracer, agent, record collection, sample computation.
+
+    Returns None when no records are captured (aborted sample).
+    """
     tracer = await OpenAIEndpointTracer.create(input.args)
 
     custom_agent_function: Callable = load_function(input.args.custom_agent_function_path)
@@ -68,9 +83,7 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
     if not records:
         logger.warning("No model calls recorded for sample")
-        sample = deepcopy(input.sample)
-        sample.status = Sample.Status.ABORTED
-        return GenerateFnOutput(samples=sample)
+        return None
 
     samples = compute_samples_from_openai_records(
         input.args,
@@ -81,9 +94,21 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
         max_trim_tokens=session_metadata.get("max_trim_tokens", 0),
     )
 
-    for s in samples:
-        s.metadata.update(agent_metadata or {})
+    return _CoreResult(
+        samples=samples,
+        records=records,
+        session_metadata=session_metadata,
+        agent_metadata=agent_metadata,
+    )
 
+
+def _finalize(input: GenerateFnInput, core: _CoreResult) -> GenerateFnOutput:
+    """Merge metadata and return GenerateFnOutput."""
+    samples = core.samples
+    for s in samples:
+        s.metadata.update(core.agent_metadata or {})
+
+    max_seq_len = getattr(input.args, "max_seq_len", None)
     if max_seq_len is not None:
         samples = truncate_samples_by_total_tokens(samples, max_seq_len, input.state.tokenizer)
 
@@ -95,10 +120,24 @@ async def generate(input: GenerateFnInput) -> GenerateFnOutput:
 
     if not input.args.generate_multi_samples:
         samples = merge_samples(samples, input.state.tokenizer)
-        samples.metadata.update(session_metadata)
+        samples.metadata.update(core.session_metadata)
     else:
-        samples[-1].metadata.update(session_metadata)
+        samples[-1].metadata.update(core.session_metadata)
     return GenerateFnOutput(samples=samples)
+
+
+async def generate(input: GenerateFnInput) -> GenerateFnOutput:
+    if not getattr(input.args, "session_server_ip", None) or not getattr(input.args, "session_server_port", None):
+        raise ValueError(
+            "agentic_tool_call generate requires a running session server. "
+            "Pass --use-session-server (along with --hf-checkpoint and --chat-template-path)."
+        )
+    core = await _generate_core(input)
+    if core is None:
+        sample = deepcopy(input.sample)
+        sample.status = Sample.Status.ABORTED
+        return GenerateFnOutput(samples=sample)
+    return _finalize(input, core)
 
 
 def _add_arguments(parser: argparse.ArgumentParser):
