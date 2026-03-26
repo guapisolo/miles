@@ -1,5 +1,5 @@
 #!/bin/bash
-# Agent V2 launcher (Qwen3-4B): Miles <-> Harbor agent orchestration.
+# Agent V2 async launcher: Miles <-> Harbor agent orchestration.
 #
 # Supports any task type (SWE-bench, Terminal-Bench, custom) via Harbor.
 
@@ -18,7 +18,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MILES_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-source "$MILES_ROOT/scripts/models/qwen3-4B.sh"
+source "$MILES_ROOT/scripts/models/glm4.7-flash.sh"
 
 BASE_DIR=/root/shared
 AGENT_SERVER_URL="${AGENT_SERVER_URL:-${SWE_AGENT_URL:-http://agent_env:11000}}"
@@ -26,9 +26,9 @@ HARBOR_TASKS_DIR="${HARBOR_TASKS_DIR:-/root/harbor_tasks}"
 ROUTER_EXTERNAL_HOST="${MILES_ROUTER_EXTERNAL_HOST:-$(hostname)}"
 
 CKPT_ARGS=(
-  --hf-checkpoint $BASE_DIR/Qwen3-4B
-  --ref-load $BASE_DIR/Qwen3-4B_torch_dist
-  --save $BASE_DIR/Qwen3-4B_agent_V2/
+  --hf-checkpoint $BASE_DIR/GLM-4.7-Flash
+  --ref-load $BASE_DIR/GLM-4.7-Flash_torch_dist
+  --save $BASE_DIR/GLM-4.7-Flash_agent_v2/
   --save-interval 100
 )
 
@@ -39,19 +39,19 @@ ROLLOUT_ARGS=(
   --rollout-shuffle
 
   --num-rollout 3000
-  --rollout-batch-size 1
-  --n-samples-per-prompt 1
+  --rollout-batch-size 8
+  --n-samples-per-prompt 8
   --rollout-temperature 0.8
   --rollout-max-response-len 8192
-  --global-batch-size 1
+  --global-batch-size 64
   --balance-data
 )
 
 PERF_ARGS=(
-  --tensor-model-parallel-size 1
+  --tensor-model-parallel-size 4
   --pipeline-model-parallel-size 1
   --context-parallel-size 1
-  --expert-model-parallel-size 1
+  --expert-model-parallel-size 8
   --expert-tensor-parallel-size 1
 
   --recompute-granularity full
@@ -59,7 +59,7 @@ PERF_ARGS=(
   --recompute-num-layers 1
 
   --use-dynamic-batch-size
-  --max-tokens-per-gpu 2048
+  --max-tokens-per-gpu 16384
 )
 
 GRPO_ARGS=(
@@ -83,9 +83,13 @@ OPTIMIZER_ARGS=(
 
 SGLANG_ARGS=(
   --rollout-num-gpus-per-engine 1
-  --sglang-mem-fraction-static 0.8
-  --sglang-tool-call-parser qwen25
-  --sglang-reasoning-parser qwen3
+  # --sglang-speculative-algorithm EAGLE
+  # --sglang-speculative-num-steps 2
+  # --sglang-speculative-eagle-topk 1
+  # --sglang-speculative-num-draft-tokens 3
+  --sglang-mem-fraction-static 0.7
+  --sglang-tool-call-parser glm47
+  --sglang-reasoning-parser glm45
 
   --sglang-router-port 30000
 )
@@ -96,7 +100,8 @@ AGENT_ARGS=(
   --custom-rm-path generate.reward_func
   --rollout-function-path generate.RolloutFn
   --dynamic-sampling-filter-path miles.rollout.filter_hub.dynamic_sampling_filters.check_no_aborted
-  --tito-model qwen3
+  --generate-multi-samples
+  --tito-model glm47
   --chat-template-path autofix
   --use-session-server
 )
@@ -123,7 +128,7 @@ DEBUG_ARGS=(
 export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
 ray start --head \
   --node-ip-address "$MASTER_ADDR" \
-  --num-gpus 1 \
+  --num-gpus 8 \
   --disable-usage-stats \
   --dashboard-host=0.0.0.0 \
   --dashboard-port=8265 \
@@ -141,17 +146,17 @@ print(json.dumps({'env_vars': {
     'HARBOR_TASKS_DIR': '${HARBOR_TASKS_DIR}',
     'MILES_HOST_IP': '${MILES_HOST_IP:-$(hostname)}',
     'NCCL_NVLS_ENABLE': '0',
+    'DEPRECATED_MEGATRON_COMPATIBLE': '1',
 }}))
 ")
 
 ray job submit \
   --address="http://127.0.0.1:8265" \
   --runtime-env-json="$RUNTIME_ENV" \
-  -- python3 "$MILES_ROOT/train.py" \
-  --colocate \
+  -- python3 "$MILES_ROOT/train_async.py" \
   --actor-num-nodes 1 \
-  --actor-num-gpus-per-node 1 \
-  --rollout-num-gpus 1 \
+  --actor-num-gpus-per-node 4 \
+  --rollout-num-gpus 4 \
   "${MODEL_ARGS[@]}" \
   "${CKPT_ARGS[@]}" \
   "${ROLLOUT_ARGS[@]}" \

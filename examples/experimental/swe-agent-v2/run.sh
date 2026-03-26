@@ -91,7 +91,6 @@ SGLANG_ARGS=(
   --sglang-tool-call-parser glm47
   --sglang-reasoning-parser glm45
 
-  --use-miles-router
   --sglang-router-port 30000
 )
 
@@ -103,6 +102,7 @@ AGENT_ARGS=(
   --dynamic-sampling-filter-path miles.rollout.filter_hub.dynamic_sampling_filters.check_no_aborted
   --tito-model glm47
   --chat-template-path autofix
+  --use-session-server
 )
 
 WANDB_ARGS=(

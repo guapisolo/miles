@@ -119,7 +119,6 @@ def execute(args: ScriptArgs):
         "--sglang-mem-fraction-static 0.7 "
         "--sglang-tool-call-parser glm47 "
         "--sglang-reasoning-parser glm45 "
-        "--use-miles-router "
         "--sglang-router-port 30000 "
     )
 
@@ -131,6 +130,7 @@ def execute(args: ScriptArgs):
         "--dynamic-sampling-filter-path miles.rollout.filter_hub.dynamic_sampling_filters.check_no_aborted "
         "--tito-model glm47 "
         "--chat-template-path autofix "
+        "--use-session-server "
     )
 
     misc_args = (
