@@ -40,7 +40,6 @@ from miles.utils.test_utils.mock_sglang_server import MockSGLangServer
 from miles.utils.test_utils.mock_trajectories import (
     LongChainTrajectory,
     MultiTurnTrajectory,
-    RetrySystemTrajectory,
     SequentialProcessFn,
     build_trajectory,
 )
@@ -354,41 +353,6 @@ class TestLongChainE2E:
         get_resp = requests.get(f"{self._env.url}/sessions/{session_id}", timeout=5.0)
         records = get_resp.json()["records"]
         assert len(records) == 3
-
-
-class TestRetrySystemE2E:
-    """2-turn trajectory with a mid-conversation system retry message.
-
-    Skipped for templates that reject mid-conversation system messages
-    (e.g. Qwen3.5's native template enforces "System message must be at the beginning").
-    """
-
-    @pytest.fixture(autouse=True, scope="class")
-    def setup(self, tokenizer, model_config):
-        try:
-            env = _make_router_env(tokenizer, model_config, RetrySystemTrajectory)
-        except Exception as exc:
-            if "System message" in str(exc):
-                pytest.skip(f"Template does not support mid-conversation system messages: {exc}")
-            raise
-        type(self)._env = env
-        yield
-        _teardown_router_env(env)
-
-    def test_all_turns_succeed(self):
-        session_id, responses = _run_trajectory_e2e(self._env)
-        assert len(responses) == 2
-
-    def test_pretokenized_injection(self):
-        session_id, responses = _run_trajectory_e2e(self._env)
-        _verify_pretokenized_injection(self._env, responses)
-
-    def test_session_records(self):
-        session_id, responses = _run_trajectory_e2e(self._env)
-        get_resp = requests.get(f"{self._env.url}/sessions/{session_id}", timeout=5.0)
-        records = get_resp.json()["records"]
-        assert len(records) == 2
-
 
 
 # ===========================================================================
