@@ -87,6 +87,7 @@ SGLANG_ARGS=(
   --sglang-tool-call-parser qwen25
   --sglang-reasoning-parser qwen3
 
+  --use-miles-router
   --sglang-router-port 30000
 )
 
@@ -96,9 +97,7 @@ AGENT_ARGS=(
   --custom-rm-path generate.reward_func
   --rollout-function-path generate.RolloutFn
   --dynamic-sampling-filter-path miles.rollout.filter_hub.dynamic_sampling_filters.check_no_aborted
-  --tito-model qwen3
-  --chat-template-path autofix
-  --use-session-server
+  --generate-multi-samples
 )
 
 WANDB_ARGS=(
@@ -141,6 +140,7 @@ print(json.dumps({'env_vars': {
     'HARBOR_TASKS_DIR': '${HARBOR_TASKS_DIR}',
     'MILES_HOST_IP': '${MILES_HOST_IP:-$(hostname)}',
     'NCCL_NVLS_ENABLE': '0',
+    'DEPRECATED_MEGATRON_COMPATIBLE': '1',
 }}))
 ")
 

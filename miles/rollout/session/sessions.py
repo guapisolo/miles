@@ -4,8 +4,8 @@ import time
 from typing import Protocol, runtime_checkable
 
 from fastapi import Request
-from fastapi.responses import JSONResponse, Response
-from starlette.responses import Response as StarletteResponse
+from fastapi.responses import JSONResponse
+from starlette.responses import Response
 
 from miles.rollout.session.session_errors import SessionError, TokenizationError, UpstreamResponseError
 from miles.rollout.session.session_types import GetSessionResponse, SessionRecord
@@ -28,7 +28,7 @@ class SessionBackend(Protocol):
         headers: dict | None = None,
     ) -> dict: ...
 
-    def build_proxy_response(self, result: dict) -> StarletteResponse: ...
+    def build_proxy_response(self, result: dict) -> Response: ...
 
 
 def setup_session_routes(app, backend: SessionBackend, args):
@@ -175,9 +175,7 @@ def setup_session_routes(app, backend: SessionBackend, args):
             request=request_body,
             response=response,
         )
-        appended = manager.append_session_record(session_id, record)
-        if appended is None:
-            return JSONResponse(status_code=404, content={"error": "session not found"})
+        manager.append_session_record(session_id, record)
         return backend.build_proxy_response(result)
 
     @app.api_route("/sessions/{session_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])

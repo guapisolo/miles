@@ -1103,13 +1103,6 @@ def _start_session_server(args):
     if getattr(args, "session_server_port", None) is None:
         args.session_server_port = find_available_port(random.randint(5000, 6000))
 
-    port = args.session_server_port
-    if not is_port_available(port):
-        raise RuntimeError(
-            f"Session server port {port} is already in use. "
-            f"Run 'pkill -9 python' to kill stale processes, then retry."
-        )
-
     router_url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}"
 
     from miles.rollout.session.session_server import run_session_server
