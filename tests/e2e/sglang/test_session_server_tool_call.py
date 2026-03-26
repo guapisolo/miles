@@ -1,9 +1,14 @@
 """E2E test: session-server pretokenized TITO with real model inference.
 
-Starts the full miles pipeline (sglang + miles-router with session support)
-via ``execute_train --debug-rollout-only``, then runs the agentic_tool_call
-generate function with a custom agent that performs multi-turn tool calls and
-asserts the pretokenized prefix invariant on every turn.
+Starts the full miles pipeline via ``execute_train --debug-rollout-only``,
+then runs the agentic_tool_call generate function with a custom agent that
+performs multi-turn tool calls and asserts the pretokenized prefix invariant
+on every turn.
+
+The standalone session server (``--use-session-server``) is always started.
+``SESSION_TEST_USE_MILES_ROUTER`` controls only which inference router is used:
+  - "1": Miles Router
+  - "0" (default): SGLang Rust Router
 
 Requires 1 GPU.
 """
@@ -21,6 +26,7 @@ import miles.utils.external_utils.command_utils as U
 # ---------------------------------------------------------------------------
 
 MODEL_FAMILY = os.environ.get("SESSION_TEST_MODEL_FAMILY", "qwen3")
+USE_MILES_ROUTER = os.environ.get("SESSION_TEST_USE_MILES_ROUTER", "0") == "1"
 
 
 @dataclass(frozen=True)
@@ -115,7 +121,9 @@ def execute():
         "tests.e2e.sglang.utils.session_tool_agent.run_agent "
     )
 
-    router_args = "--use-miles-router " "--chat-template-path autofix " f"--tito-model {cfg.tito_model} "
+    router_args = "--use-session-server " "--chat-template-path autofix " f"--tito-model {cfg.tito_model} "
+    if USE_MILES_ROUTER:
+        router_args = "--use-miles-router " + router_args
 
     sglang_args = f"--rollout-num-gpus-per-engine {cfg.num_gpus} " f"--sglang-reasoning-parser {cfg.reasoning_parser} "
     if cfg.tool_call_parser:

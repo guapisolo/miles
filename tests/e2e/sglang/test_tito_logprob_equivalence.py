@@ -126,7 +126,7 @@ def execute():
         "tests.e2e.sglang.utils.session_tool_agent.run_agent "
     )
 
-    router_args = "--use-miles-router " "--chat-template-path autofix " f"--tito-model {cfg.tito_model} "
+    router_args = "--use-session-server " "--chat-template-path autofix " f"--tito-model {cfg.tito_model} "
     if ENABLE_R3:
         router_args += "--use-rollout-routing-replay "
 
