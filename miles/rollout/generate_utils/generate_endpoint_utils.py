@@ -106,9 +106,5 @@ def get_rollout_topk_from_response(args, output, sample, key):
     info = output["meta_info"].get(key)
     if info is None:
         return None
-    num_layers = getattr(args, "num_layers", None)
-    moe_router_topk = getattr(args, "moe_router_topk", None)
-    if num_layers is None or moe_router_topk is None:
-        return None
     x = np.frombuffer(pybase64.b64decode(info.encode("ascii")), dtype=np.int32)
-    return x.reshape(len(sample.tokens) - 1, num_layers, moe_router_topk)
+    return x.reshape(len(sample.tokens) - 1, args.num_layers, args.moe_router_topk)
