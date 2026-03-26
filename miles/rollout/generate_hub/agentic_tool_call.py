@@ -108,6 +108,7 @@ def _finalize(input: GenerateFnInput, core: _CoreResult) -> GenerateFnOutput:
     for s in samples:
         s.metadata.update(core.agent_metadata or {})
 
+    max_seq_len = getattr(input.args, "max_seq_len", None)
     if max_seq_len is not None:
         samples = truncate_samples_by_total_tokens(samples, max_seq_len, input.state.tokenizer)
 
