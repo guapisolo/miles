@@ -104,7 +104,6 @@ AGENT_ARGS=(
   --tito-model glm47
   --chat-template-path autofix
   --use-session-server
->>>>>>> e1877ec2 (decouple SessionServer from MilesRouter and fix pretokenized e2e tests)
 )
 
 WANDB_ARGS=(

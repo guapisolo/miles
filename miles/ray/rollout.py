@@ -26,7 +26,14 @@ from miles.rollout.inference_rollout.compatibility import call_rollout_function,
 from miles.utils import dumper_utils, tracking_utils
 from miles.utils.environ import enable_experimental_rollout_refactor
 from miles.utils.health_monitor import RolloutHealthMonitor
-from miles.utils.http_utils import _wrap_ipv6, find_available_port, get_host_info, init_http_client, is_port_available
+from miles.utils.http_utils import (
+    _wrap_ipv6,
+    find_available_port,
+    get_host_info,
+    init_http_client,
+    is_port_available,
+    wait_for_server_ready,
+)
 from miles.utils.iter_utils import group_by
 from miles.utils.logging_utils import configure_logger
 from miles.utils.metric_checker import MetricChecker
@@ -947,8 +954,7 @@ def _start_router(args, *, has_pd_disaggregation: bool = False, force_new: bool 
     )
     process.daemon = True
     process.start()
-    time.sleep(3)
-    assert process.is_alive()
+    wait_for_server_ready(router_ip, router_port, process, timeout=30)
     logger.info(f"Router launched at {router_ip}:{router_port}")
     return router_ip, router_port
 
@@ -1104,6 +1110,13 @@ def _start_session_server(args):
     if getattr(args, "session_server_port", None) is None:
         args.session_server_port = find_available_port(random.randint(5000, 6000))
 
+    ip, port = args.session_server_ip, args.session_server_port
+    if not is_port_available(port):
+        raise RuntimeError(
+            f"Port {port} is already in use — a stale session server may still be running. "
+            f"Run 'pkill -9 python' to kill it, then retry."
+        )
+
     router_url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}"
 
     from miles.rollout.session.session_server import run_session_server
@@ -1111,9 +1124,8 @@ def _start_session_server(args):
     process = multiprocessing.Process(target=run_session_server, args=(args, router_url))
     process.daemon = True
     process.start()
-    time.sleep(3)
-    assert process.is_alive(), "Session server process died on startup"
-    logger.info(f"Session server launched at {args.session_server_ip}:{args.session_server_port}")
+    wait_for_server_ready(ip, port, process, timeout=30)
+    logger.info(f"Session server launched at {ip}:{port}")
 
 
 def _log_eval_rollout_data(rollout_id, args, data, extra_metrics: dict[str, Any] | None = None):

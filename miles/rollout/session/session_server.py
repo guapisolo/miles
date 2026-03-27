@@ -28,11 +28,14 @@ class SessionServer:
         self.backend_url = backend_url
         self.app = FastAPI()
 
-        timeout = getattr(args, "miles_router_timeout", None)
+        timeout = getattr(args, "miles_router_timeout", 600.0)
         self.client = httpx.AsyncClient(
             limits=httpx.Limits(max_connections=1024),
             timeout=httpx.Timeout(timeout),
         )
+
+        # Close the httpx connection pool when uvicorn shuts down to avoid FD leaks.
+        self.app.add_event_handler("shutdown", self.client.aclose)
 
         setup_session_routes(self.app, self, args)
 
@@ -44,12 +47,16 @@ class SessionServer:
         headers: dict | None = None,
     ) -> dict:
         url = f"{self.backend_url}/{path}"
+        if request.url.query:
+            url = f"{url}?{request.url.query}"
 
         if body is None:
             body = await request.body()
         if headers is None:
             headers = dict(request.headers)
-        headers = {k: v for k, v in headers.items() if k.lower() not in ("content-length", "transfer-encoding")}
+        headers = {
+            k: v for k, v in headers.items() if k.lower() not in ("content-length", "transfer-encoding", "host")
+        }
 
         response = await self.client.request(request.method, url, content=body, headers=headers)
         content = await response.aread()
@@ -68,7 +75,7 @@ class SessionServer:
         try:
             data = json.loads(content)
             return JSONResponse(content=data, status_code=status_code, headers=headers)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             return Response(content=content, status_code=status_code, headers=headers, media_type=content_type)
 
 
