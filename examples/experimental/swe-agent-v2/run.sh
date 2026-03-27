@@ -103,6 +103,8 @@ AGENT_ARGS=(
   --dynamic-sampling-filter-path miles.rollout.filter_hub.dynamic_sampling_filters.check_no_aborted
   --tito-model glm47
   --chat-template-path autofix
+  --use-session-server
+>>>>>>> e1877ec2 (decouple SessionServer from MilesRouter and fix pretokenized e2e tests)
 )
 
 WANDB_ARGS=(
