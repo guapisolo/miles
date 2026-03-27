@@ -27,18 +27,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 source "${SCRIPT_DIR}/../../scripts/models/qwen3-4B.sh"
 
 CKPT_ARGS=(
-   --hf-checkpoint /root/Qwen3-4B
-   #--hf-checkpoint /root/Qwen3-4B-FP8
-   --ref-load /root/Qwen3-4B_torch_dist
-   --load /root/Qwen3-4B_miles/
-   --save /root/Qwen3-4B_miles/
-   --save-interval 20
+   --hf-checkpoint /root/shared/Qwen3-4B
+   --ref-load /root/shared/Qwen3-4B_torch_dist
+   # --load /root/shared/Qwen3-4B_torch_dist
 )
 
-PROMPT_SET=/path/to/dapo-math-17k.jsonl
+PROMPT_SET=/root/shared/dapo-math-17k/dapo-math-17k.jsonl
 
 ROLLOUT_ARGS=(
-   --rollout-function-path fully_async_rollout.generate_rollout_fully_async
+   --rollout-function-path generate.RolloutFn
+   --custom-generate-function-path miles.rollout.generate_hub.agentic_tool_call.generate
+   --custom-rm-path generate.reward_func
    --prompt-data ${PROMPT_SET}
    --input-key prompt
    --label-key label
@@ -48,18 +47,17 @@ ROLLOUT_ARGS=(
    --rm-type dapo
    --reward-key score
 
-   --num-rollout 3000
-   --rollout-batch-size 32
-   --n-samples-per-prompt 8
-   --rollout-max-response-len 8192
+   --num-rollout 3
+   --rollout-batch-size 4
+   --n-samples-per-prompt 2
+   --rollout-max-response-len 512
    --rollout-temperature 1
 
-   --global-batch-size 256
-   --balance-data
+   --global-batch-size 8
 )
 
 PERF_ARGS=(
-   --tensor-model-parallel-size 2
+   --tensor-model-parallel-size 1
    --sequence-parallel
    --pipeline-model-parallel-size 1
    --context-parallel-size 1
@@ -70,9 +68,8 @@ PERF_ARGS=(
    --recompute-method uniform
    --recompute-num-layers 1
 
-   # --micro-batch-size 1
    --use-dynamic-batch-size
-   --max-tokens-per-gpu 9216
+   --max-tokens-per-gpu 4096
 )
 
 GRPO_ARGS=(
@@ -113,13 +110,14 @@ MISC_ARGS=(
 
 # launch the master node of ray in container
 export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
-ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-stats
+ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 2 --disable-usage-stats
 
 RUNTIME_ENV_JSON="{
   \"env_vars\": {
     \"PYTHONPATH\": \"/root/Megatron-LM/:${SCRIPT_DIR}\",
     \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
-    \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\"
+    \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\",
+    \"MILES_EXPERIMENTAL_ROLLOUT_REFACTOR\": \"1\"
   }
 }"
 
@@ -127,8 +125,8 @@ ray job submit --address="http://127.0.0.1:8265" \
    --runtime-env-json="${RUNTIME_ENV_JSON}" \
    -- python3 train_async.py \
    --actor-num-nodes 1 \
-   --actor-num-gpus-per-node 4 \
-   --rollout-num-gpus 4 \
+   --actor-num-gpus-per-node 1 \
+   --rollout-num-gpus 1 \
    ${MODEL_ARGS[@]} \
    ${CKPT_ARGS[@]} \
    ${ROLLOUT_ARGS[@]} \

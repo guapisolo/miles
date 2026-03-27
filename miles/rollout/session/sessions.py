@@ -78,6 +78,16 @@ def setup_session_routes(app, backend, args):
             session.lock.release()
         return Response(status_code=204)
 
+    @app.post("/abort_sessions")
+    async def abort_sessions():
+        await backend.pause_sessions()
+        return {"status": "ok"}
+
+    @app.post("/resume_sessions")
+    async def resume_sessions():
+        await backend.resume_sessions()
+        return {"status": "ok"}
+
     @app.post("/sessions/{session_id}/v1/chat/completions")
     async def chat_completions(request: Request, session_id: str):
         """Proxy a chat completion through SGLang with TITO token tracking.
@@ -128,7 +138,16 @@ def setup_session_routes(app, backend, args):
 
             body = json.dumps(request_body).encode()
 
-            result = await backend.do_proxy(request, "v1/chat/completions", body=body)
+            # Gate: if the server is paused (weight update in progress), wait
+            # until resumed before sending to SGLang.  If the request was already
+            # in-flight when an abort arrived, the partial response is discarded
+            # and the same request is re-sent after resume.
+            while True:
+                await backend.resume_event.wait()
+                result = await backend.do_proxy(request, "v1/chat/completions", body=body)
+                if not backend.is_paused():
+                    break
+                logger.info("Session %s: discarding partial response due to abort, waiting for resume", session_id)
 
             # If SGLang returned a non-200 error (e.g. 400 for context too long),
             # pass it through to the agent without recording — the agent can retry

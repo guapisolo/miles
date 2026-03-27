@@ -71,7 +71,11 @@ def submit_generate_tasks(state: GenerateState, samples: list[list[Sample]]):
 
 
 async def generate_rollout_async(
-    state: GenerateState, rollout_id: int, data_source: Callable[[int], list[list[Sample]]]
+    state: GenerateState,
+    rollout_id: int,
+    data_source: Callable[[int], list[list[Sample]]],
+    *,
+    continuous: bool = False,
 ) -> tuple[RolloutFnTrainOutput, list[list[Sample]]]:
     args = state.args
     assert args.rollout_global_dataset
@@ -90,12 +94,19 @@ async def generate_rollout_async(
     data = []
     all_data = []
     do_print = True
-    pbar = tqdm(total=target_data_size * args.n_samples_per_prompt, desc="Rollout generation")
+    desc = "Rollout generation (fully-async)" if continuous else "Rollout generation"
+    pbar = tqdm(total=target_data_size * args.n_samples_per_prompt, desc=desc)
     while len(data) < target_data_size:
-        while len(data) + len(pendings) < target_data_size:
-            # get samples from the buffer and submit the generation requests.
-            samples = data_source(args.over_sampling_batch_size)
-            pendings.update(submit_generate_tasks(state, samples))
+        if continuous:
+            # fully-async: keep in-flight count at over_sampling_batch_size
+            while len(pendings) < args.over_sampling_batch_size:
+                samples = data_source(args.over_sampling_batch_size)
+                pendings.update(submit_generate_tasks(state, samples))
+        else:
+            while len(data) + len(pendings) < target_data_size:
+                # get samples from the buffer and submit the generation requests.
+                samples = data_source(args.over_sampling_batch_size)
+                pendings.update(submit_generate_tasks(state, samples))
 
         # wait for the generation to finish
         done, pendings = await asyncio.wait(pendings, return_when=asyncio.FIRST_COMPLETED)

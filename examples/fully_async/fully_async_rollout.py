@@ -4,9 +4,8 @@ import queue
 import threading
 import time
 
-# Import core functions from sglang_rollout directly to avoid code duplication
-from miles.rollout.sglang_rollout import GenerateState, generate_and_rm_group
-from miles.utils.async_utils import run
+from miles.rollout.base_types import RolloutFnConstructorInput, RolloutFnInput, RolloutFnTrainOutput
+from miles.rollout.inference_rollout.inference_rollout_common import GenerateState, generate_and_rm_group
 from miles.utils.types import Sample
 
 # Global worker manager
@@ -14,13 +13,13 @@ _global_worker = None
 _worker_lock = threading.Lock()
 
 
-def get_global_worker(args, data_buffer):
+def get_global_worker(state, data_source_get_samples):
     """Get or create global worker"""
     global _global_worker
     with _worker_lock:
         if _global_worker is None or not _global_worker.worker_thread.is_alive():
             print("Creating new global async worker...")
-            _global_worker = AsyncRolloutWorker(args, data_buffer, concurrency=args.sglang_server_concurrency)
+            _global_worker = AsyncRolloutWorker(state, data_source_get_samples)
             _global_worker.start()
         return _global_worker
 
@@ -40,17 +39,16 @@ class AsyncRolloutWorker:
     Supports continuous running, independent of rollout function lifecycle
     """
 
-    def __init__(self, args, data_buffer, concurrency=10):
-        self.args = args
-        self.data_buffer = data_buffer  # Directly save data_buffer reference
-        self.concurrency = concurrency
+    def __init__(self, state: GenerateState, data_source_get_samples):
+        self.state = state
+        self.args = state.args
+        self.data_source_get_samples = data_source_get_samples
         self.running = True
         self.output_queue = queue.Queue(maxsize=1000)  # Continuous output queue
         self.worker_thread = None
-        self.state = GenerateState(args)
 
     async def continuous_worker_loop(self):
-        """Continuous work loop - constantly get data from data_buffer and process"""
+        """Continuous work loop - constantly get data from data_source and process"""
         print("Continuous async rollout worker started")
 
         active_tasks = set()
@@ -71,7 +69,7 @@ class AsyncRolloutWorker:
 
                 # If active task count hasn't reached limit, try to get new data and start tasks
                 while len(active_tasks) < max_concurrent_tasks and self.running:
-                    samples = self.data_buffer.get_samples(1)
+                    samples = self.data_source_get_samples(1)
 
                     for group in samples:
                         group_id = group_id_counter
@@ -80,7 +78,7 @@ class AsyncRolloutWorker:
                         # Create new async task
                         task = asyncio.create_task(
                             generate_and_rm_group(
-                                self.args,
+                                self.state,
                                 group,
                                 sampling_params=self.state.sampling_params.copy(),
                                 evaluation=False,
@@ -146,14 +144,15 @@ class AsyncRolloutWorker:
         return self.output_queue.qsize()
 
 
-async def generate_rollout_async(args, rollout_id: int, data_buffer) -> list[list[Sample]]:
+async def generate_rollout_async(state: GenerateState, data_source) -> list[list[Sample]]:
     """
     Simplified asynchronous rollout generation - using global continuous worker
     """
+    args = state.args
     assert args.rollout_global_dataset
 
     # Get global worker, which will run continuously
-    worker = get_global_worker(args, data_buffer)
+    worker = get_global_worker(state, data_source.get_samples)
 
     # Simplified: directly use rollout_batch_size as target
     target_data_size = args.rollout_batch_size
@@ -203,7 +202,7 @@ async def generate_rollout_async(args, rollout_id: int, data_buffer) -> list[lis
             if any_aborted:
                 try:
                     # add back to buffer so it can be retried or handled by buffer policy
-                    data_buffer.add_samples([group])
+                    data_source.add_samples([group])
                     print(f"Returned aborted group {group_id} to data buffer", flush=True)
                 except Exception as e:
                     print(f"Failed to return aborted group {group_id} to buffer: {e}", flush=True)
@@ -247,17 +246,27 @@ async def generate_rollout_async(args, rollout_id: int, data_buffer) -> list[lis
         )
 
     data = sorted(data, key=lambda group: group[0].index)
+
+    # reset state for next rollout
+    state.reset()
+
     return data
 
 
-def generate_rollout_fully_async(args, rollout_id, data_buffer, evaluation=False):
-    if evaluation:
-        raise ValueError("Evaluation mode not supported in simple async rollout")
+class FullyAsyncRolloutFn:
+    """Fully async rollout function using the refactored RolloutFn interface."""
 
-    completed_samples = run(generate_rollout_async(args, rollout_id, data_buffer))
-    return completed_samples
+    def __init__(self, input: RolloutFnConstructorInput):
+        self.data_source = input.data_source
+        self.state = GenerateState(input.args)
+
+    async def __call__(self, input: RolloutFnInput) -> RolloutFnTrainOutput:
+        if input.evaluation:
+            raise ValueError("Evaluation mode not supported in fully async rollout")
+
+        data = await generate_rollout_async(self.state, self.data_source)
+        return RolloutFnTrainOutput(samples=data)
 
 
 # Register exit cleanup function
-
 atexit.register(stop_global_worker)

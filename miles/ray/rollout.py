@@ -509,6 +509,24 @@ class RolloutManager:
         for srv in self.servers.values():
             srv.onload_kv()
 
+    def pause_sessions(self):
+        """Signal session server to pause all active sessions before weight update."""
+        import requests
+
+        url = f"http://{self.args.session_server_ip}:{self.args.session_server_port}/abort_sessions"
+        resp = requests.post(url, json={}, timeout=30)
+        resp.raise_for_status()
+        logger.info("Session server paused: %s", resp.json())
+
+    def resume_sessions(self):
+        """Signal session server to resume all paused sessions after weight update."""
+        import requests
+
+        url = f"http://{self.args.session_server_ip}:{self.args.session_server_port}/resume_sessions"
+        resp = requests.post(url, json={}, timeout=30)
+        resp.raise_for_status()
+        logger.info("Session server resumed: %s", resp.json())
+
     def recover_updatable_engines(self):
         """Restart any dead rollout engines and update num_new_engines for update_weights detection.
 

@@ -176,7 +176,10 @@ class InferenceRolloutFn:
         from miles.rollout.inference_rollout.inference_rollout_train import generate_rollout_async
 
         output, aborted_samples = await generate_rollout_async(
-            self.state, input.rollout_id, self.data_source.get_samples
+            self.state,
+            input.rollout_id,
+            self.data_source.get_samples,
+            continuous=getattr(self.state.args, "fully_async_rollout", False),
         )
         self.data_source.add_samples(aborted_samples)
         return output

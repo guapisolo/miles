@@ -506,6 +506,10 @@ class MegatronTrainRayActor(TrainRayActor):
             if dist.get_rank() == 0:
                 ray.get(self.rollout_manager.clear_updatable_num_new_engines.remote())
 
+        use_session_server = getattr(self.args, "use_session_server", False)
+        if use_session_server:
+            ray.get(self.rollout_manager.pause_sessions.remote())
+
         if self.args.offload_train and is_lora_enabled(self.args):
             # For LoRA, we must resume() to restore GPU memory backing for adapter
             # weights. Unlike base model weights (which are read from CPU backups),
@@ -536,6 +540,9 @@ class MegatronTrainRayActor(TrainRayActor):
                     self.weights_backuper.backup("rollout_actor")
                 else:
                     self.weights_backuper.backup("old_actor")
+
+        if use_session_server:
+            ray.get(self.rollout_manager.resume_sessions.remote())
 
         if self.args.offload_train:
             if is_lora_enabled(self.args):

@@ -365,6 +365,18 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 ),
             )
 
+            # fully async rollout
+            parser.add_argument(
+                "--fully-async-rollout",
+                action="store_true",
+                default=False,
+                help=(
+                    "Use a persistent background worker for rollout generation. "
+                    "The worker continuously submits generate tasks and is paused before weight update. "
+                    "This improves pipeline utilization for long-tail generation scenarios (e.g. agentic tool call)."
+                ),
+            )
+
             # partial rollout
             parser.add_argument(
                 "--partial-rollout",

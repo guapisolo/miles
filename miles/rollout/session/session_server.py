@@ -6,6 +6,7 @@ requests are proxied through the router (sglang or miles), which handles
 load balancing and forwarding to worker engines.
 """
 
+import asyncio
 import json
 import logging
 
@@ -28,7 +29,7 @@ class SessionServer:
         self.backend_url = backend_url
         self.app = FastAPI()
 
-        timeout = getattr(args, "miles_router_timeout", 600.0)
+        timeout = getattr(args, "miles_router_timeout", None)
         self.client = httpx.AsyncClient(
             limits=httpx.Limits(max_connections=1024),
             timeout=httpx.Timeout(timeout),
@@ -37,7 +38,49 @@ class SessionServer:
         # Close the httpx connection pool when uvicorn shuts down to avoid FD leaks.
         self.app.add_event_handler("shutdown", self.client.aclose)
 
+        # Abort/resume gate for weight-update pauses.
+        # When set (default), requests flow through; when cleared, handlers block.
+        self._resume_event: asyncio.Event | None = None  # lazy-init (needs event loop)
+
         setup_session_routes(self.app, self, args)
+
+    @property
+    def resume_event(self) -> asyncio.Event:
+        if self._resume_event is None:
+            self._resume_event = asyncio.Event()
+            self._resume_event.set()
+        return self._resume_event
+
+    def is_paused(self) -> bool:
+        return self._resume_event is not None and not self._resume_event.is_set()
+
+    async def pause_sessions(self) -> None:
+        """Pause all sessions: block new proxy calls, abort in-flight SGLang requests."""
+        self.resume_event.clear()
+        try:
+            await self.client.post(
+                f"{self.backend_url}/abort_request",
+                json={"abort_all": True},
+            )
+        except Exception:
+            logger.warning("Failed to send abort_request to backend", exc_info=True)
+
+    async def resume_sessions(self) -> None:
+        """Resume all paused sessions: unblock waiting handlers.
+
+        Polls the backend /health endpoint first to ensure SGLang is ready
+        to serve requests after a weight update.
+        """
+        while True:
+            try:
+                resp = await self.client.get(f"{self.backend_url}/health")
+                if resp.status_code == 200:
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        logger.info("Backend health check passed, resuming sessions")
+        self.resume_event.set()
 
     async def do_proxy(
         self,
@@ -47,28 +90,14 @@ class SessionServer:
         headers: dict | None = None,
     ) -> dict:
         url = f"{self.backend_url}/{path}"
-        if request.url.query:
-            url = f"{url}?{request.url.query}"
 
         if body is None:
             body = await request.body()
         if headers is None:
             headers = dict(request.headers)
-        headers = {
-            k: v for k, v in headers.items() if k.lower() not in ("content-length", "transfer-encoding", "host")
-        }
+        headers = {k: v for k, v in headers.items() if k.lower() not in ("content-length", "transfer-encoding")}
 
-        try:
-            response = await self.client.request(request.method, url, content=body, headers=headers)
-        except httpx.TransportError as exc:
-            logger.warning("Proxy transport error for %s %s: %s", request.method, path, exc)
-            error_body = json.dumps({"error": f"backend transport error: {type(exc).__name__}: {exc}"}).encode()
-            return {
-                "request_body": body,
-                "response_body": error_body,
-                "status_code": 502,
-                "headers": {"content-type": "application/json"},
-            }
+        response = await self.client.request(request.method, url, content=body, headers=headers)
         content = await response.aread()
         return {
             "request_body": body,
@@ -85,7 +114,7 @@ class SessionServer:
         try:
             data = json.loads(content)
             return JSONResponse(content=data, status_code=status_code, headers=headers)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except Exception:
             return Response(content=content, status_code=status_code, headers=headers, media_type=content_type)
 
 
