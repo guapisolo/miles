@@ -221,6 +221,8 @@ class TokenSeqComparator:
                 )
             return None
 
+        # After ignoring assistant text diff, there is no need to keep the strip operator,
+        # as other text should be exact match.
         exp_text = self._decode(exp.token_ids)
         act_text = self._decode(act.token_ids)
         if exp_text == act_text:
