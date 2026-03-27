@@ -199,6 +199,8 @@ async def run_agent(base_url, prompt, request_kwargs, metadata, **kwargs):
                     )
                 else:
                     messages.append(assistant_msg)
+                    # Add invalid tool call id field here. Otherwise template like kimi-k2 which explicitly
+                    # insert tool call id might failed. This won't affect most of chat templates.
                     messages.append(
                         {"role": "tool", "content": RETRY_TOOL_MESSAGE, "tool_call_id": "invalid_tool_call"}
                     )
