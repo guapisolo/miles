@@ -173,6 +173,7 @@ class InferenceRolloutFn:
         return await self._call_train(input)
 
     async def _call_train(self, input: RolloutFnTrainInput) -> RolloutFnTrainOutput:
+        from miles.rollout.data_source import RolloutDataSourceWithBuffer
         from miles.rollout.inference_rollout.inference_rollout_train import generate_rollout_async
 
         output, aborted_samples = await generate_rollout_async(
@@ -182,6 +183,10 @@ class InferenceRolloutFn:
             continuous=getattr(self.state.args, "fully_async_rollout", False),
         )
         self.data_source.add_samples(aborted_samples)
+        if isinstance(self.data_source, RolloutDataSourceWithBuffer) and self.data_source.stale_samples_discarded > 0:
+            output.metrics["rollout/buffer/stale_samples_discarded"] = self.data_source.stale_samples_discarded
+            output.metrics["rollout/buffer/remaining_size"] = self.data_source.get_buffer_length()
+            self.data_source.stale_samples_discarded = 0
         return output
 
     async def _call_eval(self, input: RolloutFnEvalInput) -> RolloutFnEvalOutput:

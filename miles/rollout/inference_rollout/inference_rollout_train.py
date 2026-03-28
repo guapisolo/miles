@@ -73,7 +73,7 @@ def submit_generate_tasks(state: GenerateState, samples: list[list[Sample]]):
 async def generate_rollout_async(
     state: GenerateState,
     rollout_id: int,
-    data_source: Callable[[int], list[list[Sample]]],
+    data_source: Callable[..., list[list[Sample]]],
     *,
     continuous: bool = False,
 ) -> tuple[RolloutFnTrainOutput, list[list[Sample]]]:
@@ -100,12 +100,12 @@ async def generate_rollout_async(
         if continuous:
             # fully-async: keep in-flight count at over_sampling_batch_size
             while len(pendings) < args.over_sampling_batch_size:
-                samples = data_source(args.over_sampling_batch_size)
+                samples = data_source(args.over_sampling_batch_size, rollout_id=rollout_id)
                 pendings.update(submit_generate_tasks(state, samples))
         else:
             while len(data) + len(pendings) < target_data_size:
                 # get samples from the buffer and submit the generation requests.
-                samples = data_source(args.over_sampling_batch_size)
+                samples = data_source(args.over_sampling_batch_size, rollout_id=rollout_id)
                 pendings.update(submit_generate_tasks(state, samples))
 
         # wait for the generation to finish

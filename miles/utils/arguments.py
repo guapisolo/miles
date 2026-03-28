@@ -398,6 +398,16 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 ),
             )
             parser.add_argument(
+                "--max-buffer-staleness",
+                type=int,
+                default=None,
+                help=(
+                    "Max rollout_id age for buffered partial samples. "
+                    "Samples with start_rollout_id older than this are discarded. "
+                    "None means no staleness filtering."
+                ),
+            )
+            parser.add_argument(
                 "--custom-generate-function-path",
                 type=str,
                 default=None,

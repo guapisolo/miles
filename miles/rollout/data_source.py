@@ -160,17 +160,18 @@ class RolloutDataSourceWithBuffer(RolloutDataSource):
     def __init__(self, args):
         super().__init__(args)
         self.buffer = []
+        self.stale_samples_discarded = 0
         if self.args.buffer_filter_path is None:
             self.buffer_filter = pop_first
         else:
             self.buffer_filter = load_function(self.args.buffer_filter_path)
 
-    def get_samples(self, num_samples: int) -> list[list[Sample]]:
+    def get_samples(self, num_samples: int, rollout_id: int | None = None) -> list[list[Sample]]:
         """
         Return num_samples samples
         """
 
-        samples = self._get_samples_from_buffer(num_samples)
+        samples = self._get_samples_from_buffer(num_samples, rollout_id)
         num_samples -= len(samples)
 
         if num_samples == 0:
@@ -179,11 +180,16 @@ class RolloutDataSourceWithBuffer(RolloutDataSource):
         samples += super().get_samples(num_samples=num_samples)
         return samples
 
-    def _get_samples_from_buffer(self, num_samples: int) -> list[list[Sample]]:
+    def _get_samples_from_buffer(self, num_samples: int, rollout_id: int | None = None) -> list[list[Sample]]:
         if len(self.buffer) == 0 or num_samples == 0:
             return []
 
-        samples = self.buffer_filter(self.args, None, self.buffer, num_samples)
+        before_len = len(self.buffer)
+        samples = self.buffer_filter(self.args, rollout_id, self.buffer, num_samples)
+        discarded = before_len - len(samples) - len(self.buffer)
+        if discarded > 0:
+            self.stale_samples_discarded += discarded
+            logger.info("Discarded %d stale sample groups from buffer", discarded)
         return samples
 
     def add_samples(self, samples: list[list[Sample]]):
@@ -214,6 +220,17 @@ class RolloutDataSourceWithBuffer(RolloutDataSource):
 
 
 def pop_first(args, rollout_id, buffer: list[list[Sample]], num_samples: int) -> list[list[Sample]]:
+    max_staleness = getattr(args, "max_buffer_staleness", None)
+
+    if max_staleness is not None and rollout_id is not None:
+        fresh = []
+        for group in buffer:
+            start_id = group[0].metadata.get("start_rollout_id")
+            if start_id is not None and (rollout_id - start_id) > max_staleness:
+                continue
+            fresh.append(group)
+        buffer[:] = fresh
+
     num_to_pop = min(len(buffer), num_samples)
     samples = buffer[:num_to_pop]
     del buffer[:num_to_pop]
