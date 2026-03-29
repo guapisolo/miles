@@ -82,9 +82,9 @@ def setup_session_routes(app, backend, args):
     async def chat_completions(request: Request, session_id: str):
         """Proxy a chat completion through SGLang with TITO token tracking.
 
-        Flow: prepare pretokenized input_ids (if not first turn) -> inject
-        SGLang flags -> proxy to backend -> validate response -> update
-        trajectory checkpoint -> append session record.
+        Flow: prepare pretokenized input_ids (if not first turn) → inject
+        SGLang flags → proxy to backend → validate response → update
+        trajectory checkpoint → append session record.
         """
         session = registry.get_session(session_id)
         if session.closing:
@@ -98,9 +98,9 @@ def setup_session_routes(app, backend, args):
             request_body = json.loads(body) if body else {}
 
             # TITO token tracking requires three SGLang flags working together:
-            #   logprobs=True            -> populates meta_info.output_token_logprobs
-            #   return_prompt_token_ids  -> adds choice.prompt_token_ids
-            #   return_meta_info         -> wraps the above in choice.meta_info
+            #   logprobs=True            → populates meta_info.output_token_logprobs
+            #   return_prompt_token_ids  → adds choice.prompt_token_ids
+            #   return_meta_info         → wraps the above in choice.meta_info
             # All three are hardcoded (not setdefault) to prevent agent-side
             # overrides from breaking the token accumulation invariants.
             request_body["logprobs"] = True
@@ -131,7 +131,7 @@ def setup_session_routes(app, backend, args):
             result = await backend.do_proxy(request, "v1/chat/completions", body=body)
 
             # If SGLang returned a non-200 error (e.g. 400 for context too long),
-            # pass it through to the agent without recording - the agent can retry
+            # pass it through to the agent without recording — the agent can retry
             # or handle the error.
             if result["status_code"] != 200:
                 return backend.build_proxy_response(result)

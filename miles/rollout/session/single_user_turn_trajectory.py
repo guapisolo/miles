@@ -30,7 +30,7 @@ class SingleUserTurnTrajectory:
     """State for a single-user-turn trajectory.
 
     Tracks the full message history and accumulated token IDs for one session.
-    The typical message sequence is: [system?, user, assistant, tool, assistant, tool, ...],
+    The typical message sequence is: [system?, user, assistant, tool, assistant, tool, …],
     but the agent may retry from an earlier point (e.g. re-running a tool call),
     in which case the session is rolled back to the last matching assistant
     checkpoint and re-extended from there.
@@ -47,7 +47,7 @@ class SingleUserTurnTrajectory:
 
     @property
     def token_ids(self) -> list[int]:
-        """Current token IDs - the latest assistant checkpoint."""
+        """Current token IDs — the latest assistant checkpoint."""
         return self.trajectory_token_ids[-1] if self.trajectory_token_ids else []
 
     def append_record(self, record: SessionRecord) -> None:
@@ -68,7 +68,7 @@ class SingleUserTurnTrajectory:
         if not self.token_ids:
             return None
 
-        # 1. Reject multi-turn (user after assistant) - single-user-turn only.
+        # 1. Reject multi-turn (user after assistant) — single-user-turn only.
         _assert_no_user_after_assistant(request_messages)
         # 2. Detect agent retries and roll back to the last matching checkpoint.
         self._try_detect_and_rollback_to_assistant_checkpoint(request_messages)
@@ -137,11 +137,29 @@ class SingleUserTurnTrajectory:
     ) -> None:
         """Detect if *request_messages* diverges from stored history and roll back.
 
-        In agentic workflows the agent may retry from an earlier point - for
+        In agentic workflows the agent may retry from an earlier point — for
         example, re-running a tool call with different arguments.  When that
         happens the new request shares a common prefix with the stored messages
         but diverges before the end.  This method truncates session state back
         to the last assistant checkpoint within the matching prefix.
+
+        Example — agent retries after the first tool call::
+
+            stored:  [sys, user, assistant₁, tool₁, assistant₂]
+                      ───────────────────── ▲
+                      checkpoint 0 (assistant₁)   checkpoint 1 (assistant₂)
+
+            request: [sys, user, assistant₁, tool₁_different, ...]
+                                             ↑ diverges here (index 3)
+
+            match_len = 3  (sys, user, assistant₁ all match)
+            Last assistant in matched prefix → assistant₁ (checkpoint 0)
+
+            After rollback:
+              messages           = [sys, user, assistant₁]
+              trajectory_token_ids = [checkpoint_0_ids]
+              records              = [record_0]
+              num_assistant        = 1
 
         No rollback occurs when:
         - The stored history is empty.
@@ -180,7 +198,7 @@ class SingleUserTurnTrajectory:
             )
 
         logger.info(
-            "Rolling back session: stored %d messages / %d checkpoints -> checkpoint %d (messages[:%d])",
+            "Rolling back session: stored %d messages / %d checkpoints -> " "checkpoint %d (messages[:%d])",
             len(stored),
             self.num_assistant,
             checkpoint_index,
