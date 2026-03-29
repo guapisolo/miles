@@ -59,7 +59,17 @@ class SessionServer:
             k: v for k, v in headers.items() if k.lower() not in ("content-length", "transfer-encoding", "host")
         }
 
-        response = await self.client.request(request.method, url, content=body, headers=headers)
+        try:
+            response = await self.client.request(request.method, url, content=body, headers=headers)
+        except httpx.TransportError as exc:
+            logger.warning("Proxy transport error for %s %s: %s", request.method, path, exc)
+            error_body = json.dumps({"error": f"backend transport error: {type(exc).__name__}: {exc}"}).encode()
+            return {
+                "request_body": body,
+                "response_body": error_body,
+                "status_code": 502,
+                "headers": {"content-type": "application/json"},
+            }
         content = await response.aread()
         return {
             "request_body": body,
