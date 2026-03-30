@@ -43,7 +43,7 @@ def gather_log_data(
         dist.gather_object(
             log_dict,
             gathered_log_dict,
-            dst=parallel_state.dp_src_rank,
+            dst=parallel_state.dp_cp_src_rank,
             group=parallel_state.dp_cp_group_gloo,
         )
 
@@ -62,7 +62,7 @@ def gather_log_data(
         dist.gather_object(
             log_dict,
             None,
-            dst=parallel_state.dp_src_rank,
+            dst=parallel_state.dp_cp_src_rank,
             group=parallel_state.dp_cp_group_gloo,
         )
         return None
