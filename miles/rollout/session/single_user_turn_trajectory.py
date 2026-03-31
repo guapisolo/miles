@@ -261,7 +261,3 @@ class SessionRegistry:
             return [m.to_dict() for m in mismatches]
         except Exception as e:
             raise TokenizationError(f"failed to compute tito_session_mismatch: {e}") from e
-
-
-# Backward-compatible alias
-SingleUserTurnTrajectoryManager = SessionRegistry
