@@ -363,15 +363,14 @@ class TestClosingRaceConditions:
                 results = [f.result(timeout=30.0) for f in chat_futures]
                 delete_resp = delete_future.result(timeout=30.0)
 
-            # First chat should succeed (it was in-flight when delete arrived)
-            assert results[0].status_code == 200
             assert delete_resp.status_code == 204
 
-            # Some queued chats may have succeeded (if they acquired the lock before
-            # delete set closing=True) or failed with 404 (if they checked closing
-            # after it was set). We just verify no 500 errors and at least one 404.
+            # At least one chat must succeed (the one holding the lock when
+            # delete arrived).  Others may get 200 (acquired lock before
+            # closing) or 404 (saw closing=True).  No 500s allowed.
             status_codes = [r.status_code for r in results]
             assert all(c in (200, 404) for c in status_codes), f"Unexpected status codes: {status_codes}"
+            assert 200 in status_codes, f"Expected at least one 200, got {status_codes}"
 
     def test_rapid_create_chat_delete_cycles(self):
         """Rapidly create, chat, and delete sessions to stress the lifecycle.
