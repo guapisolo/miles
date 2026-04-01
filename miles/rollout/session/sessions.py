@@ -146,10 +146,11 @@ def setup_session_routes(app, backend, args):
                     "meta_info and output_token_logprobs must be in choice (requires logprobs=True)"
                 )
             assistant_message = choice.get("message", {})
-            # SGLang may return content=None when the assistant only emits tool_calls or
-            # reasoning tokens. Normalize to empty string to keep session tracking robust.
             if assistant_message.get("content") is None:
-                assistant_message["content"] = ""
+                raise UpstreamResponseError(
+                    "assistant message content is None, when tool call parser failed SGLang should still return "
+                    "an empty content rather than None. Please check your modified SGLang version."
+                )
 
             prompt_token_ids = choice.get("prompt_token_ids")
             output_token_logprobs = meta_info["output_token_logprobs"]
