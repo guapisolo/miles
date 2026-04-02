@@ -40,7 +40,7 @@ def router_env():
                 miles_router_timeout=30,
                 hf_checkpoint="Qwen/Qwen3-0.6B",
                 chat_template_path=None,
-                trajectory_manager="single_user_turn_trajectory",
+                trajectory_manager="linear_trajectory",
             )
             server_obj = SessionServer(args, backend_url=backend.url)
 

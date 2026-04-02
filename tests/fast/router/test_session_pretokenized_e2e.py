@@ -1,6 +1,6 @@
 """End-to-end tests for pretokenized token injection through the session proxy.
 
-Verifies that SingleUserTurnTrajectoryManager correctly accumulates token state
+Verifies that LinearTrajectory correctly accumulates token state
 across multi-turn tool-call conversations and injects pretokenized_token_ids
 into downstream requests.
 
