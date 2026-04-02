@@ -137,6 +137,8 @@ def execute(args: ScriptArgs):
         "--tito-model glm47 "
         "--chat-template-path autofix "
         "--use-session-server "
+        # This is required by terminus-2 harness
+        "--tito-allowed-append-roles user tool "
     )
 
     misc_args = (
