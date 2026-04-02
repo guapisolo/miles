@@ -77,7 +77,7 @@ class LinearTrajectory:
         # 1. Detect agent retries and roll back (at most one assistant step).
         self._try_detect_and_rollback_to_assistant_checkpoint(request_messages)
         # 2. Confirm the (possibly rolled-back) stored messages are a prefix of request,
-        #    and that appended messages have allowed roles only.
+        #    and that each appended message role is in tito_tokenizer.allowed_append_roles.
         try:
             assert_messages_append_only_with_allowed_role(
                 self.messages, request_messages, tito_tokenizer.allowed_append_roles

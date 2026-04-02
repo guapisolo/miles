@@ -276,7 +276,8 @@ class TestSingleUserTurnPretokenized:
 # TestAppendRole* — allowed_append_roles policy tests
 #
 # Each class tests one configuration: tool-only (default), tool+system,
-# tool+user.  Tests verify which roles are accepted / rejected.
+# tool+user.  Tests verify which appended roles are accepted or rejected
+# under each allowed_append_roles setting.
 # ---------------------------------------------------------------------------
 
 
@@ -365,7 +366,7 @@ class TestAppendRoleToolSystem:
 
 
 class TestAppendRoleToolUser:
-    """Config: allowed_append_roles=['tool', 'user']."""
+    """Config: allowed_append_roles=['tool', 'user']; user follow-ups are allowed here."""
 
     def test_tool_append_allowed(self, registry_with_user: SessionRegistry):
         sid = registry_with_user.create_session()
