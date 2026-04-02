@@ -1796,7 +1796,6 @@ def miles_validate_args(args):
             "thinking-token trimming). This can cause input_ids to diverge from "
             "the canonical template output. Use at your own risk."
         )
-
     if args.chat_template_path == "autofix":
         from miles.utils.chat_template_utils import try_get_fixed_chat_template
 
