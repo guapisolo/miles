@@ -405,7 +405,7 @@ class RetrySystemTrajectory:
 class MultiUserToolChainTrajectory:
     """sys, user1, ass(tool), tool, ass, user2, ass(tool), tool, ass(tool:date), tool
 
-    NOTE: SingleUserTurnTrajectoryManager does not support multiple user messages.
+    NOTE: LinearTrajectory does not support multiple user messages.
     E2E tests should verify it raises an exception.
     TODO: support multi-user-turn trajectories in the future.
     """
