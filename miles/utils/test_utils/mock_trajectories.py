@@ -405,9 +405,8 @@ class RetrySystemTrajectory:
 class MultiUserToolChainTrajectory:
     """sys, user1, ass(tool), tool, ass, user2, ass(tool), tool, ass(tool:date), tool
 
-    NOTE: LinearTrajectory does not support multiple user messages.
-    E2E tests should verify it raises an exception.
-    TODO: support multi-user-turn trajectories in the future.
+    NOTE: LinearTrajectory supports multiple user messages but the distribution
+    may deviate from the chat template behavior, causing high tito_session_mismatch_rate.
     """
 
     TOOLS = ALL_TOOLS
