@@ -2,6 +2,47 @@ import re
 
 import torch
 
+_DECODER_EXPERT_LINEAR_FC1_CACHE: dict[str, dict[int, torch.Tensor]] = {}
+_DECODER_EXPERT_LINEAR_FC2_CACHE: dict[str, dict[int, torch.Tensor]] = {}
+
+
+def _merge_decoder_expert_weights(
+    args,
+    *,
+    layer_idx: str,
+    expert_idx: int,
+    linear_name: str,
+    param: torch.Tensor,
+) -> list[tuple[str, torch.Tensor]]:
+    """Merge per-expert decoder weights into fused HF MoE kernels."""
+    num_experts = getattr(args, "num_experts", None)
+    if not isinstance(num_experts, int) or num_experts <= 0:
+        return []
+
+    cache_by_layer = (
+        _DECODER_EXPERT_LINEAR_FC1_CACHE if linear_name == "linear_fc1" else _DECODER_EXPERT_LINEAR_FC2_CACHE
+    )
+    layer_cache = cache_by_layer.setdefault(layer_idx, {})
+
+    # Safety guard: if an incomplete stale cache exists, restart when a new expert-0 arrives.
+    if expert_idx == 0 and layer_cache and 0 in layer_cache and len(layer_cache) < num_experts:
+        layer_cache.clear()
+    layer_cache[expert_idx] = param
+
+    expected_ids = set(range(num_experts))
+    if len(layer_cache) != num_experts or set(layer_cache) != expected_ids:
+        return []
+
+    merged = torch.stack([layer_cache[i] for i in range(num_experts)], dim=0).contiguous()
+    cache_by_layer.pop(layer_idx, None)
+
+    prefix = f"model.language_model.layers.{layer_idx}.mlp.experts"
+    if linear_name == "linear_fc1":
+        return [(f"{prefix}.gate_up_proj", merged)]
+    if linear_name == "linear_fc2":
+        return [(f"{prefix}.down_proj", merged)]
+    raise ValueError(f"Unsupported expert linear name: {linear_name}")
+
 
 def _convert_mtp_layer(args, name, param, layer_idx):
     """Convert MTP layer parameters from Megatron to HuggingFace format."""
@@ -13,6 +54,22 @@ def _convert_mtp_layer(args, name, param, layer_idx):
         return [("mtp.norm.weight", param)]
     if "eh_proj.weight" in name:
         return [("mtp.fc.weight", param)]
+
+    mtp_expert_pattern = (
+        rf"mtp\.layers\.{layer_idx}\.transformer_layer\.mlp\.experts\.(linear_fc1|linear_fc2)\.weight(\d+)"
+    )
+    mtp_match = re.search(mtp_expert_pattern, name)
+    if mtp_match:
+        linear_name, expert_idx = mtp_match.groups()
+        if linear_name == "linear_fc1":
+            gate_weight, up_weight = param.chunk(2, dim=0)
+            return [
+                (f"mtp.layers.{layer_idx}.mlp.experts.{expert_idx}.gate_proj.weight", gate_weight),
+                (f"mtp.layers.{layer_idx}.mlp.experts.{expert_idx}.up_proj.weight", up_weight),
+            ]
+        if linear_name == "linear_fc2":
+            return [(f"mtp.layers.{layer_idx}.mlp.experts.{expert_idx}.down_proj.weight", param)]
+        raise ValueError(f"Unknown MTP expert parameter name: {name}")
 
     if "transformer_layer" in name:
         proxy_name = name.replace(f"mtp.layers.{layer_idx}.transformer_layer", f"decoder.layers.{layer_idx}")
@@ -74,22 +131,26 @@ def convert_qwen3_5_to_hf(args, name, param):
             return [(f"{prefix}.mlp.experts.gate_up_proj", param)]
         elif rest == "mlp.experts.linear_fc2":
             return [(f"{prefix}.mlp.experts.down_proj", param)]
+        elif rest == "mlp.experts.experts.linear_fc1.weight":
+            return [(f"{prefix}.mlp.experts.gate_up_proj", param)]
+        elif rest == "mlp.experts.experts.linear_fc2.weight":
+            return [(f"{prefix}.mlp.experts.down_proj", param)]
 
         # experts (ungrouped - individual expert format)
         expert_pattern = r"mlp.experts\.(.+)\.weight(\d+)"
         match = re.match(expert_pattern, rest)
         if match:
-            rest, expert_idx = match.groups()
-            if rest == "linear_fc1":
-                gate_weight, up_weight = param.chunk(2, dim=0)
-                return [
-                    (f"{prefix}.mlp.experts.{expert_idx}.gate_proj.weight", gate_weight),
-                    (f"{prefix}.mlp.experts.{expert_idx}.up_proj.weight", up_weight),
-                ]
-            elif rest == "linear_fc2":
-                return [(f"{prefix}.mlp.experts.{expert_idx}.down_proj.weight", param)]
-            else:
-                raise ValueError(f"Unknown expert parameter name: {name}")
+            rest, expert_idx_str = match.groups()
+            expert_idx = int(expert_idx_str)
+            if rest in {"linear_fc1", "linear_fc2"}:
+                return _merge_decoder_expert_weights(
+                    args,
+                    layer_idx=layer_idx,
+                    expert_idx=expert_idx,
+                    linear_name=rest,
+                    param=param,
+                )
+            raise ValueError(f"Unknown expert parameter name: {name}")
 
         # shared expert
         shared_expert_pattern = r"mlp.shared_experts\.(.+)"
@@ -188,6 +249,9 @@ def convert_qwen3_5_to_hf(args, name, param):
             "self_attn.v_proj.weight",
         ]:
             rest = rest[len("self_attention.") :]
+            if rest in {"linear_attn.A_log", "linear_attn.norm.weight"}:
+                # Keep linear attention fp32 whitelist stable across export/import round-trip.
+                param = param.float()
             return [(f"{prefix}.{rest}", param)]
 
     raise ValueError(f"Unknown parameter name: {name}")

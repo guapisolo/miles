@@ -254,6 +254,15 @@ class Qwen3_5Bridge(Qwen2MoEBridge):
     def _weight_to_mcore_format(
         self, mcore_weights_name: str, hf_weights: list[torch.Tensor]
     ) -> tuple[list[str], list[torch.Tensor]]:
+        if mcore_weights_name.endswith("self_attention.linear_attn.A_log"):
+            # Keep recurrence state in fp32; bf16 introduces compounding error.
+            assert len(hf_weights) == 1
+            return hf_weights[0].to(torch.float32).contiguous()
+        if mcore_weights_name.endswith("self_attention.linear_attn.norm.weight"):
+            # Keep gated RMSNorm scale in fp32 for stable long-context accumulation.
+            assert len(hf_weights) == 1
+            return hf_weights[0].to(torch.float32).contiguous()
+
         if "self_attention.linear_qkv." in mcore_weights_name and "layer_norm" not in mcore_weights_name:
             # merge qkv
             assert len(hf_weights) == 3

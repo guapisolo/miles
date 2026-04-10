@@ -306,6 +306,10 @@ def _send_to_colocated_engine(
 
     serialized_tensors = []
     for _dtype, named_tensors in converted_named_tensors_by_dtypes.items():
+        # Some conversion chunks may intentionally produce no HF tensors
+        # (e.g. intermediate Megatron-only tensors). Skip these safely.
+        if len(named_tensors) == 0:
+            continue
         flattened_tensor_bucket = FlattenedTensorBucket(named_tensors=named_tensors)
         flattened_tensor_data = {
             "flattened_tensor": flattened_tensor_bucket.get_flattened_tensor(),
@@ -326,6 +330,14 @@ def _send_to_colocated_engine(
 
     refs = []
     if dist.get_rank() == ipc_gather_src:
+        # All ranks must contribute the same number of dtype buckets for the
+        # current chunk; otherwise per-rank payload indexing is undefined.
+        bucket_lengths = {len(tensors) for tensors in serialized_named_tensors}
+        if len(bucket_lengths) != 1:
+            raise ValueError(
+                "Inconsistent tensor bucket counts across ranks during weight sync: " f"{sorted(bucket_lengths)}"
+            )
+
         if is_lora:
             if lora_loaded:
                 ray.get(ipc_engine.unload_lora_adapter.remote(lora_name=lora_name))
@@ -345,7 +357,7 @@ def _send_to_colocated_engine(
             )
 
         else:
-            num_dtypes = len(serialized_named_tensors[0])
+            num_dtypes = next(iter(bucket_lengths))
             for i in range(num_dtypes):
                 kwargs = {
                     "serialized_named_tensors": [tensors[i] for tensors in serialized_named_tensors],

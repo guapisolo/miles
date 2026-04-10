@@ -1,5 +1,7 @@
 import copy
 
+import json
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,6 +19,26 @@ except ImportError:
 
 from .hf_attention import HuggingfaceAttention, _load_hf_config
 
+DEBUG_LOG_PATH = "/root/miles/.cursor/debug-b8af16.log"
+DEBUG_SESSION_ID = "b8af16"
+
+
+def _append_debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict):
+    payload = {
+        "sessionId": DEBUG_SESSION_ID,
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
 
 def _get_text_config(hf_config):
     """Extract text config from a VLM config if needed."""
@@ -32,6 +54,8 @@ class Qwen3_5GatedDeltaNet(nn.Module):
     Unlike Qwen3Next which uses a combined in_proj_qkvz, Qwen3.5 uses
     separate in_proj_qkv (for Q,K,V) and in_proj_z (for Z).
     """
+
+    _FP32_PARAM_NAMES = frozenset({"A_log", "norm.weight"})
 
     def __init__(self, config, layer_idx: int):
         super().__init__()
@@ -69,7 +93,23 @@ class Qwen3_5GatedDeltaNet(nn.Module):
         self.dt_bias = nn.Parameter(torch.ones(self.num_v_heads))
 
         A = torch.empty(self.num_v_heads).uniform_(0, 16)
-        self.A_log = nn.Parameter(torch.log(A))
+        self.A_log = nn.Parameter(torch.log(A).to(torch.float32))
+        self._debug_logged_forward = False
+
+        # region agent log
+        _append_debug_log(
+            run_id="baseline",
+            hypothesis_id="H1",
+            location="miles_plugins/models/qwen3_5.py:90",
+            message="Qwen3_5GatedDeltaNet init dtype snapshot",
+            data={
+                "layer_idx": int(layer_idx),
+                "a_log_dtype": str(self.A_log.dtype),
+                "dt_bias_dtype": str(self.dt_bias.dtype),
+                "config_dtype": str(config.dtype),
+            },
+        )
+        # endregion
 
         self.norm = FusedRMSNormGated(
             self.head_v_dim,
@@ -78,14 +118,58 @@ class Qwen3_5GatedDeltaNet(nn.Module):
             device=torch.cuda.current_device(),
             dtype=config.dtype if config.dtype is not None else torch.get_current_dtype(),
         )
+        self._maintain_fp32_params()
 
         self.out_proj = nn.Linear(self.value_dim, self.hidden_size, bias=False)
+
+    def _maintain_fp32_params(self):
+        with torch.no_grad():
+            for name, param in self.named_parameters(recurse=True):
+                if name in self._FP32_PARAM_NAMES and param.dtype != torch.float32:
+                    param.data = param.data.to(torch.float32)
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        self._maintain_fp32_params()
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
+        self._maintain_fp32_params()
+
+    def _save_to_state_dict(self, destination, prefix, keep_vars):
+        self._maintain_fp32_params()
+        super()._save_to_state_dict(destination, prefix, keep_vars)
+
+    def half(self):
+        ret = super().half()
+        self._maintain_fp32_params()
+        return ret
+
+    def bfloat16(self):
+        ret = super().bfloat16()
+        self._maintain_fp32_params()
+        return ret
 
     def forward(
         self,
         hidden_states: torch.Tensor,
         cu_seqlens: torch.Tensor = None,
     ):
+        self._maintain_fp32_params()
         batch_size, seq_len, _ = hidden_states.shape
 
         # Projections (flat layout: [Q_all, K_all, V_all])
@@ -112,8 +196,44 @@ class Qwen3_5GatedDeltaNet(nn.Module):
         value = value.reshape(batch_size, seq_len, -1, self.head_v_dim)
 
         beta = b.sigmoid()
+        if not self._debug_logged_forward:
+            # region agent log
+            _append_debug_log(
+                run_id="baseline",
+                hypothesis_id="H2",
+                location="miles_plugins/models/qwen3_5.py:153",
+                message="Pre-g dtype snapshot",
+                data={
+                    "layer_idx": int(self.layer_idx),
+                    "hidden_states_dtype": str(hidden_states.dtype),
+                    "a_log_dtype": str(self.A_log.dtype),
+                    "a_dtype": str(a.dtype),
+                    "dt_bias_dtype": str(self.dt_bias.dtype),
+                    "query_dtype": str(query.dtype),
+                    "key_dtype": str(key.dtype),
+                    "value_dtype": str(value.dtype),
+                },
+            )
+            # endregion
         # If the model is loaded in fp16, without the .float() here, A might be -inf
         g = -self.A_log.float().exp() * F.softplus(a.float() + self.dt_bias)
+        if not self._debug_logged_forward:
+            # region agent log
+            _append_debug_log(
+                run_id="baseline",
+                hypothesis_id="H3",
+                location="miles_plugins/models/qwen3_5.py:173",
+                message="Post-g dtype and range snapshot",
+                data={
+                    "layer_idx": int(self.layer_idx),
+                    "g_dtype": str(g.dtype),
+                    "g_min": float(g.min().item()),
+                    "g_max": float(g.max().item()),
+                    "g_mean": float(g.mean().item()),
+                    "beta_dtype": str(beta.dtype),
+                },
+            )
+            # endregion
         if self.num_v_heads // self.num_k_heads > 1:
             query = query.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
             key = key.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
@@ -129,6 +249,21 @@ class Qwen3_5GatedDeltaNet(nn.Module):
             use_qk_l2norm_in_kernel=True,
             cu_seqlens=cu_seqlens,
         )
+        if not self._debug_logged_forward:
+            # region agent log
+            _append_debug_log(
+                run_id="baseline",
+                hypothesis_id="H4",
+                location="miles_plugins/models/qwen3_5.py:198",
+                message="Kernel output dtype snapshot",
+                data={
+                    "layer_idx": int(self.layer_idx),
+                    "core_attn_out_dtype": str(core_attn_out.dtype),
+                    "last_recurrent_state_is_none": bool(last_recurrent_state is None),
+                },
+            )
+            # endregion
+            self._debug_logged_forward = True
 
         z_shape_og = z.shape
         # reshape input data into 2D tensor

@@ -68,6 +68,18 @@ def get_expert_param(args, name, param):
         yield name, param
         return
 
+    # Qwen3.5 decoder MoE kernels in torch-dist checkpoints are stored as fused tensors
+    # under "...mlp.experts.experts.linear_fc{1,2}.weight". Keep them fused so that
+    # downstream conversion maps to gate_up_proj/down_proj correctly.
+    fused_decoder_moe = re.search(
+        r"module\.module\.decoder\.layers\.\d+\.mlp\.experts\.experts\.(linear_fc1|linear_fc2)\.weight$",
+        name,
+    )
+    if fused_decoder_moe:
+        merged_name = name.replace(".experts.experts.", ".experts.").removesuffix(".weight")
+        yield merged_name, param
+        return
+
     num_experts = args.num_experts
     match = re.search(r"mlp.experts\.(.+)\.weight(\d+)", name)
     if not match:

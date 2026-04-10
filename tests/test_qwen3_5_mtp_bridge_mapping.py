@@ -174,6 +174,28 @@ def test_eh_proj_keeps_column_order_when_loading_to_mcore():
     assert torch.equal(converted, weight)
 
 
+def test_linear_attn_fp32_whitelist_when_loading_to_mcore():
+    module = load_bridge_module()
+    bridge = module.Qwen3_5Bridge.__new__(module.Qwen3_5Bridge)
+
+    a_log = torch.randn(8, dtype=torch.bfloat16)
+    norm_weight = torch.randn(8, dtype=torch.bfloat16)
+    dt_bias = torch.randn(8, dtype=torch.bfloat16)
+
+    a_log_converted = bridge._weight_to_mcore_format("decoder.layers.0.self_attention.linear_attn.A_log", [a_log])
+    norm_converted = bridge._weight_to_mcore_format(
+        "decoder.layers.0.self_attention.linear_attn.norm.weight",
+        [norm_weight],
+    )
+    dt_bias_converted = bridge._weight_to_mcore_format(
+        "decoder.layers.0.self_attention.linear_attn.dt_bias", [dt_bias]
+    )
+
+    assert a_log_converted.dtype == torch.float32
+    assert norm_converted.dtype == torch.float32
+    assert dt_bias_converted.dtype == torch.bfloat16
+
+
 def test_build_config_enables_gated_attention_when_transformer_config_supports_it():
     module = load_bridge_module()
     bridge = module.Qwen3_5Bridge.__new__(module.Qwen3_5Bridge)
