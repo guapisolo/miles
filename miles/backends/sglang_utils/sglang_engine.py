@@ -445,8 +445,11 @@ class SGLangEngine(RayActor):
             {"tags": tags},
         )
 
-    def check_weights(self, action: str):
-        return self._make_request("weights_checker", {"action": action})
+    def check_weights(self, action: str, ignore_prefixes: list[str] | None = None):
+        payload = {"action": action}
+        if ignore_prefixes is not None:
+            payload["ignore_prefixes"] = ignore_prefixes
+        return self._make_request("weights_checker", payload)
 
     def update_weights_from_disk(self, model_path: str, load_format: str | None = None):
         """Reload weights from *model_path* without restarting the engine.

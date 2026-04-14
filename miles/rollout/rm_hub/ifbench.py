@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -151,8 +152,46 @@ def _build_input_example(metadata: JsonDict) -> InputExample | None:
     )
 
 
+_THINKING_END_TAG = "</think>"
+_THINKING_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def _strip_thinking(response: str) -> str:
+    """Remove Qwen3-style thinking reasoning from a model response.
+
+    Qwen3.5's chat template inserts ``<think>\\n`` as part of the generation
+    prompt (add_generation_prompt=True), so the *response string* does not
+    contain the opening ``<think>`` tag—only the closing ``</think>`` once the
+    model finishes reasoning. Handle both forms:
+
+      1. Full block present (``<think>...</think>final``): drop the block.
+      2. Only closing tag (``thinking...</think>\\n\\nfinal``): take the text
+         after the final ``</think>``.
+
+    The IFBench paper (README §"How to run the evaluation"):
+      > for thinking models we allow to generate more tokens and we then
+      > process the output to extract the answer without the reasoning chains.
+    Many IFBench constraints (keyword counts, "no explanation", word limits)
+    are violated by the thinking chain itself even when the final answer
+    satisfies them, so scoring must run on the stripped response.
+    """
+    # Case 1: strip any complete <think>...</think> blocks.
+    cleaned = _THINKING_BLOCK_RE.sub("", response)
+    # Case 2: if </think> still present (opening was in the prompt, not the
+    # response), everything before and including the last </think> is reasoning.
+    if _THINKING_END_TAG in cleaned:
+        cleaned = cleaned.rsplit(_THINKING_END_TAG, 1)[1]
+    return cleaned.strip()
+
+
 def compute_ifbench_reward(response: str, label: Any, metadata: JsonDict | None = None) -> float:
-    """Score a model response using the official IFBench rules."""
+    """Score a model response using the official IFBench rules.
+
+    Matches the evaluation methodology described in the IFBench paper/README:
+      (1) strip ``<think>...</think>`` reasoning blocks from the response
+      (2) use ``test_instruction_following_loose`` (prompt-level loose
+          accuracy is what the leaderboard and model cards report)
+    """
 
     if metadata is None:
         logger.debug("No metadata provided for IFBench scoring.")
@@ -165,6 +204,7 @@ def compute_ifbench_reward(response: str, label: Any, metadata: JsonDict | None 
     if inp is None:
         return 0.0
 
-    prompt_to_response = {inp.prompt: str(response or "")}
-    output = evaluation_lib.test_instruction_following_strict(inp, prompt_to_response)
+    stripped = _strip_thinking(str(response or ""))
+    prompt_to_response = {inp.prompt: stripped}
+    output = evaluation_lib.test_instruction_following_loose(inp, prompt_to_response)
     return 1.0 if output.follow_all_instructions else 0.0

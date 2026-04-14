@@ -88,7 +88,19 @@ def filter_long_prompt(origin_samples: list[Sample], tokenizer, processor, max_l
         )
         return False
 
-    if processor:
+    # Multimodal-capable processors (e.g. Qwen3.5 with vision config) get loaded
+    # even for text-only tasks. Only use the processor path when at least one
+    # sample actually carries images/videos. Checking the dict's existence alone
+    # is insufficient because build-time `process_vision_info` returns
+    # `{"images": [], "videos": []}` (truthy dict) for text-only list prompts.
+    # For text-only samples here, sample.prompt is the stringified chat template,
+    # while qwen_vl_utils's extract_vision_info needs a list-of-messages; passing
+    # a string raises `TypeError: string indices must be integers, not 'str'`.
+    def _has_real_multimodal(s):
+        mm = getattr(s, "multimodal_inputs", None) or {}
+        return bool(mm.get("images")) or bool(mm.get("videos"))
+
+    if processor and any(_has_real_multimodal(s) for s in origin_samples):
         filtered_samples = []
         for sample in origin_samples:
             from miles.utils.processing_utils import process_vision_info

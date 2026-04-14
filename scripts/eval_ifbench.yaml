@@ -1,0 +1,21 @@
+eval:
+  defaults:
+    # sampling: https://huggingface.co/Qwen/Qwen3.5-35B-A3B thinking-mode general-tasks preset
+    # max_response_len: HF README gives 32768 default and 81920 for "complex problems
+    # (math/programming)". IFBench's multi-constraint prompts are close to this regime —
+    # 32k still truncated 9% of responses mid-thinking which all score 0. Use 81920 to
+    # eliminate that source of lost points (remaining ~1% truncation is genuinely long
+    # thinking loops which extra budget can't rescue).
+    max_response_len: 81920
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 1.5
+    repetition_penalty: 1.0
+  datasets:
+    # hf download --repo-type dataset zyzshishui0627/IFBench --local-dir /root/shared/ifbench
+    - name: ifbench
+      path: /root/shared/ifbench/IFBench_eval.jsonl
+      rm_type: ifbench
+      n_samples_per_eval_prompt: 1

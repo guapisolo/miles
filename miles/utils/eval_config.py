@@ -33,6 +33,21 @@ DATASET_RUNTIME_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
         "default_keys": ("max_response_len",),
         "arg_attrs": ("eval_max_response_len", "rollout_max_response_len"),
     },
+    "min_p": {
+        "dataset_keys": ("min_p",),
+        "default_keys": ("min_p",),
+        "arg_attrs": ("eval_min_p", "rollout_min_p"),
+    },
+    "presence_penalty": {
+        "dataset_keys": ("presence_penalty",),
+        "default_keys": ("presence_penalty",),
+        "arg_attrs": ("eval_presence_penalty", "rollout_presence_penalty"),
+    },
+    "repetition_penalty": {
+        "dataset_keys": ("repetition_penalty",),
+        "default_keys": ("repetition_penalty",),
+        "arg_attrs": ("eval_repetition_penalty", "rollout_repetition_penalty"),
+    },
 }
 
 DATASET_SAMPLE_SPECS: dict[str, dict[str, tuple[str, ...]]] = {
@@ -110,6 +125,9 @@ class EvalDatasetConfig:
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    repetition_penalty: float | None = None
     max_response_len: int | None = None
     stop: list[str] | None = None
     stop_token_ids: list[int] | None = None

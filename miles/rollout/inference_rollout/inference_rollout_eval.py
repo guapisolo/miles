@@ -53,6 +53,9 @@ async def eval_rollout_single_dataset(
         temperature=dataset_cfg.temperature,
         top_p=dataset_cfg.top_p,
         top_k=dataset_cfg.top_k,
+        min_p=dataset_cfg.min_p,
+        presence_penalty=dataset_cfg.presence_penalty,
+        repetition_penalty=dataset_cfg.repetition_penalty,
         max_new_tokens=dataset_cfg.max_response_len,
     )
 

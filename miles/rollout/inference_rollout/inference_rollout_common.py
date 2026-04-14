@@ -40,6 +40,9 @@ class GenerateState:
             temperature=args.rollout_temperature,
             top_p=args.rollout_top_p,
             top_k=args.rollout_top_k,
+            min_p=args.rollout_min_p,
+            presence_penalty=args.rollout_presence_penalty,
+            repetition_penalty=args.rollout_repetition_penalty,
             max_new_tokens=args.rollout_max_response_len,
         )
 
@@ -155,11 +158,24 @@ def compute_sampling_params(
     top_p,
     top_k,
     max_new_tokens,
+    min_p=None,
+    presence_penalty=None,
+    repetition_penalty=None,
 ):
+    # fall back to the rollout_* CLI defaults when per-dataset config omits the field
+    if min_p is None:
+        min_p = getattr(args, "rollout_min_p", 0.0)
+    if presence_penalty is None:
+        presence_penalty = getattr(args, "rollout_presence_penalty", 0.0)
+    if repetition_penalty is None:
+        repetition_penalty = getattr(args, "rollout_repetition_penalty", 1.0)
     return dict(
         temperature=temperature,
         top_p=top_p,
         top_k=top_k,
+        min_p=min_p,
+        presence_penalty=presence_penalty,
+        repetition_penalty=repetition_penalty,
         max_new_tokens=max_new_tokens,
         stop=args.rollout_stop,
         stop_token_ids=args.rollout_stop_token_ids,

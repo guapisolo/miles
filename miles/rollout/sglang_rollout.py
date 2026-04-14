@@ -77,6 +77,9 @@ class GenerateState(metaclass=SingletonMeta):
             temperature=args.rollout_temperature,
             top_p=args.rollout_top_p,
             top_k=args.rollout_top_k,
+            min_p=args.rollout_min_p,
+            presence_penalty=args.rollout_presence_penalty,
+            repetition_penalty=args.rollout_repetition_penalty,
             max_new_tokens=args.rollout_max_response_len,
             stop=args.rollout_stop,
             stop_token_ids=args.rollout_stop_token_ids,
@@ -522,10 +525,21 @@ async def eval_rollout_single_dataset(
         )
     dataset = EVAL_PROMPT_DATASET[cache_key]
 
+    # EvalDatasetConfig falls back to args.rollout_* when yaml default is absent (see DATASET_RUNTIME_SPECS).
+    # Here we still guard against None (e.g. user-crafted EvalDatasetConfig bypassing build_eval_dataset_configs).
     base_sampling_params = dict(
         temperature=dataset_cfg.temperature,
         top_p=dataset_cfg.top_p,
         top_k=dataset_cfg.top_k,
+        min_p=dataset_cfg.min_p if dataset_cfg.min_p is not None else args.rollout_min_p,
+        presence_penalty=(
+            dataset_cfg.presence_penalty if dataset_cfg.presence_penalty is not None else args.rollout_presence_penalty
+        ),
+        repetition_penalty=(
+            dataset_cfg.repetition_penalty
+            if dataset_cfg.repetition_penalty is not None
+            else args.rollout_repetition_penalty
+        ),
         max_new_tokens=dataset_cfg.max_response_len,
         stop=args.rollout_stop,
         stop_token_ids=args.rollout_stop_token_ids,
