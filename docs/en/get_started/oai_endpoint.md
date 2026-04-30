@@ -114,21 +114,31 @@ TITO needs two things from the SGLang response:
    This field is returned by SGLang when the request sets
    `return_prompt_token_ids=True`.
 2. **Output token ids and logprobs** — extracted from
-   `response.choices[0].logprobs.content[*].token_id` and
-   `response.choices[0].logprobs.content[*].logprob`.
-   These fields are returned when the request sets `logprobs=True`.
+   `response.choices[0].meta_info.output_token_logprobs[*]`.
+   These fields are returned when the request sets `logprobs=True` and
+   `return_meta_info=True`.
 
-By default, `build_chat_request_kwargs` in `agentic_tool_call.py` sets both
-`return_prompt_token_ids=True` and `logprobs=True`. The session middleware
-forwards raw `messages` to SGLang, which tokenizes the prompt and returns the
-response. Then `_compute_sample_from_openai_record` in
-`openai_endpoint_utils.py` extracts prompt token ids and output token ids from
-the response and concatenates them into `sample.tokens`. You do not need to
-provide `input_ids` yourself.
+When you route chat requests through the session server, the middleware
+forces the SGLang flags required by TITO:
 
-We can save multi-turn samples within a single session, but currently we
-still do not inherit or reuse tokens across turns. Each request is tokenized
-independently.
+- `logprobs=True`
+- `return_prompt_token_ids=True`
+- `return_meta_info=True`
+- `no_stop_trim=False`
+
+The first turn is sent normally. After that, the session server may inject
+`input_ids` built from:
+
+- the exact token prefix returned by previous turns, plus
+- incremental tokens computed for newly appended non-assistant messages
+
+This is the core TITO optimization: multi-turn sessions reuse tokens
+across turns instead of re-tokenizing the full conversation on every request.
+
+At the end of the session, `OpenAIEndpointTracer.collect_records` fetches the
+per-turn records and metadata, and `compute_samples_from_openai_records` turns
+them into `Sample` objects while trimming model-specific trailing boundary
+tokens when needed.
 
 ### Common pitfalls
 
@@ -138,3 +148,31 @@ independently.
   logprobs for every prompt token, which destroys the prefix cache and hurts
   performance. Use `return_prompt_token_ids=True` instead, which returns
   prompt token ids at zero cost without affecting caching.
+
+## 6. Session server message constraints
+
+The session server enforces two invariants on every request's `messages`.
+Violations raise `MessageValidationError`.
+
+- **Append-only.** Each new request's `messages` must contain the previous
+  turn's full `messages` as an exact prefix (same roles, same
+  template-relevant content). You can extend at the tail; you cannot edit,
+  reorder, or drop earlier messages. This is how TITO can reuse tokens
+  across turns: the stored token prefix is only valid if the client
+  confirms the same message prefix on every request.
+
+- **Allowed append roles.** After the first assistant message, every newly
+  appended message must have a role in `--tito-allowed-append-roles`
+  (default `{tool}`; valid values: `tool`, `user`, `system`). Typical usage:
+
+  - Pure tool-calling agent — `tool` (default).
+  - Multi-turn chat with mid-conversation user follow-ups — add `user`.
+  - Mid-conversation system reminders — also add `system`.
+
+  See [chat-template verification](../agentic/chat_template_verification.md)
+  for how this flag drives template resolution at training time.
+
+Both invariants depend on the chat template's rendering behavior under the
+chosen role surface. Adding miles support for a new model family therefore
+involves both updating the chat template and adapting the TITO tokenizer
+subclass for that family.
