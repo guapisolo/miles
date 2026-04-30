@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import pytest
 from transformers import AutoTokenizer
 
-from miles.utils.chat_template_utils import MismatchType, apply_chat_template, try_get_fixed_chat_template
+from miles.utils.chat_template_utils import MismatchType, apply_chat_template, resolve_fixed_chat_template
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer, TITOTokenizerType, get_tito_tokenizer
 from miles.utils.processing_utils import load_tokenizer
 from miles.utils.test_utils.mock_trajectories import (
@@ -157,7 +157,13 @@ def _resolve_tito_type(model_name: str) -> TITOTokenizerType:
 
 
 def _get_tokenizer(model_name: str) -> AutoTokenizer:
-    chat_template_path = try_get_fixed_chat_template(model_name)
+    # Mirror arguments.py: DEFAULT means "use HF native, no override", so we
+    # bypass the resolver. Only fixed-template families go through resolve.
+    tito_type = _resolve_tito_type(model_name)
+    if tito_type == TITOTokenizerType.DEFAULT:
+        chat_template_path = None
+    else:
+        chat_template_path, _kwargs = resolve_fixed_chat_template(tito_type, ["tool"])
     cache_key = (model_name, chat_template_path)
     if cache_key not in _TOK_CACHE:
         _TOK_CACHE[cache_key] = load_tokenizer(

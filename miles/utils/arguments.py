@@ -645,12 +645,13 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 "--chat-template-path",
                 type=str,
                 default=None,
-                help="Path to a custom Jinja chat template file (.jinja), or 'autofix'. "
+                help="Path to an explicit custom Jinja chat template file (.jinja). "
                 "Sets tokenizer.chat_template when loading via load_tokenizer, "
                 "and also sets --sglang-chat-template so the sglang server uses the same template. "
-                "If set to 'autofix', Miles will automatically select a fixed chat template "
-                "maintained internally that resolves train-inference token mismatch issues "
-                "in agentic workflows (e.g. tool-call trajectories). "
+                "For Miles-maintained fixed templates, leave this unset and pass "
+                "--tito-model plus --tito-allowed-append-roles so Miles can auto-resolve "
+                "the registered template. The literal value 'autofix' is kept only as a "
+                "deprecated compatibility alias for that auto-resolve path. "
                 "The path must be accessible on all Ray worker nodes "
                 "(e.g. a path inside the miles repo, or a shared filesystem like NFS).",
             )
@@ -1862,15 +1863,51 @@ def miles_validate_args(args):
         args.no_load_optim = True
         args.no_save_optim = True
 
+    # Normalize the deprecated ``--chat-template-path=autofix`` alias to None
+    # up-front so the rest of this block treats it as "no path given".
     if args.chat_template_path == "autofix":
-        from miles.utils.chat_template_utils import try_get_fixed_chat_template
+        logger.warning(
+            "--chat-template-path=autofix is deprecated; remove the flag and rely "
+            "on --tito-model + --tito-allowed-append-roles to auto-resolve. The "
+            "alias will be removed in a future release."
+        )
+        args.chat_template_path = None
 
-        resolved = try_get_fixed_chat_template(args.hf_checkpoint)
-        if resolved is None:
-            logger.warning(
-                "--chat-template-path=autofix but no fix rule found for %s, using HF default", args.hf_checkpoint
-            )
-        args.chat_template_path = resolved
+    # Auto-resolve a bundled fixed chat-template only when:
+    #   1. the caller did NOT pass --chat-template-path (an explicit path always
+    #      wins and is never overridden)
+    #   2. the caller chose a non-default --tito-model family (DEFAULT means
+    #      "use the model's native HF chat template", which is loaded by
+    #      AutoTokenizer.from_pretrained — no override needed here)
+    should_auto_resolve = args.chat_template_path is None and args.tito_model != TITOTokenizerType.DEFAULT.value
+
+    if should_auto_resolve:
+        tito_model = TITOTokenizerType(args.tito_model)
+        from miles.utils.chat_template_utils import resolve_fixed_chat_template
+
+        resolved_path, resolved_kwargs = resolve_fixed_chat_template(
+            tito_model,
+            allowed_append_roles=args.tito_allowed_append_roles,
+        )
+        if resolved_path is not None:
+            args.chat_template_path = resolved_path
+        # Merge inferred kwargs.  User-explicit values win on conflict; only
+        # keys the user did not set are auto-filled.
+        if resolved_kwargs:
+            user_kwargs = args.apply_chat_template_kwargs or {}
+            for key, value in resolved_kwargs.items():
+                if key in user_kwargs:
+                    continue
+                user_kwargs[key] = value
+                logger.warning(
+                    "Auto-set --apply-chat-template-kwargs %s=%r for tito_model=%s "
+                    "(allowed_append_roles=%s); pass an explicit value to override.",
+                    key,
+                    value,
+                    tito_model.value,
+                    sorted(args.tito_allowed_append_roles),
+                )
+            args.apply_chat_template_kwargs = user_kwargs
 
     if args.chat_template_path is not None:
         if not os.path.isfile(args.chat_template_path):
