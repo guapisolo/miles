@@ -61,22 +61,34 @@ cache.
 
 ## 3. Quickstart index
 
-If you just want something runnable, start here:
+If you just want something runnable, start here.
 
 Generator entry point:
 
-- `miles/rollout/generate_hub/agentic_tool_call.py`
-  - OpenAI-format agent loop via router sessions.
+- `miles/rollout/generate_hub/agentic_tool_call.py` — OpenAI-format agent
+  loop via router sessions.
 
 OpenAI-format examples that use `agentic_tool_call.generate`:
 
-- `examples/openai_format/dapo_math.py`
-  - Single-turn OpenAI format agent (DAPO math).
-- Launcher scripts:
-  - `examples/openai_format/run-qwen3-4B.sh`
+- Single-turn (DAPO math):
+  - `examples/openai_format/dapo_math.py` — custom agent.
+  - `examples/openai_format/run-qwen3-4B.sh` — launcher.
+- Multi-turn (SWE agent):
+  - `examples/experimental/swe-agent-v2/run.py` — drives a multi-turn
+    tool-calling loop with `--tito-model glm47 --tito-allowed-append-roles tool user`.
 
+Key flags for an OpenAI-format agentic run:
 
-You can customize generate function like:
+| Flag | Description |
+| :--- | :--- |
+| `--custom-generate-function-path` | Set to `miles.rollout.generate_hub.agentic_tool_call.generate`. The OpenAI wrapper that creates the session and collects records. |
+| `--custom-agent-function-path` | Path to your `run_agent` function. It receives `base_url` and `request_kwargs` and sends chat requests. |
+| `--use-session-server` | Enables the session-server middleware that forces the SGLang flags TITO needs and tracks token prefixes across turns. Required for TITO. |
+| `--tito-model` | TITO tokenizer family (`qwen3`, `qwen35`, `qwennext`, `glm47`, ...). Use `default` to keep the model's HF-native chat template untouched. |
+| `--tito-allowed-append-roles` | Roles the session may append after assistant turns. Default `tool`; add `user` / `system` if your conversation pattern needs them. |
+
+Customize like:
+
 ```
 CUSTOM_ARGS=(
    --custom-generate-function-path miles.rollout.generate_hub.agentic_tool_call.generate
@@ -86,8 +98,6 @@ CUSTOM_ARGS=(
 
 For OpenAI format, do not add `--apply-chat-template`; the
 prompt must remain a `messages` list.
-
-More agentic multi-turn examples will come in the future.
 
 ## 4. Further customization (OpenAI wrapper generate function)
 
@@ -108,46 +118,28 @@ see `docs/en/get_started/gen_endpoint.md`.
 
 ## 5. TITO (token-in token-out)
 
-TITO needs two things from the SGLang response:
+TITO is the layer that gives miles per-turn token ids and logprobs across a
+multi-turn session, without re-tokenizing the full conversation on every
+request. It requires `--use-session-server`; with that on, miles handles
+three things on your behalf:
 
-1. **Prompt token ids** — extracted from `response.choices[0].prompt_token_ids`.
-   This field is returned by SGLang when the request sets
-   `return_prompt_token_ids=True`.
-2. **Output token ids and logprobs** — extracted from
-   `response.choices[0].meta_info.output_token_logprobs[*]`.
-   These fields are returned when the request sets `logprobs=True` and
-   `return_meta_info=True`.
+- Forces the SGLang flags needed to surface token info in `meta_info`
+  (`logprobs=True`, `return_meta_info=True`, `return_prompt_token_ids=True`,
+  `no_stop_trim=False`).
+- Reuses the token prefix from previous turns by injecting `input_ids` on
+  follow-up requests.
+- Accumulates per-turn records into the `Sample` you receive at the end of
+  the session, with `tokens` and `rollout_log_probs` already populated.
 
-When you route chat requests through the session server, the middleware
-forces the SGLang flags required by TITO:
-
-- `logprobs=True`
-- `return_prompt_token_ids=True`
-- `return_meta_info=True`
-- `no_stop_trim=False`
-
-The first turn is sent normally. After that, the session server may inject
-`input_ids` built from:
-
-- the exact token prefix returned by previous turns, plus
-- incremental tokens computed for newly appended non-assistant messages
-
-This is the core TITO optimization: multi-turn sessions reuse tokens
-across turns instead of re-tokenizing the full conversation on every request.
-
-At the end of the session, `OpenAIEndpointTracer.collect_records` fetches the
-per-turn records and metadata, and `compute_samples_from_openai_records` turns
-them into `Sample` objects while trimming model-specific trailing boundary
-tokens when needed.
+You do not extract token ids from the response yourself.
 
 ### Common pitfalls
 
 - Ensure `logprobs=True` and `return_prompt_token_ids=True` in OpenAI chat
   requests (both are already set in `request_kwargs`).
 - Do **not** set `logprob_start_len=0` — it forces SGLang to compute
-  logprobs for every prompt token, which destroys the prefix cache and hurts
-  performance. Use `return_prompt_token_ids=True` instead, which returns
-  prompt token ids at zero cost without affecting caching.
+  logprobs for every prompt token, which destroys the prefix cache and
+  hurts performance.
 
 ## 6. Session server message constraints
 
