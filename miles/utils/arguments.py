@@ -158,6 +158,25 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 help="Add margin for train memory allocation. By default we will reserve 1GB as margin.",
             )
             parser.add_argument(
+                "--debug-skip-weight-update",
+                action="store_true",
+                default=False,
+                help=(
+                    "Debug-only: preserve the train/rollout offload-onload schedule, "
+                    "but skip the actual actor-to-rollout weight update."
+                ),
+            )
+            parser.add_argument(
+                "--debug-disable-optimizer",
+                action="store_true",
+                default=False,
+                help=(
+                    "Debug-only: do not initialize the Megatron optimizer or LR scheduler. "
+                    "Training still runs rollout, log-prob forward, and actor forward/backward, "
+                    "but skips optimizer state allocation and optimizer updates."
+                ),
+            )
+            parser.add_argument(
                 "--disable-weights-backuper",
                 action="store_false",
                 dest="enable_weights_backuper",
@@ -1837,6 +1856,10 @@ def miles_validate_args(args):
             "thinking-token trimming). This can cause input_ids to diverge from "
             "the canonical template output. Use at your own risk."
         )
+
+    if args.debug_disable_optimizer:
+        args.no_load_optim = True
+        args.no_save_optim = True
 
     if args.chat_template_path == "autofix":
         from miles.utils.chat_template_utils import try_get_fixed_chat_template
