@@ -123,9 +123,10 @@ multi-turn session, without re-tokenizing the full conversation on every
 request. It requires `--use-session-server`; with that on, miles handles
 three things on your behalf:
 
-- Forces the SGLang flags needed to surface token info in `meta_info`
+- Hardcodes the SGLang flags TITO needs on every chat request
   (`logprobs=True`, `return_meta_info=True`, `return_prompt_token_ids=True`,
-  `no_stop_trim=False`).
+  `no_stop_trim=False`); these are set by the middleware in
+  `miles/rollout/session/sessions.py` and override any agent-passed values.
 - Reuses the token prefix from previous turns by injecting `input_ids` on
   follow-up requests.
 - Accumulates per-turn records into the `Sample` you receive at the end of
@@ -135,8 +136,6 @@ You do not extract token ids from the response yourself.
 
 ### Common pitfalls
 
-- Ensure `logprobs=True` and `return_prompt_token_ids=True` in OpenAI chat
-  requests (both are already set in `request_kwargs`).
 - Do **not** set `logprob_start_len=0` — it forces SGLang to compute
   logprobs for every prompt token, which destroys the prefix cache and
   hurts performance.
