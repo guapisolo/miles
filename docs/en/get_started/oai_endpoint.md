@@ -162,7 +162,8 @@ Violations raise `MessageValidationError`.
   - Mid-conversation system reminders — also add `system`.
 
   See [chat-template verification](../agentic/chat_template_verification.md)
-  for how this flag drives template resolution at training time.
+  for the list of currently supported model families and for how to adjust
+  the chat template when your model is not yet supported.
 
 Both invariants depend on the chat template's rendering behavior under the
 chosen role surface. Adding miles support for a new model family therefore
