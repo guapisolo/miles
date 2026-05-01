@@ -87,6 +87,11 @@ Key flags for an OpenAI-format agentic run:
 | `--tito-model` | TITO tokenizer family (`qwen3`, `qwen35`, `qwennext`, `glm47`, ...). Use `default` to keep the model's HF-native chat template untouched. |
 | `--tito-allowed-append-roles` | Roles the session may append after assistant turns. Default `tool`; add `user` / `system` if your conversation pattern needs them. |
 
+For the list of supported `--tito-model` families and the role surfaces
+pre-wired for each, see
+[`miles/utils/chat_template_utils/tito_tokenizer.py`](../../../miles/utils/chat_template_utils/tito_tokenizer.py)
+or [issue #712](https://github.com/radixark/miles/issues/712).
+
 Customize like:
 
 ```
@@ -159,10 +164,6 @@ Violations raise `MessageValidationError`.
   - Pure tool-calling agent — `tool` (default).
   - Multi-turn chat with mid-conversation user follow-ups — add `user`.
   - Mid-conversation system reminders — also add `system`.
-
-  See [chat-template verification](../agentic/chat_template_verification.md)
-  for the list of currently supported model families and for how to adjust
-  the chat template when your model is not yet supported.
 
 Both invariants depend on the chat template's rendering behavior under the
 chosen role surface. Adding miles support for a new model family therefore
