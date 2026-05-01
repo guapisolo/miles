@@ -287,6 +287,7 @@ class SessionRegistry:
                 tools=tools,
                 add_generation_prompt=False,
                 tokenize=True,
+                **self.tito_tokenizer.chat_template_kwargs,
             )
             mismatches = self.comparator.compare_sequences(expected_ids, session.token_ids)
             return [m.to_dict() for m in mismatches]
