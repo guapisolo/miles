@@ -139,6 +139,26 @@ three things on your behalf:
 
 You do not extract token ids from the response yourself.
 
+### Configuring TITO for your model and conversation
+
+`--use-session-server` turns TITO on, but you also need to set two more
+flags so TITO renders with the right chat template and accepts your
+conversation's roles.
+
+- `--tito-model` (default `default`) selects the TITO tokenizer family. Set
+  it to your model's family — `qwen3`, `qwen35`, `qwennext`, `glm47`, ... —
+  so miles auto-resolves a bundled fixed chat template verified against
+  TITO's append-only invariants. The `default` value skips auto-resolution
+  and uses the model's HF-native chat template; use it only if that native
+  template already satisfies append-only.
+- `--tito-allowed-append-roles` (default `tool`) restricts which roles your
+  `run_agent` may append after the first assistant message. Extend it to
+  match your conversation pattern; see "Session server message constraints"
+  below for valid values and typical role sets. Adding `user` or `system`
+  typically selects a different bundled template (or different kwargs)
+  within the same family, since broader role surfaces need stricter
+  rendering rules to keep append-only valid.
+
 ### Common pitfalls
 
 - Do **not** set `logprob_start_len=0` — it forces SGLang to compute
