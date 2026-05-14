@@ -12,7 +12,16 @@ from typing import Any
 
 import torch
 import torch.distributed as dist
-from sglang.srt.debug_utils.dumper import DumperConfig, _get_rank, dumper
+from sglang.srt.debug_utils.dumper import _get_rank, dumper
+
+# DumperConfig is missing from some sglang branches (notably the v4 line before
+# upstream lands). Importing it eagerly would block all of miles from loading,
+# even though the rest of dumper_utils is fine. Tolerate the absence and fail
+# loudly only when a caller actually tries to configure a dumper phase.
+try:
+    from sglang.srt.debug_utils.dumper import DumperConfig
+except ImportError:
+    DumperConfig = None
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +109,8 @@ class DumperMegatronUtil:
         overrides = _get_phase_override_configs(args, phase)
         if not overrides.get("enable"):
             return False
+        if DumperConfig is None:
+            raise ImportError("The active SGLang dumper module does not expose DumperConfig.")
 
         merged = {
             "dir": str(_get_dir(args)),
@@ -139,7 +150,15 @@ def _cleanup_dump_dir(dump_dir: Path) -> None:
 
 def _get_phase_override_configs(args: Namespace, phase: DumperPhase) -> dict[str, Any]:
     raw = getattr(args, f"dumper_{phase.value}")
-    return {"enable": args.dumper_enable, **DumperConfig._kv_pairs_to_dict(raw)}
+    return {"enable": args.dumper_enable, **_parse_dumper_kv_pairs(raw)}
+
+
+def _parse_dumper_kv_pairs(raw: list[str] | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    if DumperConfig is None:
+        raise ImportError("The active SGLang dumper module does not expose DumperConfig.")
+    return DumperConfig._kv_pairs_to_dict(raw)
 
 
 def _is_phase_enabled(args: Namespace, phase: DumperPhase) -> bool:
