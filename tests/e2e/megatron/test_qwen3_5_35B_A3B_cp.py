@@ -6,7 +6,11 @@ duplicated all-gather computation.  See: https://github.com/radixark/miles/issue
 
 import os
 
+from tests.ci.ci_register import register_cuda_ci
+
 import miles.utils.external_utils.command_utils as U
+
+register_cuda_ci(est_time=900, suite="stage-c-8-gpu-h100", labels=["megatron"])
 
 MODEL_NAME = "Qwen3.5-35B-A3B"
 MODEL_TYPE = "qwen3.5-35B-A3B"
