@@ -1,7 +1,9 @@
 import ast
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
+
+from tests.ci.labels import KNOWN_LABELS
 
 __all__ = [
     "HWBackend",
@@ -12,8 +14,15 @@ __all__ = [
     "ut_parse_one_file",
 ]
 
-_CPU_PARAM_ORDER = ("est_time", "suite", "nightly", "disabled")
-_CUDA_PARAM_ORDER = ("est_time", "suite", "num_gpus", "nightly", "disabled")
+# Only these two parameters may be passed positionally; everything else
+# (labels, always_on, nightly, disabled) is keyword-only.
+_POSITIONAL_PARAMS = ("est_time", "suite")
+
+# All accepted keyword arguments (in addition to the positional pair above).
+_VALID_KWARGS = frozenset({"est_time", "suite", "labels", "always_on", "nightly", "disabled"})
+
+_REGISTER_NAMES = frozenset({"register_cpu_ci", "register_cuda_ci"})
+
 _UNSET = object()
 
 
@@ -28,12 +37,21 @@ class CIRegistry:
     filename: str
     est_time: float
     suite: str
-    num_gpus: int = 0
+    labels: list[str] = field(default_factory=list)
+    always_on: bool = False
     nightly: bool = False
-    disabled: str | None = None  # None = enabled, string = disabled with reason
+    disabled: str | None = None  # None = enabled, string = disabled reason
 
 
-def register_cpu_ci(est_time: float, suite: str, nightly: bool = False, disabled: str | None = None):
+def register_cpu_ci(
+    est_time: float,
+    suite: str,
+    *,
+    labels: list[str],
+    always_on: bool = False,
+    nightly: bool = False,
+    disabled: str | None = None,
+):
     """Marker for CPU CI registration (parsed via AST; runtime no-op)."""
     return None
 
@@ -41,7 +59,9 @@ def register_cpu_ci(est_time: float, suite: str, nightly: bool = False, disabled
 def register_cuda_ci(
     est_time: float,
     suite: str,
-    num_gpus: int = 8,
+    *,
+    labels: list[str],
+    always_on: bool = False,
     nightly: bool = False,
     disabled: str | None = None,
 ):
@@ -49,10 +69,39 @@ def register_cuda_ci(
     return None
 
 
-REGISTER_MAPPING = {
-    "register_cpu_ci": (HWBackend.CPU, _CPU_PARAM_ORDER),
-    "register_cuda_ci": (HWBackend.CUDA, _CUDA_PARAM_ORDER),
+_REGISTER_BACKEND_MAP = {
+    "register_cpu_ci": HWBackend.CPU,
+    "register_cuda_ci": HWBackend.CUDA,
 }
+
+
+def _extract_constant(node: ast.AST) -> object:
+    """Return the literal value of an ast.Constant; otherwise return _UNSET.
+
+    Sentinel return (instead of raising) lets callers compose richer error
+    messages with parameter names and file paths.
+    """
+    if isinstance(node, ast.Constant):
+        return node.value
+    return _UNSET
+
+
+def _extract_list_constant(node: ast.AST, *, context: str = "value") -> list:
+    """Return a list of literal string constants from `ast.List`.
+
+    Raises ValueError when the node is not a list literal of string constants.
+    """
+    if not isinstance(node, ast.List):
+        raise ValueError(f"{context} must be a list of string literals (got {type(node).__name__})")
+    out: list = []
+    for elt in node.elts:
+        v = _extract_constant(elt)
+        if v is _UNSET:
+            raise ValueError(f"{context} must be a list of string literals (non-literal element)")
+        if not isinstance(v, str):
+            raise ValueError(f"{context} must be a list of string literals (got {type(v).__name__} element)")
+        out.append(v)
+    return out
 
 
 class RegistryVisitor(ast.NodeVisitor):
@@ -60,96 +109,106 @@ class RegistryVisitor(ast.NodeVisitor):
         self.filename = filename
         self.registries: list[CIRegistry] = []
 
-    def _constant_value(self, node: ast.AST) -> object:
-        if isinstance(node, ast.Constant):
-            return node.value
-        return _UNSET
-
-    def _parse_call_args(self, func_call: ast.Call, param_order: tuple) -> tuple[float, str, int, bool, str | None]:
-        args = {name: _UNSET for name in param_order}
-        seen = set()
-
+    def _parse_call_args(self, func_call: ast.Call, func_name: str) -> CIRegistry:
         if any(isinstance(arg, ast.Starred) for arg in func_call.args):
-            raise ValueError(f"{self.filename}: starred arguments are not supported in {func_call.func.id}()")
-        if len(func_call.args) > len(param_order):
-            raise ValueError(f"{self.filename}: too many positional arguments in {func_call.func.id}()")
+            raise ValueError(f"{self.filename}: starred arguments are not supported in {func_name}()")
 
-        for name, arg in zip(param_order, func_call.args, strict=False):
-            seen.add(name)
-            args[name] = self._constant_value(arg)
+        if len(func_call.args) > len(_POSITIONAL_PARAMS):
+            raise ValueError(
+                f"{self.filename}: too many positional arguments in {func_name}(); "
+                f"only {list(_POSITIONAL_PARAMS)} may be positional "
+                f"(labels and later are keyword-only)"
+            )
+
+        parsed: dict[str, object] = {}
+
+        for name, arg in zip(_POSITIONAL_PARAMS, func_call.args, strict=False):
+            v = _extract_constant(arg)
+            if v is _UNSET:
+                raise ValueError(f"{self.filename}: {name} in {func_name}() must be a literal constant")
+            parsed[name] = v
 
         for kw in func_call.keywords:
             if kw.arg is None:
-                raise ValueError(f"{self.filename}: **kwargs are not supported in {func_call.func.id}()")
-            if kw.arg not in args:
-                raise ValueError(f"{self.filename}: unknown argument '{kw.arg}' in {func_call.func.id}()")
-            if kw.arg in seen:
-                raise ValueError(f"{self.filename}: duplicated argument '{kw.arg}' in {func_call.func.id}()")
-            seen.add(kw.arg)
-            args[kw.arg] = self._constant_value(kw.value)
+                raise ValueError(f"{self.filename}: **kwargs are not supported in {func_name}()")
+            if kw.arg in parsed:
+                raise ValueError(f"{self.filename}: duplicated argument '{kw.arg}' in {func_name}()")
+            if kw.arg not in _VALID_KWARGS:
+                raise ValueError(f"{self.filename}: unknown argument '{kw.arg}' in {func_name}()")
+            if kw.arg == "labels":
+                parsed["labels"] = _extract_list_constant(
+                    kw.value, context=f"{self.filename}: labels in {func_name}()"
+                )
+            else:
+                v = _extract_constant(kw.value)
+                if v is _UNSET:
+                    raise ValueError(f"{self.filename}: {kw.arg} in {func_name}() must be a literal constant")
+                parsed[kw.arg] = v
 
-        if args["est_time"] is _UNSET or args["suite"] is _UNSET:
-            raise ValueError(f"{self.filename}: est_time and suite are required constants in {func_call.func.id}()")
+        if "est_time" not in parsed:
+            raise ValueError(f"{self.filename}: est_time is required in {func_name}()")
+        if "suite" not in parsed:
+            raise ValueError(f"{self.filename}: suite is required in {func_name}()")
+        if "labels" not in parsed:
+            raise ValueError(f"{self.filename}: labels is required in {func_name}()")
 
-        est_time, suite = args["est_time"], args["suite"]
+        if not isinstance(parsed["est_time"], (int, float)):
+            raise ValueError(f"{self.filename}: est_time must be a number in {func_name}()")
+        if not isinstance(parsed["suite"], str):
+            raise ValueError(f"{self.filename}: suite must be a string in {func_name}()")
+        if not isinstance(parsed["labels"], list):
+            raise ValueError(f"{self.filename}: labels must be a list in {func_name}()")
 
-        if not isinstance(est_time, (int, float)):
-            raise ValueError(f"{self.filename}: est_time must be a number in {func_call.func.id}()")
-        if not isinstance(suite, str):
-            raise ValueError(f"{self.filename}: suite must be a string in {func_call.func.id}()")
+        always_on = parsed.get("always_on", False)
+        if not isinstance(always_on, bool):
+            raise ValueError(f"{self.filename}: always_on must be a boolean in {func_name}()")
 
-        # num_gpus (CUDA only)
-        num_gpus_value = args.get("num_gpus", _UNSET)
-        if num_gpus_value is _UNSET:
-            num_gpus = 8 if "num_gpus" in param_order else 0
-        elif isinstance(num_gpus_value, int):
-            num_gpus = num_gpus_value
-        else:
-            raise ValueError(f"{self.filename}: num_gpus must be an integer in {func_call.func.id}()")
+        nightly = parsed.get("nightly", False)
+        if not isinstance(nightly, bool):
+            raise ValueError(f"{self.filename}: nightly must be a boolean in {func_name}()")
 
-        # nightly
-        nightly_value = args.get("nightly", _UNSET)
-        if nightly_value is _UNSET:
-            nightly = False
-        elif isinstance(nightly_value, bool):
-            nightly = nightly_value
-        else:
-            raise ValueError(f"{self.filename}: nightly must be a boolean in {func_call.func.id}()")
+        disabled = parsed.get("disabled", None)
+        if disabled is not None and not isinstance(disabled, str):
+            raise ValueError(f"{self.filename}: disabled must be a string or None in {func_name}()")
 
-        # disabled
-        disabled = args.get("disabled", _UNSET)
-        if disabled is _UNSET:
-            disabled = None
-        elif disabled is not None and not isinstance(disabled, str):
-            raise ValueError(f"{self.filename}: disabled must be a string in {func_call.func.id}()")
+        labels = parsed["labels"]
+        if not labels and not always_on:
+            raise ValueError(
+                f"{self.filename}: labels=[] requires always_on=True " f"(never-run is forbidden) in {func_name}()"
+            )
 
-        return float(est_time), suite, num_gpus, nightly, disabled
+        unknown = [label for label in labels if label not in KNOWN_LABELS]
+        if unknown:
+            valid_list = ", ".join(sorted(KNOWN_LABELS))
+            raise ValueError(
+                f"{self.filename}: unknown labels {unknown} in {func_name}(); "
+                f"valid labels: [{valid_list}]. "
+                f"To add a new label: edit tests/ci/labels.py + create matching "
+                f"`run-ci-<label>` in GitHub repo Settings -> Labels."
+            )
+
+        return CIRegistry(
+            backend=_REGISTER_BACKEND_MAP[func_name],
+            filename=self.filename,
+            est_time=float(parsed["est_time"]),
+            suite=parsed["suite"],
+            labels=list(labels),
+            always_on=always_on,
+            nightly=nightly,
+            disabled=disabled,
+        )
 
     def _collect_ci_registry(self, func_call: ast.Call):
         if not isinstance(func_call.func, ast.Name):
             return None
-
-        mapping = REGISTER_MAPPING.get(func_call.func.id)
-        if mapping is None:
+        if func_call.func.id not in _REGISTER_NAMES:
             return None
-
-        backend, param_order = mapping
-        est_time, suite, num_gpus, nightly, disabled = self._parse_call_args(func_call, param_order)
-        return CIRegistry(
-            backend=backend,
-            filename=self.filename,
-            est_time=est_time,
-            suite=suite,
-            num_gpus=num_gpus,
-            nightly=nightly,
-            disabled=disabled,
-        )
+        return self._parse_call_args(func_call, func_call.func.id)
 
     def visit_Module(self, node):
         for stmt in node.body:
             if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
                 continue
-
             cr = self._collect_ci_registry(stmt.value)
             if cr is not None:
                 self.registries.append(cr)
@@ -165,17 +224,14 @@ def ut_parse_one_file(filename: str) -> list[CIRegistry]:
 
 
 def collect_tests(files: list[str], sanity_check: bool = True) -> list[CIRegistry]:
-    ci_tests = []
+    ci_tests: list[CIRegistry] = []
     for file in files:
         registries = ut_parse_one_file(file)
         if len(registries) == 0:
             msg = f"No CI registry found in {file}"
             if sanity_check:
                 raise ValueError(msg)
-            else:
-                warnings.warn(msg, stacklevel=2)
-                continue
-
+            warnings.warn(msg, stacklevel=2)
+            continue
         ci_tests.extend(registries)
-
     return ci_tests
