@@ -9,7 +9,7 @@ Verifies that silent failures are caught:
 
 from tests.ci.ci_register import register_cpu_ci
 
-register_cpu_ci(est_time=60, suite="stage-a-cpu", labels=[], always_on=True)
+register_cpu_ci(est_time=60, suite="stage-a-cpu", labels=[])
 
 
 from argparse import Namespace
