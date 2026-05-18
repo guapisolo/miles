@@ -2,6 +2,8 @@ import argparse
 import glob
 import subprocess
 import sys
+import warnings
+from collections.abc import Iterable
 
 from tests.ci.ci_register import CIRegistry, HWBackend, collect_tests
 from tests.ci.ci_utils import run_unittest_files
@@ -11,21 +13,24 @@ HW_MAPPING = {
     "cuda": HWBackend.CUDA,
 }
 
-# Per-commit test suites (run on every PR with matching label)
+# PR-side label prefix the workflow attaches to every domain label and passes
+# verbatim to `--labels`. Stripping is done here (not in YAML) so the filter
+# is unit-testable and the workflow stays a thin pass-through.
+_RUN_CI_PREFIX = "run-ci-"
+
+# Per-commit test suites (run on every PR; per-domain selection is done at
+# runtime by `filter_tests` via the `--labels` arg, not via per-suite jobs).
+#
+# CUDA: `stage-c-4-gpu-h200` is reserved here so registered tests can target
+# it, but no workflow job exists yet (will land in the H200 follow-up PR).
 PER_COMMIT_SUITES = {
     HWBackend.CPU: [
-        "stage-a-fast",
+        "stage-a-cpu",
+        "stage-b-cpu",
     ],
     HWBackend.CUDA: [
-        "stage-b-sglang-8-gpu",
-        "stage-b-fast-1-gpu",
-        "stage-b-short-8-gpu",
-        "stage-c-fsdp-8-gpu",
-        "stage-c-megatron-8-gpu",
-        "stage-c-precision-8-gpu",
-        "stage-c-ckpt-8-gpu",
-        "stage-c-long-8-gpu",
-        "stage-c-lora-8-gpu",
+        "stage-c-8-gpu-h100",
+        "stage-c-4-gpu-h200",
         "stage-c-glm5-8-gpu",
     ],
 }
@@ -36,15 +41,65 @@ NIGHTLY_SUITES = {
 }
 
 
+def strip_run_ci_prefix(raw_labels: Iterable[str]) -> set[str]:
+    """Strip the `run-ci-` prefix from each PR-side label.
+
+    Inputs come straight from the workflow (e.g. `["run-ci-megatron",
+    "run-ci-fsdp"]`). Empty input yields an empty set. Items missing the
+    `run-ci-` prefix are skipped after emitting a `warnings.warn(...)` --
+    the workflow contract requires every passed label to be a raw
+    `run-ci-<X>` string, and silently including a non-prefixed item would
+    risk matching the wrong domain label (e.g. bare `"megatron"` colliding
+    with a test's domain label by accident).
+    """
+    stripped: set[str] = set()
+    for raw in raw_labels:
+        if not raw:
+            continue
+        if raw.startswith(_RUN_CI_PREFIX):
+            stripped.add(raw[len(_RUN_CI_PREFIX) :])
+        else:
+            warnings.warn(
+                f"--labels entry {raw!r} is missing the expected {_RUN_CI_PREFIX!r} "
+                f"prefix; ignoring. The workflow must pass raw `run-ci-<X>` labels.",
+                stacklevel=2,
+            )
+    return stripped
+
+
 def filter_tests(
-    ci_tests: list[CIRegistry], hw: HWBackend, suite: str, nightly: bool = False
+    ci_tests: list[CIRegistry],
+    hw: HWBackend,
+    suite: str,
+    nightly: bool = False,
+    labels: set[str] | None = None,
+    match_all_labels: bool = False,
 ) -> tuple[list[CIRegistry], list[CIRegistry]]:
+    """Filter registered tests down to the set that should run.
+
+    The base predicate (hw / suite / nightly / disabled) is applied first.
+    Label selection then narrows further, with two modes:
+
+    * `match_all_labels=True`: ignore labels entirely -- every enabled test
+      that matches hw/suite/nightly runs. Used for the `run-ci-image` /
+      `run-ci-all` meta-labels and for `workflow_dispatch`. Precedence: this
+      mode wins even when `labels` is also passed.
+    * `match_all_labels=False` (default): include only tests where
+      `test.always_on or (set(test.labels) & labels)`. `labels` here is the
+      already-stripped domain-label set produced by `strip_run_ci_prefix`.
+      An empty `labels` set means the suite still runs `always_on=True`
+      tests (the per-commit baseline).
+    """
     ci_tests = [t for t in ci_tests if t.backend == hw and t.suite == suite and t.nightly == nightly]
 
     valid_suites = NIGHTLY_SUITES.get(hw, []) if nightly else PER_COMMIT_SUITES.get(hw, [])
 
     if suite not in valid_suites:
         print(f"Warning: Unknown suite {suite} for backend {hw.name}, nightly={nightly}")
+
+    if not match_all_labels:
+        label_set: set[str] = labels or set()
+        ci_tests = [t for t in ci_tests if t.always_on or (set(t.labels) & label_set)]
 
     enabled_tests = [t for t in ci_tests if t.disabled is None]
     skipped_tests = [t for t in ci_tests if t.disabled is not None]
@@ -139,7 +194,15 @@ def run_a_suite(args):
     files = e2e_files + fast_files
 
     all_tests = collect_tests(files, sanity_check=False)
-    ci_tests, skipped_tests = filter_tests(all_tests, hw, suite, nightly)
+    stripped_labels = strip_run_ci_prefix(args.labels or [])
+    ci_tests, skipped_tests = filter_tests(
+        all_tests,
+        hw,
+        suite,
+        nightly,
+        labels=stripped_labels,
+        match_all_labels=args.match_all_labels,
+    )
 
     if auto_partition_size:
         ci_tests = auto_partition(ci_tests, auto_partition_id, auto_partition_size)
@@ -240,6 +303,29 @@ def main():
         action="store_true",
         default=False,
         help="Only list tests that would be run, do not execute them.",
+    )
+    parser.add_argument(
+        "--labels",
+        nargs="*",
+        default=[],
+        help=(
+            "Raw PR-side labels (e.g. `run-ci-megatron run-ci-fsdp`). The "
+            "`run-ci-` prefix is stripped on the Python side; the resulting "
+            "domain-label set is intersected with each test's `labels` to "
+            "decide what runs. An empty list keeps only `always_on=True` "
+            "tests for the suite."
+        ),
+    )
+    parser.add_argument(
+        "--match-all-labels",
+        action="store_true",
+        default=False,
+        help=(
+            "Bypass the labels filter and run every enabled test in the "
+            "suite (subject to hw/suite/nightly/disabled). Set by the "
+            "workflow when the PR carries `run-ci-image` or `run-ci-all`, "
+            "and equivalently on `workflow_dispatch`."
+        ),
     )
     args = parser.parse_args()
 
