@@ -4,14 +4,14 @@ from tests.ci.ci_register import register_cuda_ci
 
 import miles.utils.external_utils.command_utils as U
 
-register_cuda_ci(est_time=600, suite="stage-c-8-gpu-h100", labels=["megatron"])
+register_cuda_ci(est_time=600, suite="stage-c-4-gpu-h200", labels=["megatron"])
 
 ENABLE_EVAL = U.get_bool_env_var("MILES_TEST_ENABLE_EVAL", "1")
 TIGHT_DEVICE_MEMORY = U.get_bool_env_var("MILES_TEST_TIGHT_DEVICE_MEMORY", "1")
 
 MODEL_NAME = "GLM-Z1-9B-0414"
 MODEL_TYPE = "glm4-9B"
-NUM_GPUS = 8
+NUM_GPUS = 4
 
 
 def prepare():

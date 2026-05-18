@@ -6,7 +6,7 @@ import miles.utils.external_utils.command_utils as U
 
 register_cuda_ci(
     est_time=900,
-    suite="stage-c-8-gpu-h100",
+    suite="stage-c-4-gpu-h200",
     labels=["fsdp"],
     disabled="FSDP backend has known issues, not actively maintained",
 )
