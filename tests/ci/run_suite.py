@@ -29,6 +29,7 @@ PER_COMMIT_SUITES = {
         "stage-b-cpu",
     ],
     HWBackend.CUDA: [
+        "stage-b-8-gpu-h100",
         "stage-c-8-gpu-h100",
         "stage-c-4-gpu-h200",
         "stage-c-glm5-8-gpu",
@@ -85,10 +86,12 @@ def filter_tests(
       `run-ci-all` meta-labels and for `workflow_dispatch`. Precedence: this
       mode wins even when `labels` is also passed.
     * `match_all_labels=False` (default): include only tests where
-      `test.always_on or (set(test.labels) & labels)`. `labels` here is the
-      already-stripped domain-label set produced by `strip_run_ci_prefix`.
-      An empty `labels` set means the suite still runs `always_on=True`
-      tests (the per-commit baseline).
+      `not test.labels or (set(test.labels) & labels)`. `labels` here is
+      the already-stripped domain-label set produced by
+      `strip_run_ci_prefix`. A test registered with `labels=[]` (or
+      omitted) is treated as always-run: it survives an empty PR-label
+      set; a test with non-empty `labels` survives only when its labels
+      intersect the PR-supplied set.
     """
     ci_tests = [t for t in ci_tests if t.backend == hw and t.suite == suite and t.nightly == nightly]
 
@@ -99,7 +102,7 @@ def filter_tests(
 
     if not match_all_labels:
         label_set: set[str] = labels or set()
-        ci_tests = [t for t in ci_tests if t.always_on or (set(t.labels) & label_set)]
+        ci_tests = [t for t in ci_tests if not t.labels or (set(t.labels) & label_set)]
 
     enabled_tests = [t for t in ci_tests if t.disabled is None]
     skipped_tests = [t for t in ci_tests if t.disabled is not None]

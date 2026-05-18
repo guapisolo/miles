@@ -1,12 +1,14 @@
-"""Unit tests for `run_suite.py` label handling (M2 / AC-9 / AC-10).
+"""Unit tests for `run_suite.py` label handling.
 
 These cover the Python-side label pipeline:
 
 * `strip_run_ci_prefix`: empty input, prefix stripping, ignoring inputs
   without the `run-ci-` prefix (warning only).
-* `filter_tests`: the six AC-9 scenarios around `--labels` and
-  `--match-all-labels`.
-* `PER_COMMIT_SUITES`: locked to the new 5-suite taxonomy (AC-10).
+* `filter_tests`: the six scenarios around `--labels` and
+  `--match-all-labels` with the new "empty labels means always run"
+  semantic.
+* `PER_COMMIT_SUITES`: locked to the new taxonomy including the
+  always-run GPU bucket `stage-b-8-gpu-h100`.
 
 We build `CIRegistry` instances directly via a small factory rather than
 parsing fixture files -- the AST-side validation lives in
@@ -26,25 +28,26 @@ def _make(
     backend: HWBackend = HWBackend.CUDA,
     suite: str = "stage-c-8-gpu-h100",
     labels: list[str] | None = None,
-    always_on: bool = False,
     est_time: float = 60.0,
     nightly: bool = False,
     disabled: str | None = None,
 ) -> CIRegistry:
-    """Minimal `CIRegistry` factory for filter tests."""
+    """Minimal `CIRegistry` factory for filter tests.
+
+    `labels=None` and `labels=[]` are equivalent (always-run semantics).
+    """
     return CIRegistry(
         backend=backend,
         filename=filename,
         est_time=est_time,
         suite=suite,
         labels=list(labels) if labels is not None else [],
-        always_on=always_on,
         nightly=nightly,
         disabled=disabled,
     )
 
 
-# --- AC-10: PER_COMMIT_SUITES locked to the new taxonomy --------------------
+# --- PER_COMMIT_SUITES locked to the new taxonomy ---------------------------
 
 
 class TestPerCommitSuites:
@@ -53,6 +56,7 @@ class TestPerCommitSuites:
 
     def test_cuda_suites_exact(self):
         assert PER_COMMIT_SUITES[HWBackend.CUDA] == [
+            "stage-b-8-gpu-h100",
             "stage-c-8-gpu-h100",
             "stage-c-4-gpu-h200",
             "stage-c-glm5-8-gpu",
@@ -91,7 +95,6 @@ class TestStripRunCiPrefix:
         assert strip_run_ci_prefix(["run-ci-megatron", "run-ci-fsdp"]) == {"megatron", "fsdp"}
 
     def test_duplicate_inputs_deduplicate(self):
-        # Set semantics: identical inputs collapse.
         assert strip_run_ci_prefix(["run-ci-megatron", "run-ci-megatron"]) == {"megatron"}
 
     def test_non_prefixed_input_warns_and_is_skipped(self):
@@ -104,8 +107,6 @@ class TestStripRunCiPrefix:
         assert "run-ci-" in str(caught[0].message)
 
     def test_mixed_inputs_keep_only_prefixed(self):
-        # Prefixed entries survive; bare entries are warned + dropped. Mixed input
-        # is the realistic case where one workflow string slipped through wrong.
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             result = strip_run_ci_prefix(["run-ci-megatron", "fsdp", "run-ci-short"])
@@ -113,8 +114,6 @@ class TestStripRunCiPrefix:
         assert len(caught) == 1  # only the bare `fsdp` warns
 
     def test_empty_string_entries_skipped_without_warning(self):
-        # argparse can hand us empty strings if someone writes `--labels ""`;
-        # treat as no-op rather than warning, since they carry no information.
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             result = strip_run_ci_prefix(["", "run-ci-megatron"])
@@ -122,7 +121,7 @@ class TestStripRunCiPrefix:
         assert len(caught) == 0
 
 
-# --- AC-9: `filter_tests` six scenarios -------------------------------------
+# --- `filter_tests` six scenarios -------------------------------------------
 
 
 @pytest.fixture
@@ -130,15 +129,15 @@ def cuda_h100_tests():
     """A representative `stage-c-8-gpu-h100` registry used across scenarios.
 
     Composition:
-    * 2 `always_on=True` tests (no domain label)
+    * 2 always-run tests (`labels=[]`)
     * 1 megatron-only test
     * 1 fsdp-only test
     * 1 megatron+sglang test (multi-label, exercises OR semantics)
-    * 1 disabled test (must always be classified as skipped)
+    * 1 disabled megatron test (must always be classified as skipped)
     """
     return [
-        _make("tests/e2e/fast1.py", labels=[], always_on=True),
-        _make("tests/e2e/fast2.py", labels=[], always_on=True),
+        _make("tests/e2e/fast1.py", labels=[]),
+        _make("tests/e2e/fast2.py", labels=[]),
         _make("tests/e2e/megatron/m1.py", labels=["megatron"]),
         _make("tests/e2e/fsdp/f1.py", labels=["fsdp"]),
         _make("tests/e2e/megatron/m_or_s.py", labels=["megatron", "sglang"]),
@@ -151,13 +150,9 @@ def _names(tests: list[CIRegistry]) -> set[str]:
 
 
 class TestFilterTestsLabels:
-    def test_case1_no_labels_keeps_only_always_on(self, cuda_h100_tests):
-        # AC-9 (i): empty --labels (after stripping) -> only always_on=True
-        # tests survive. Disabled test goes to skipped bucket regardless of
-        # always_on status; here our disabled test is not always_on, so it
-        # falls out of the labels filter first (no overlap, not always_on)
-        # and never makes it to the disabled split -- which is exactly what
-        # the predicate should do.
+    def test_case1_no_labels_keeps_only_always_run(self, cuda_h100_tests):
+        # Empty --labels (after stripping) -> tests with empty `labels`
+        # survive (always run); labelled tests are filtered out.
         enabled, skipped = filter_tests(
             cuda_h100_tests,
             HWBackend.CUDA,
@@ -168,7 +163,7 @@ class TestFilterTestsLabels:
         assert skipped == []
 
     def test_case2_single_domain_label(self, cuda_h100_tests):
-        # AC-9 (ii): `run-ci-megatron` -> always_on + megatron-labeled tests.
+        # `run-ci-megatron` -> always-run + megatron-labelled tests.
         enabled, skipped = filter_tests(
             cuda_h100_tests,
             HWBackend.CUDA,
@@ -186,7 +181,7 @@ class TestFilterTestsLabels:
         assert _names(skipped) == {"tests/e2e/megatron/disabled.py"}
 
     def test_case3_multiple_domain_labels_or_semantics(self, cuda_h100_tests):
-        # AC-9 (iii): {megatron, fsdp} -> union (OR) of matches.
+        # {megatron, fsdp} -> union (OR) of matches plus always-run tests.
         enabled, _ = filter_tests(
             cuda_h100_tests,
             HWBackend.CUDA,
@@ -202,8 +197,8 @@ class TestFilterTestsLabels:
         }
 
     def test_case4_match_all_labels_runs_everything_in_suite(self, cuda_h100_tests):
-        # AC-9 (iv): --match-all-labels ignores labels and always_on; every
-        # enabled hw/suite/nightly-matching test runs.
+        # --match-all-labels ignores labels filter; every enabled
+        # hw/suite/nightly-matching test runs.
         enabled, skipped = filter_tests(
             cuda_h100_tests,
             HWBackend.CUDA,
@@ -221,9 +216,9 @@ class TestFilterTestsLabels:
         assert _names(skipped) == {"tests/e2e/megatron/disabled.py"}
 
     def test_case5_unknown_pr_side_label_is_silent_noop(self, cuda_h100_tests):
-        # AC-9 (v): unknown PR-side label (e.g. `run-ci-foo`) -- after
-        # stripping, `foo` simply produces an empty intersection with every
-        # test. No error; only always_on tests survive.
+        # Unknown PR-side label (e.g. `run-ci-foo`) -- after stripping,
+        # `foo` simply produces an empty intersection. No error; only
+        # always-run tests survive.
         enabled, _ = filter_tests(
             cuda_h100_tests,
             HWBackend.CUDA,
@@ -233,8 +228,8 @@ class TestFilterTestsLabels:
         assert _names(enabled) == {"tests/e2e/fast1.py", "tests/e2e/fast2.py"}
 
     def test_case6_match_all_labels_wins_over_labels(self, cuda_h100_tests):
-        # AC-9 (vi): both flags passed -> match_all_labels takes precedence.
-        # Compare against case4: same result regardless of `labels` value.
+        # Both flags passed -> match_all_labels takes precedence. Compare
+        # against case4: same result regardless of `labels` value.
         enabled_with_labels, _ = filter_tests(
             cuda_h100_tests,
             HWBackend.CUDA,
@@ -260,7 +255,7 @@ class TestFilterTestsBaseDimensions:
         # A test registered to stage-c-glm5-8-gpu must not surface in
         # stage-c-8-gpu-h100, even with match_all_labels=True.
         tests = [
-            _make("tests/e2e/h100/t.py", suite="stage-c-8-gpu-h100", always_on=True),
+            _make("tests/e2e/h100/t.py", suite="stage-c-8-gpu-h100", labels=[]),
             _make("tests/e2e/glm5/t.py", suite="stage-c-glm5-8-gpu", labels=["glm5"]),
         ]
         enabled, _ = filter_tests(
@@ -272,10 +267,10 @@ class TestFilterTestsBaseDimensions:
         assert _names(enabled) == {"tests/e2e/h100/t.py"}
 
     def test_cross_backend_isolation(self):
-        # CPU suite must not pull in CUDA-registered always_on tests.
+        # CPU suite must not pull in CUDA-registered always-run tests.
         tests = [
-            _make("tests/fast/t.py", backend=HWBackend.CPU, suite="stage-a-cpu", always_on=True),
-            _make("tests/e2e/h100/t.py", backend=HWBackend.CUDA, suite="stage-c-8-gpu-h100", always_on=True),
+            _make("tests/fast/t.py", backend=HWBackend.CPU, suite="stage-a-cpu", labels=[]),
+            _make("tests/e2e/h100/t.py", backend=HWBackend.CUDA, suite="stage-c-8-gpu-h100", labels=[]),
         ]
         enabled, _ = filter_tests(
             tests,
@@ -298,3 +293,17 @@ class TestFilterTestsBaseDimensions:
             labels={"megatron"},
         )
         assert _names(enabled) == {"tests/e2e/per_commit.py"}
+
+    def test_stage_b_8_gpu_h100_is_addressable(self):
+        # The new always-run GPU bucket must be a first-class suite that
+        # filter_tests can route to without a "unknown suite" warning fail.
+        tests = [
+            _make("tests/fast/q.py", suite="stage-b-8-gpu-h100", labels=[]),
+        ]
+        enabled, _ = filter_tests(
+            tests,
+            HWBackend.CUDA,
+            "stage-b-8-gpu-h100",
+            labels=set(),
+        )
+        assert _names(enabled) == {"tests/fast/q.py"}
