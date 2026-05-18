@@ -162,7 +162,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partition_id: [0, 1]
+        # 4 partitions on 2 workers: each worker runs 2 partitions sequentially.
+        # Same total wall time as 2 partitions (bounded by the longest single
+        # test, currently test_session_server_multi_role.py at 9600s), but
+        # smaller retry blast radius. Will collapse back when that long test
+        # is split in a follow-up PR.
+        partition_id: [0, 1, 2, 3]
     uses: ./.github/workflows/_run-ci.yml
     with:
       gpu_count: 4
@@ -171,7 +176,7 @@ jobs:
       skip_gpu_lock: true
       execute_command: >-
         python tests/ci/run_suite.py --hw cuda --suite stage-c-4-gpu-h200
-        --auto-partition-id ${{ matrix.partition_id }} --auto-partition-size 2
+        --auto-partition-id ${{ matrix.partition_id }} --auto-partition-size 4
         --labels ${{ join(github.event.pull_request.labels.*.name, ' ') }}
         ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-ci-image') || contains(github.event.pull_request.labels.*.name, 'run-ci-all')) && '--match-all-labels' || '' }}
     secrets: inherit
