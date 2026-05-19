@@ -2,7 +2,9 @@
 
 Thin wrapper around
 ``miles.utils.test_utils.session_verify_runner.run_session_verify`` (driver
-and coverage assertions live in ``session_verify_agent``).  Requires 8 GPUs.
+and coverage assertions live in ``session_verify_agent``).  Runs on a 4-GPU
+H200 worker; passes ``num_gpus=4`` to override ``run_session_verify``'s
+H100-era default of 8.
 """
 
 from tests.ci.ci_register import register_cuda_ci
@@ -176,6 +178,9 @@ def _run_one(model_family: str):
         tool_call_parser=cfg.tool_call_parser,
         tp_size=cfg.tp_size,
         cycles=cfg.cycles,
+        # run_session_verify defaults num_gpus=8 (H100 era); the suite now runs
+        # on 4-GPU H200, so allocate 4 actor GPUs to match the runner.
+        num_gpus=4,
         assistant_text_threshold=cfg.assistant_text_threshold,
         tool_call_failure_mode=cfg.tool_call_failure_mode,
     )
