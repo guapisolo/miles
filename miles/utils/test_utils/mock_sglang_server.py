@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import time
 import uuid
@@ -14,6 +15,7 @@ from sglang.srt.function_call.function_call_parser import FunctionCallParser
 
 from miles.utils.http_utils import find_available_port
 from miles.utils.processing_utils import load_tokenizer
+from miles.utils.test_utils.r3_codec import encode_r3, make_logp_tokens, make_r3, parse_signature, seed_from_signature
 from miles.utils.test_utils.uvicorn_thread_server import UvicornThreadServer
 
 
@@ -40,6 +42,63 @@ class ProcessResult:
 ProcessFn = Callable[[str], ProcessResult]
 
 
+@dataclass(frozen=True)
+class StressMockConfig:
+    """Deterministic stress-test mode for ``MockSGLangServer``.
+
+    When enabled, the mock bypasses ``process_fn`` and the tokenizer for chat
+    completions, and instead emits a fixed-size synthetic response whose
+    contents are uniquely determined by the ``[STRESS sid=<sid> turn=<n>]``
+    signature embedded in the LAST user message's content. Mock and verifier
+    derive the same ``(sid, turn)`` -> seed -> payload, so byte-identity
+    round-trip becomes provable.
+
+    Knobs (all required when ``enabled`` is True):
+
+    - ``output_tokens``: number of generated tokens per response. Drives the
+      length of ``output_token_logprobs`` and the leading axis of R3.
+    - ``inject_routed_experts``: when True, attaches a base64 R3 blob to
+      ``choice.meta_info.routed_experts`` shaped
+      ``(output_tokens, r3_num_layers, r3_topk)``.
+    - ``r3_num_layers`` / ``r3_topk``: per-token R3 shape. The product is the
+      ``num_layers * moe_router_topk`` value the verifier passes back to
+      ``decode_r3``. Real models: Qwen3-30B-A3B ~ 48 x 8 = 384 int32/token.
+    - ``echo_signature``: when True, the same ``(sid, turn)`` is also surfaced
+      back into ``choice.meta_info.stress_signature`` so the verifier can do
+      a redundant request/response signature consistency check.
+    - ``canonical_json``: when True, the response is rendered with a
+      canonical JSON serializer (``separators=(",", ":")``, ``allow_nan=False``,
+      ``ensure_ascii=True``); NaN logp values are rejected at the wire edge.
+    """
+
+    enabled: bool = False
+    output_tokens: int = 0
+    inject_routed_experts: bool = False
+    r3_num_layers: int = 0
+    r3_topk: int = 0
+    echo_signature: bool = True
+    canonical_json: bool = True
+
+
+class CanonicalJSONResponse(JSONResponse):
+    """JSON response rendered with deterministic options:
+
+    - ``separators=(",", ":")``: no whitespace, stable byte length
+    - ``allow_nan=False``: NaN / Inf logp at the wire edge is a hard error
+    - ``ensure_ascii=True``: defensive against locale-driven encoding drift
+    """
+
+    media_type = "application/json"
+
+    def render(self, content) -> bytes:
+        return json.dumps(
+            content,
+            separators=(",", ":"),
+            allow_nan=False,
+            ensure_ascii=True,
+        ).encode("utf-8")
+
+
 class MockSGLangServer:
     def __init__(
         self,
@@ -49,12 +108,14 @@ class MockSGLangServer:
         port: int,
         latency: float = 0.0,
         chat_template_path: str | None = None,
+        stress_config: StressMockConfig | None = None,
     ):
         self.tokenizer = load_tokenizer(model_name, chat_template_path=chat_template_path, trust_remote_code=True)
         self.process_fn = process_fn
         self.host = host
         self.port = port or find_available_port(30000)
         self.latency = latency
+        self.stress_config = stress_config or StressMockConfig()
 
         self.app = FastAPI()
         self._server: UvicornThreadServer | None = None
@@ -91,7 +152,15 @@ class MockSGLangServer:
 
         @self.app.post("/v1/chat/completions")
         async def chat_completions(request: Request):
-            return await self._handle_generate_like_request(request, self._compute_chat_completions_response)
+            # Dispatch to stress-mode response generator when configured; both share
+            # the same _handle_generate_like_request wrapper for concurrency tracking,
+            # latency injection, and request logging.
+            compute_fn = (
+                self._compute_chat_completions_response_stress
+                if self.stress_config.enabled
+                else self._compute_chat_completions_response
+            )
+            return await self._handle_generate_like_request(request, compute_fn)
 
         @self.app.get("/health")
         async def health():
@@ -108,7 +177,12 @@ class MockSGLangServer:
             if self.latency > 0:
                 await asyncio.sleep(self.latency)
             response = compute_fn(payload)
-        return JSONResponse(content=response)
+        # Canonical JSON wire format only when stress mode is on; legacy callers
+        # keep getting the default FastAPI JSONResponse behavior.
+        response_cls = (
+            CanonicalJSONResponse if self.stress_config.enabled and self.stress_config.canonical_json else JSONResponse
+        )
+        return response_cls(content=response)
 
     def _compute_generate_response(self, payload: dict) -> dict:
         assert payload.get("return_logprob", True) is True, "MockSGLangServer requires return_logprob=True"
@@ -212,6 +286,76 @@ class MockSGLangServer:
             "object": "chat.completion",
             "created": int(time.time()),
             "model": "mock-model",
+            "choices": [choice],
+        }
+
+    def _compute_chat_completions_response_stress(self, payload: dict) -> dict:
+        """Stress-mode response generator. Bypasses ``process_fn`` and the
+        tokenizer; derives the entire payload deterministically from the
+        ``[STRESS sid=<sid> turn=<n>]`` signature in the last user message.
+
+        Required wire-shape guarantees (every consumer downstream depends on
+        these):
+
+        - ``choice.meta_info.output_token_logprobs`` is exactly
+          ``self.stress_config.output_tokens`` entries long.
+        - Each entry is a JSON list ``[logp_float, token_id_int]``.
+        - ``logp`` values are drawn from a ``np.float32`` Uniform(-20, 0)
+          distribution so the verifier's ``struct.pack("<f", ...)`` byte
+          comparison is bit-exact across the JSON round trip.
+        - ``choice.meta_info.completion_tokens`` equals
+          ``len(output_token_logprobs)``; the session server's split-lock
+          handler raises ``UpstreamResponseError`` if these disagree.
+        - ``choice.meta_info.routed_experts`` (when injected) is base64 ASCII
+          of an ``np.int32`` buffer of shape
+          ``(output_tokens, r3_num_layers, r3_topk)`` as produced by
+          :mod:`miles.utils.test_utils.r3_codec`.
+        """
+        cfg = self.stress_config
+        messages = payload.get("messages", [])
+        if not messages:
+            raise ValueError("stress mock requires at least one message in the request payload")
+        last_content = messages[-1].get("content", "") or ""
+        sig = parse_signature(last_content)
+        if sig is None:
+            raise ValueError(
+                "stress mock could not find [STRESS sid=... turn=...] in messages[-1].content; "
+                f"observed prefix: {last_content[:120]!r}"
+            )
+        sid, turn = sig
+        seed = seed_from_signature(sid, turn)
+
+        logps, tokens = make_logp_tokens(seed, cfg.output_tokens)
+        # Python floats / ints, not numpy scalars, so the canonical JSON encoder
+        # emits portable wire forms.
+        output_token_logprobs = [[float(lp), int(tid)] for lp, tid in zip(logps, tokens, strict=True)]
+
+        meta_info: dict = {
+            "output_token_logprobs": output_token_logprobs,
+            "completion_tokens": cfg.output_tokens,
+        }
+        if cfg.echo_signature:
+            meta_info["stress_signature"] = {"sid": sid, "turn": turn}
+        if cfg.inject_routed_experts:
+            r3_arr = make_r3(seed, cfg.output_tokens, cfg.r3_num_layers, cfg.r3_topk)
+            meta_info["routed_experts"] = encode_r3(r3_arr)
+
+        choice = {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": f"[STRESS_ECHO sid={sid} turn={turn}]" if cfg.echo_signature else "",
+                "tool_calls": None,
+            },
+            "logprobs": {"content": []},
+            "finish_reason": "stop",
+            "meta_info": meta_info,
+        }
+        return {
+            "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": "mock-stress",
             "choices": [choice],
         }
 
