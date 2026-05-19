@@ -100,6 +100,10 @@ def _execute_with_cp(cp_size: int):
         "--sglang-speculative-num-steps 2 "
         "--sglang-speculative-eagle-topk 1 "
         "--sglang-speculative-num-draft-tokens 3 "
+        # SGLang requires extra_buffer + SGLANG_ENABLE_SPEC_V2=1 to combine
+        # speculative decoding with radix cache on Qwen3.5MoE; the prod
+        # script run_qwen3_5_35b_a3b_mtp_cp2_ep8.py already pairs these two.
+        "--sglang-mamba-scheduler-strategy extra_buffer "
     )
 
     mtp_args = "--enable-mtp-training " "--mtp-num-layers 1 " "--mtp-loss-scaling-factor 0.2 "
@@ -136,6 +140,7 @@ def _execute_with_cp(cp_size: int):
         train_args=train_args,
         num_gpus_per_node=NUM_GPUS,
         megatron_model_type=MODEL_TYPE,
+        extra_env_vars={"SGLANG_ENABLE_SPEC_V2": "1"},
     )
 
 
