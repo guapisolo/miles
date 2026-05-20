@@ -3,9 +3,14 @@
 Spawned by :class:`miles.utils.test_utils.stress_launchers.StressProcessTrio`.
 Builds the same ``args``-shaped namespace ``ray.rollout._start_session_server``
 uses in production, constructs a ``SessionServer``, and serves it via
-``uvicorn.run`` (blocking call). A ``SIGUSR1`` no-op handler is installed so
-the driver can probe / poke the process without accidentally killing it; the
-Round 3 tracemalloc hook will replace this stub.
+``uvicorn.run`` (blocking call).
+
+On startup the process installs a SIGUSR1 handler that takes a tracemalloc
+snapshot and dumps the top-N allocations to a timestamped file under
+``--tracemalloc-dump-dir`` (when supplied). The driver sends SIGUSR1
+periodically during a cell so the harness can attribute peak server-side
+RSS back to Python objects — required for the AC-11 / AC-12 root-cause
+story when a cell crashes.
 
 Invoke via ``python -m miles.utils.test_utils.stress_launchers._server_proc``.
 """
@@ -19,12 +24,18 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 import signal  # noqa: E402
 import sys  # noqa: E402
+import time  # noqa: E402
+import tracemalloc  # noqa: E402
 import uuid  # noqa: E402
+from pathlib import Path  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 
 import uvicorn  # noqa: E402
 
 from miles.rollout.session.session_server import SessionServer  # noqa: E402
+
+
+TRACEMALLOC_TOP_N = 25
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -36,17 +47,53 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--allowed-append-roles", default="tool")
     p.add_argument("--router-timeout", type=float, default=600.0)
     p.add_argument("--log-level", default="warning")
+    p.add_argument(
+        "--tracemalloc-dump-dir",
+        default=None,
+        help="If set, start tracemalloc at startup and dump top-N allocations to this directory on every SIGUSR1.",
+    )
     return p
 
 
-def _install_sigusr1_stub() -> None:
-    """Reserve SIGUSR1 for Round 3's tracemalloc dump hook. Without an
-    explicit handler Python's default action for SIGUSR1 is to terminate
-    the process, which would defeat any later probe attempt; the stub just
-    logs the receipt and continues."""
+def _install_sigusr1_tracemalloc(dump_dir: str | None) -> None:
+    """Install a SIGUSR1 handler that snapshots tracemalloc and writes the
+    top-N statistics to ``dump_dir``. If ``dump_dir`` is None, the handler
+    logs to stderr but does not crash on signal.
+
+    Calling ``tracemalloc.start()`` here is safe: it is a no-op if already
+    started, raises if started with a smaller frame count, so we catch
+    that defensively.
+    """
+    if dump_dir:
+        Path(dump_dir).mkdir(parents=True, exist_ok=True)
+        try:
+            tracemalloc.start(25)
+        except RuntimeError:
+            # Already started with a different frame count; keep whatever
+            # frame depth the existing instance has.
+            pass
 
     def _handler(*_):
-        sys.stderr.write("[stress-session-server] SIGUSR1 received (Round 2 stub; tracemalloc dump deferred)\n")
+        try:
+            snapshot = tracemalloc.take_snapshot()
+        except RuntimeError:
+            sys.stderr.write("[stress-session-server] tracemalloc not started; SIGUSR1 ignored\n")
+            sys.stderr.flush()
+            return
+        if dump_dir is None:
+            sys.stderr.write(
+                "[stress-session-server] SIGUSR1: tracemalloc snapshot taken but no --tracemalloc-dump-dir; "
+                "snapshot discarded\n"
+            )
+            sys.stderr.flush()
+            return
+        ts = int(time.time() * 1000)
+        path = Path(dump_dir) / f"tracemalloc.{ts}.txt"
+        with path.open("w") as f:
+            f.write(f"=== tracemalloc snapshot pid={os.getpid()} ts_ms={ts} ===\n")
+            for stat in snapshot.statistics("lineno")[:TRACEMALLOC_TOP_N]:
+                f.write(f"{stat}\n")
+        sys.stderr.write(f"[stress-session-server] SIGUSR1 dumped tracemalloc -> {path}\n")
         sys.stderr.flush()
 
     signal.signal(signal.SIGUSR1, _handler)
@@ -54,7 +101,7 @@ def _install_sigusr1_stub() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
-    _install_sigusr1_stub()
+    _install_sigusr1_tracemalloc(args.tracemalloc_dump_dir)
 
     server_args = SimpleNamespace(
         miles_router_timeout=args.router_timeout,

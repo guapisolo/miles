@@ -10,6 +10,7 @@ import atexit
 import contextlib
 import logging
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -90,6 +91,7 @@ class StressProcessTrio:
         r3: StressR3Spec | None = None,
         readiness_timeout: float = 60.0,
         log_dir: str | None = None,
+        tracemalloc_dump_dir: str | None = None,
     ):
         if output_tokens <= 0:
             raise ValueError("output_tokens must be positive")
@@ -99,6 +101,7 @@ class StressProcessTrio:
         self.r3.validate()
         self.readiness_timeout = readiness_timeout
         self.log_dir = log_dir
+        self.tracemalloc_dump_dir = tracemalloc_dump_dir
 
         self.mock_port: int | None = None
         self.session_port: int | None = None
@@ -214,7 +217,23 @@ class StressProcessTrio:
         ]
         if self.r3.inject:
             cmd.append("--enable-r3")
+        if self.tracemalloc_dump_dir:
+            cmd.extend(["--tracemalloc-dump-dir", self.tracemalloc_dump_dir])
         return cmd
+
+    def signal_session_tracemalloc(self) -> None:
+        """Send SIGUSR1 to the session_server subprocess (no-op if dead).
+
+        The handler installed by ``_server_proc._install_sigusr1_tracemalloc``
+        takes a tracemalloc snapshot and dumps top-N allocations to
+        ``tracemalloc_dump_dir``. Call this mid-cell to capture an
+        in-flight snapshot."""
+        if self.session_proc is None or self.session_proc.poll() is not None:
+            return
+        try:
+            self.session_proc.send_signal(signal.SIGUSR1)
+        except ProcessLookupError:
+            pass
 
     def _stop_one(self, role: str) -> None:
         proc = self.mock_proc if role == "mock" else self.session_proc

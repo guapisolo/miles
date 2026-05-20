@@ -87,9 +87,10 @@ def test_in_process_smoke_has_three_distinct_pids_and_cleans_up(tmp_path: Path):
     )
     assert exit_code == 0
     summary = json.loads((tmp_path / "summary.json").read_text())
-    pids = {summary["driver_pid"], summary["session_pid"], summary["mock_pid"]}
-    assert len(pids) == 3, f"expected three distinct PIDs, got {pids}"
-    assert summary["driver_pid"] == os.getpid()
+    pids_dict = summary["pids"]
+    pids = set(pids_dict.values())
+    assert len(pids) == 3, f"expected three distinct PIDs, got {pids_dict}"
+    assert pids_dict["driver"] == os.getpid()
 
     # Cleanup probe: with-statement on a fresh trio, then assert no orphan.
     from miles.utils.test_utils.stress_launchers import StressProcessTrio, StressR3Spec
