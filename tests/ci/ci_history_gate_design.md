@@ -77,34 +77,60 @@
 
 ### 4.1 数据流
 
+一次 CI job 内,一个 test 文件的指标从产生到 gate 的完整时间线(泳道 = 进程/系统边界;时间自上而下):
+
 ```
-  test process  (python3 <test_file>)
-        │  log(args, metrics, step_key)   ──fan-out──►  TrackingManager.log  (base.py:147)
-        ├───────────────────────────►  WandbBackend ──► wandb cloud   [搜集入口;只写, C8 不回读]
-        └───────────────────────────►  CIHistoryBackend  (新增, base.py:7-12 的标准扩展)
-                                            │  in-process 累积 4 个 gate metric
-                                            │  finish() → 按 per-metric reducer 压成标量
-                                            ▼
-                                     本地 per-run record (json;不含身份)
-        ┌───────────────────────────────────┘
-        ▼
-  ┌────────────────────────────────────────────────────────────┐
-  │ gate step   (run_suite 内, test 子进程返回后, 同一 CI job)      │
-  │   身份 = CIRegistry.filename(完整路径) + GITHUB_COMMIT_NAME    │
-  │   (1) 读本地 record           → 当前 run 的 per-metric 标量      │
-  │   (2) 读受控存储 (test_path, metric) 的 trusted 历史            │
-  │   (3) hard gate(总是跑) + historical gate(≥5 trusted 点才跑)   │
-  │   (4) 写当前行入受控存储, trusted = 本次是否通过 hard gate       │
-  │       任一 gate 失败 → 该 step 失败                            │
-  └────────────────────────────────────────────────────────────┘
-        │  read / write   (全程不经过 wandb)
-        ▼
-  ┌──────────────────────────────────────┐
-  │ 受控存储  (cloud, blobfile + polars)    │  ◀── query / clean / rebaseline CLI
-  └──────────────────────────────────────┘
+ 时刻   训练进程 python3 <test_file>            run_suite gate step (同 job, test 后)        Neon: gate_history          带外: 人工 / CLI
+ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ t0   run_suite 设 env MILES_CI_GATE_RECORD_DIR=<d>, 然后 launch python3 <test_file>
+ t1   训练循环每步: log(args, metrics, step_key)
+        │  fan-out  (TrackingManager.log, base.py:147)
+        ├─► WandbBackend.log ───────────────────────────────────────────────────────────►  wandb cloud   [搜集入口, 只写, C8 不回读]
+        └─► CIHistoryBackend.log: 进程内累积 {metric_key: [(step, value), …]} (仅 4 个 gate key)
+ t2   finish_tracking() → CIHistoryBackend.finish():
+        把累积的 series 写 <d>/<run_id>.json   (本地文件, 不含身份)
+ t3   test 子进程返回 (pass / fail)
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ t4   [仅当 test pass]                          AST 解析 <test_file> 的 register_ci_gate(...) specs
+ t5                                             读 <d>/*.json, 按各 metric 的 reducer 压成 per-(metric, sub_label) 当前标量
+ t6                                             赋身份: test_path = CIRegistry.filename;  (sha, pr) ← GITHUB_COMMIT_NAME
+ t7                                             对每个 (metric, sub_label):
+                                                  hard gate:  |cur - hard_ref| > tol ?
+                                                  SELECT value WHERE test_path,metric,(sub),trusted ─────►  读 trusted 历史序列
+                                                                                                   ◄─────  [≥5 点] 算 mean
+                                                  historical gate(≥5 trusted 点才跑): |cur - mean| > 20% ?
+                                                  INSERT(…, value=cur, trusted = 全部 active gate 通过) ──►  落一行 (始终写)
+ t8                                             任一 active gate 失败 → gate step 失败 → CI job 失败
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ (带外, 任意时刻)                                                                          SELECT / UPDATE  ◄──── query / clean
+                                                                                          (UPDATE trusted=false; mean 立即正确)
 ```
 
-关键点:本地 record 是「训练进程 → gate step」的交接物(因为 C8 不回读 wandb,当前值必须来自进程内搜集);受控存储的写入只发生在 gate step(因为 `trusted` 取决于 hard gate 结果,只有 gate 跑完才知道)。身份(完整路径)只在 gate step 这一处赋予——它本就持有 `CIRegistry.filename`,所以 wandb 用 stem 命名与否完全不影响身份,C2 天然满足。
+**阶段 A — 指标产生(训练进程,沿用现状,零改动)**:test 被 `run_suite` 以 `python3 <test_file>` 启动(CUDA;`ci_utils.py`),训练循环每步调 `log(args, metrics, step_key)`(`__init__.py:13`),`TrackingManager.log` 把同一份 metrics dict fan-out 给所有启用 backend(`base.py:147`)。这条链现状已存在,本方案不动它。
+
+**阶段 B — 进程内捕获 → 本地 record(新增 `CIHistoryBackend`)**:新 backend 与 `WandbBackend` 并列吃同一份 metrics,只挑出 4 个 gate key,在内存里累积 `{metric_key: [(step, value), …]}`(量级:每 run 几千步 × 4 float,可忽略)。`finish()` 时把累积 series 序列化成一个**本地 JSON 文件**,落在 `run_suite` 通过 env `MILES_CI_GATE_RECORD_DIR` 指定的目录里,文件名用该训练 run 自己的 `run_id`(一个 test 文件若跑多个训练 run/role,就是多份文件,见 6)。这份 record **不含身份、不写云、不读 wandb**——它纯粹是「训练进程 → gate step」的进程间交接物(C8 要求当前值不能回查 wandb,只能来自进程内捕获)。reducer 不在这里做:backend 只负责"忠实 dump series",压成标量的口径(4.4)留给 gate step,使 reducer 配置集中在一处。
+
+**阶段 C — gate step(`run_suite` 内,test 返回后,同一 job)**:这是逻辑与 I/O 的集中点,顺序为 t4–t8:
+1. 仅当 test 子进程 pass 才进入(test 本身崩了已经 fail,gate 无意义);
+2. 静态 AST 解析该 `<test_file>` 的 `register_ci_gate(...)`,拿到每个 metric 的 `hard_ref / rel / abs_floor / reducer / one_sided`(4.5);
+3. 读 `MILES_CI_GATE_RECORD_DIR` 下的本地 record,对每个 (metric, sub_label) 应用 reducer → 当前标量 `cur`;
+4. 赋身份:`test_path` 取 `run_suite` 手里的 `CIRegistry.filename`(完整路径,身份只在这一处产生,与 wandb 命名无关 → C2),`(commit_sha, pr_number)` 解析自 env `GITHUB_COMMIT_NAME`(C4);
+5. 对每个 (metric, sub_label) 跑 hard gate(总是)+ historical gate(`SELECT` 到 trusted 历史 ≥5 点才跑);
+6. 无论 gate 结果如何都 `INSERT` 一行(让趋势/PR 归因始终看得到这次),`trusted` = 本次是否通过**所有 active gate**(见 4.3);
+7. 收集所有 (metric, sub) 的失败,有任一失败则 gate step 失败 → CI job 失败。
+
+**阶段 D — query / clean(带外,人工)**:任意时刻,用 CLI 或 Neon 网页对 `gate_history` 做 `SELECT`(查趋势/归因 PR)或 `UPDATE trusted=false`(清坏点)。因为 historical gate 每次都现算 trusted 行的 mean,清理后下一次 gate 立即用上正确基线(C6)。这条线与 A–C 完全解耦,不经过训练进程也不经过 wandb。
+
+各跳的数据形态(具体):
+
+| 跳 | 位置 | 形态 |
+|---|---|---|
+| 训练内 | `log()` 入参 | `{"train/grad_norm": 1.02, "train/ppo_kl": 3e-9, …, "train/step": N}`(每步一份) |
+| 本地 record | `<d>/<run_id>.json` | `{"run_id": "...", "sub_label": null, "series": {"train/grad_norm": [[1,1.1],[2,1.05],…], …}}` |
+| reduce 后 | gate step 内存 | `{"train/grad_norm": 1.03, "train/ppo_kl": 4.2e-3, …}`(每 metric 一个标量) |
+| Neon 行 | `gate_history` | `(test_path, metric_key, sub_label, commit_sha, pr_number, run_id, value, ts, trusted)` |
+
+身份归属与并发:身份(`test_path`)**只在 gate step 这一处**由 `CIRegistry.filename` 赋予,所以 wandb 是否用 stem 命名、会不会撞名,都与本方案身份无关(C2 天然满足)。并发:多个 CI job 同时 `INSERT` 由 Postgres 原子处理、无锁争用(这正是相对 git 方案的优势);读历史是一致性 `SELECT`,不受并发写干扰。
 
 ### 4.2 受控存储:Neon(managed serverless Postgres)
 
@@ -129,7 +155,7 @@ CREATE INDEX ON gate_history (test_path, metric_key, trusted);
 ```
 
 - 读历史(historical gate):`SELECT value FROM gate_history WHERE test_path=$1 AND metric_key=$2 AND trusted ORDER BY ts DESC LIMIT :N`。
-- 写当前 run:gate 判完一次 `INSERT`,`trusted` = 本次是否过 hard gate。
+- 写当前 run:gate 判完一次 `INSERT`(无论 gate 结果都写,供趋势/归因可见),`trusted` = 本次是否通过**所有 active gate**(见 4.3)。
 - 身份字段(`test_path`/`commit_sha`/`pr_number`)由 gate step 赋予,不依赖 wandb 命名(满足 C2/C8)。
 
 ### 4.3 两层 gate 的判定逻辑
@@ -138,7 +164,7 @@ per-metric 容差以**相对为默认**,沿用现有 `math.isclose(rel_tol, abs_
 
 - **hard gate(总是跑,与历史无关 → 满足 C5)**:`ref` = 该 (test, metric) 的 hardcoded 安全值,bound to test、作为参数声明(见 4.5)。可配成双边(偏离 ref 超容差即 fail)或单边上限(`current > ref` 即 fail,适合「越大越坏」的 metric 如 `grad_norm`)。语义是「直觉上不该达到的安全线」,不是统计值。
 - **historical gate(≥5 个 trusted 历史点才跑)**:`ref` = trusted 历史点的均值;`current` 偏离均值超默认 20%(同样 rel-OR-abs)即 fail。trusted 点 <5 时本层**不激活**,只剩 hard gate(冷启动 / 新 test 安全)。
-- **trusted 准入**:一行写入时,`trusted` 默认取「本次 run 是否通过了 hard gate」——hard gate 没过的明显坏 run 不进入 historical 基线,避免污染均值。这把两层串起来:hard gate 同时是 historical 基线的准入过滤器,且不形成循环(hard gate 不依赖历史)。手动清理可把某行 `trusted` 翻成 false(见 4.6)。
+- **trusted 准入**:一行总是 `INSERT`(让趋势/PR 归因看得到每次),但 `trusted` = 本次是否通过**所有 active gate**(hard 必跑;historical 在 ≥5 trusted 点时跑)。理由:漂移(historical 失败)但过 hard 的 run 不应静默进入基线——否则基线缓慢跟随漂移、掩盖慢回归;漂移要成为"新常态"需人工经 clean/rebaseline 接受。不形成循环:`historical_ok` 是对**既有** trusted 基线算的,再决定本行 trusted。手动清理可把某行 `trusted` 翻成 false(见 4.6)。
 
 ### 4.4 per-run 标量 reducer
 
@@ -158,7 +184,7 @@ per-metric 容差以**相对为默认**,沿用现有 `math.isclose(rel_tol, abs_
 
 ### 4.7 搜集出口与 gate step 的边界
 
-搜集出口 = 新增的 `CIHistoryBackend`(按 `base.py:7-12` 标准扩展:subclass + 注册 + `--use-ci-history` flag,启用条件 mirror `get_default_wandb_args` 的 CI gating)。它与 `WandbBackend` 并列吃同一份 `log()`,在进程内累积 4 个 gate metric,`finish()` 时按 reducer 压成标量、写一份**本地 per-run record**;它**不写云存储、不含身份**,只做进程内交接。gate step(run_suite 内,test 子进程返回后)读本地 record(当前值)+ 受控存储(trusted 历史),赋身份、跑两层 gate、并把当前行写入受控存储(`trusted` = 是否过 hard gate)。这样:wandb 维持纯搜集入口(C8),gate 全程不碰 wandb,gate 逻辑/身份/store I/O 全集中在 gate step(满足解耦软约束)。
+搜集出口 = 新增的 `CIHistoryBackend`(按 `base.py:7-12` 标准扩展:subclass + 注册 + `--use-ci-history` flag,启用条件 mirror `get_default_wandb_args` 的 CI gating)。它与 `WandbBackend` 并列吃同一份 `log()`,在进程内累积 4 个 gate metric,`finish()` 时按 reducer 压成标量、写一份**本地 per-run record**;它**不写云存储、不含身份**,只做进程内交接。gate step(run_suite 内,test 子进程返回后)读本地 record(当前值)+ 受控存储(trusted 历史),赋身份、跑两层 gate、并把当前行写入受控存储(`trusted` = 是否通过所有 active gate,见 4.3)。这样:wandb 维持纯搜集入口(C8),gate 全程不碰 wandb,gate 逻辑/身份/store I/O 全集中在 gate step(满足解耦软约束)。
 
 ### 4.8 本轮做 vs 后续
 
