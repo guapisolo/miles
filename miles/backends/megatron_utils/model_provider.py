@@ -112,6 +112,13 @@ def get_model_provider_func(
             provider.moe_router_bias_update_rate = args.moe_router_bias_update_rate
         if getattr(args, "moe_aux_loss_coeff", None) is not None:
             provider.moe_aux_loss_coeff = args.moe_aux_loss_coeff
+        # VLM bridge providers (e.g. Qwen3VLModelProvider) expose native freeze flags;
+        # provider.provide() then applies model.freeze() per model instance. The dense
+        # Qwen3.5 provider defaults freeze_vision_model=False, so honor the CLI flags here.
+        if getattr(args, "freeze_vision_model", False) and hasattr(provider, "freeze_vision_model"):
+            provider.freeze_vision_model = True
+        if getattr(args, "freeze_vision_projection", False) and hasattr(provider, "freeze_vision_projection"):
+            provider.freeze_vision_projection = True
         # The bridge provider can default mtp_num_layers>0 from the architecture even
         # with MTP disabled (e.g. Qwen3.5); the HF loader then builds unmapped MTP
         # layers and crashes. Mirror the non-bridge path, which gates MTP on
@@ -135,7 +142,20 @@ def get_model_provider_func(
             # caller's pg_collection here, those code paths hit AttributeError.
             if pg_collection is not None:
                 provider._pg_collection = pg_collection
-            return provider.provide(pre_process=pre_process, post_process=post_process, vp_stage=vp_stage)
+            model = provider.provide(pre_process=pre_process, post_process=post_process, vp_stage=vp_stage)
+            if getattr(args, "freeze_vision_model", False) or getattr(args, "freeze_vision_projection", False):
+                # Verify the freeze actually took on the built model (the provider applies
+                # model.freeze() internally); frozen>0 is concrete evidence the ViT is frozen.
+                n_total = sum(1 for _ in model.parameters())
+                n_frozen = sum(1 for p in model.parameters() if not p.requires_grad)
+                e_frozen = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+                logger.info(
+                    f"[freeze-vision] frozen {n_frozen}/{n_total} param tensors "
+                    f"({e_frozen / 1e6:.1f}M elems); freeze_vision_model="
+                    f"{getattr(args, 'freeze_vision_model', False)}, "
+                    f"freeze_vision_projection={getattr(args, 'freeze_vision_projection', False)}"
+                )
+            return model
 
         return wrapped_bridge_provider
 

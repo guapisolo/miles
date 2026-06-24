@@ -214,6 +214,22 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 help="The method to convert megatron weights to hugging face weights for SGLang.",
             )
             parser.add_argument(
+                "--freeze-vision-model",
+                action="store_true",
+                default=False,
+                help=(
+                    "Freeze the vision encoder (patch_embed + ViT blocks) for VLMs built via "
+                    "--megatron-to-hf-mode bridge. Sets requires_grad=False on the vision tower, "
+                    "which Megatron's optimizer excludes from its param groups."
+                ),
+            )
+            parser.add_argument(
+                "--freeze-vision-projection",
+                action="store_true",
+                default=False,
+                help="Freeze the vision projection (merger) for bridge-built VLMs.",
+            )
+            parser.add_argument(
                 "--extra-high-precision-layers-hf",
                 type=str,
                 nargs="*",
