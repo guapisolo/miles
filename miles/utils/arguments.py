@@ -2278,9 +2278,12 @@ def miles_validate_args(args):
             args.offload_train = True
         if args.offload_rollout is None:
             args.offload_rollout = True
-        if args.sglang_enforce_piecewise_cuda_graph:
+        # These piecewise-cuda-graph knobs come from SGLang's ServerArgs (auto-prefixed
+        # to --sglang-*). Newer SGLang builds dropped them, so guard the reads to avoid
+        # AttributeError; when present, behavior is unchanged.
+        if getattr(args, "sglang_enforce_piecewise_cuda_graph", False):
             logger.warning("Warning: colocate mode with --sglang-enforce-piecewise-cuda-graph may trigger NVLS OOM.")
-        if not args.sglang_disable_piecewise_cuda_graph:
+        if hasattr(args, "sglang_disable_piecewise_cuda_graph") and not args.sglang_disable_piecewise_cuda_graph:
             args.sglang_disable_piecewise_cuda_graph = True
             logger.info(
                 "Colocate mode: defaulting --sglang-disable-piecewise-cuda-graph to avoid NVLS OOM. "

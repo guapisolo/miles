@@ -112,6 +112,14 @@ def get_model_provider_func(
             provider.moe_router_bias_update_rate = args.moe_router_bias_update_rate
         if getattr(args, "moe_aux_loss_coeff", None) is not None:
             provider.moe_aux_loss_coeff = args.moe_aux_loss_coeff
+        # The bridge provider can default mtp_num_layers>0 from the architecture even
+        # with MTP disabled (e.g. Qwen3.5); the HF loader then builds unmapped MTP
+        # layers and crashes. Mirror the non-bridge path, which gates MTP on
+        # args.mtp_num_layers.
+        if hasattr(provider, "mtp_num_layers"):
+            provider.mtp_num_layers = args.mtp_num_layers or 0
+            if hasattr(provider, "mtp_enabled"):
+                provider.mtp_enabled = bool(args.mtp_num_layers)
         provider.finalize()
 
         def wrapped_bridge_provider(
