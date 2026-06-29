@@ -117,6 +117,19 @@ class TestIsNightly:
         assert is_nightly(set()) is False
         assert is_nightly(None) is False
 
+    def test_nightly_label_must_come_from_raw_labels(self, monkeypatch):
+        # `nightly` is not a run-ci- domain label, so strip_run_ci_prefix drops
+        # it. The gate must feed is_nightly the RAW labels; feeding it stripped
+        # labels leaves the label path permanently dead.
+        from tests.ci.run_suite import strip_run_ci_prefix
+
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+        with pytest.warns(UserWarning):
+            stripped = strip_run_ci_prefix(["nightly", "run-ci-megatron"])
+        assert "nightly" not in stripped  # the trap: strip drops it
+        assert is_nightly(stripped) is False  # stripped -> label path dead
+        assert is_nightly({"nightly", "run-ci-megatron"}) is True  # raw -> detected
+
 
 # --- gate_provenance_from_env -----------------------------------------------
 
@@ -179,6 +192,20 @@ class TestBuildStoreFromEnv:
         store = build_store_from_env()
         assert isinstance(store, _FakeNeonStore), "NEON_DATABASE_URL must route to NeonMetricHistoryStore"
         assert constructed == [None], "the factory constructs the store with no explicit DSN"
+
+    def test_store_construction_failure_degrades_to_none(self, monkeypatch):
+        # NeonMetricHistoryStore.__init__ connects eagerly, so a bad DSN / DB
+        # outage raises here -- OUTSIDE the gate hook's try/except. The factory
+        # must swallow it and return None: the gate may never fail a CI job
+        # (CUDA or ROCm) before a single test has run.
+        class _ExplodingStore:
+            def __init__(self, dsn=None):
+                raise RuntimeError("connection refused")
+
+        monkeypatch.setattr("tests.ci.ci_utils.NeonMetricHistoryStore", _ExplodingStore)
+        monkeypatch.setenv("NEON_DATABASE_URL", "postgres://unreachable/db")
+
+        assert build_store_from_env() is None
 
 
 # --- passing-attempt selection ----------------------------------------------

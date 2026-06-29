@@ -182,17 +182,19 @@ def write_github_step_summary(content: str):
             f.write(content)
 
 
-def is_nightly(stripped_labels: set[str] | None = None) -> bool:
+def is_nightly(labels: set[str] | None = None) -> bool:
     """True when this run should write trusted baselines.
 
     A run is a baseline-writing nightly when the GitHub event is ``schedule`` or
-    when a stripped ``nightly`` label is present. This is the harness signal for
-    "this run produces baselines", distinct from ``args.nightly`` /
-    ``NIGHTLY_SUITES`` which select which *tests* run.
+    when a ``nightly`` label is present. ``labels`` must be the RAW PR labels:
+    ``nightly`` is not a ``run-ci-<domain>`` label, so ``strip_run_ci_prefix``
+    drops it -- passing *stripped* labels here would make the label path dead.
+    This is the harness signal for "this run produces baselines", distinct from
+    ``args.nightly`` / ``NIGHTLY_SUITES`` which select which *tests* run.
     """
     if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
         return True
-    if stripped_labels and "nightly" in stripped_labels:
+    if labels and "nightly" in labels:
         return True
     return False
 
@@ -263,9 +265,17 @@ def build_store_from_env():
     A hosted store is used only when ``NEON_DATABASE_URL`` is set (CI with the
     secret inherited). Locally / in dev the var is unset and this returns None,
     which disables the gate hook entirely -- no store, no evaluation, no writes.
+
+    Construction opens a DB connection eagerly. That happens outside the gate
+    hook's try/except, so a missing driver / bad DSN / DB outage is caught here
+    and degraded to None -- the gate must never fail a CI job (CUDA or ROCm)
+    before any test runs.
     """
     if os.environ.get(NEON_DATABASE_URL_ENV):
-        return NeonMetricHistoryStore()
+        try:
+            return NeonMetricHistoryStore()
+        except Exception as e:  # noqa: BLE001 -- never let store setup fail CI
+            logger.warning("[CI Gate] store unavailable (%s: %s); gate disabled.", type(e).__name__, e)
     return None
 
 
@@ -300,7 +310,7 @@ def run_gate_hook(
     this round.
     """
     try:
-        result = evaluate_gate(filename, merged_record_path, store)
+        result = evaluate_gate(filename, merged_record_path, store, registry=registry)
 
         if nightly:
             identity = RunIdentity(
@@ -508,10 +518,18 @@ def run_unittest_files(
                             # The training process has exited, so its per-process
                             # NDJSON records are complete. Merge the passing
                             # attempt's records into the one per-run record the
-                            # gate consumes.
+                            # gate consumes. Gate infrastructure: a merge I/O
+                            # error must never propagate and change the test's
+                            # pass/fail, so it is caught and logged and only
+                            # skips the gate hook.
                             merged_path = f"{attempt_record_dir}.merged.ndjson"
-                            _merge_attempt_records(attempt_record_dir, merged_path)
-                            passing_record_path = merged_path
+                            try:
+                                _merge_attempt_records(attempt_record_dir, merged_path)
+                                passing_record_path = merged_path
+                            except Exception as e:  # noqa: BLE001 -- gate infra must not affect pass/fail
+                                logger.warning(
+                                    "[CI Gate] record merge failed for %s: %s: %s", filename, type(e).__name__, e
+                                )
                         if was_retried:
                             logger.info(f"\nPASSED on retry (attempt {attempt}): {filename}\n")
                             retried_tests.append((filename, attempt, "passed"))

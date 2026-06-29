@@ -1,11 +1,19 @@
 import argparse
+import os
 import subprocess
 import sys
+import tempfile
 import warnings
 from collections.abc import Iterable
 
 from tests.ci.ci_register import CIRegistry, HWBackend, collect_tests, discover_ci_files
-from tests.ci.ci_utils import build_store_from_env, gate_provenance_from_env, is_nightly, run_unittest_files
+from tests.ci.ci_utils import (
+    CI_GATE_RECORD_DIR_ENV,
+    build_store_from_env,
+    gate_provenance_from_env,
+    is_nightly,
+    run_unittest_files,
+)
 
 HW_MAPPING = {
     "cpu": HWBackend.CPU,
@@ -238,11 +246,20 @@ def run_a_suite(args):
 
     # Regression-gate wiring: the store exists only when NEON_DATABASE_URL is
     # set (CI), so the gate hook is a no-op locally. `is_nightly` is the
-    # baseline-writing signal (schedule event or stripped `nightly` label), not
+    # baseline-writing signal (schedule event or a `nightly` label), not
     # `args.nightly`. Provenance comes from the GitHub env.
     gate_store = build_store_from_env()
-    gate_nightly = is_nightly(stripped_labels)
+    # `nightly` is not a `run-ci-` domain label, so `strip_run_ci_prefix` drops
+    # it; feed `is_nightly` the RAW labels or the label path can never fire.
+    gate_nightly = is_nightly(set(args.labels or []))
     gate_provenance = gate_provenance_from_env()
+
+    # The gate collects only when a record directory exists. CI does not set
+    # MILES_CI_GATE_RECORD_DIR, so allocate a job-local one whenever a store is
+    # configured (CUDA suites only -- the gate is CUDA-only). The training
+    # subprocesses' CiHistoryBackend and the merge/gate steps read it from env.
+    if gate_store is not None and hw == HWBackend.CUDA and not os.environ.get(CI_GATE_RECORD_DIR_ENV):
+        os.environ[CI_GATE_RECORD_DIR_ENV] = tempfile.mkdtemp(prefix="miles-ci-gate-")
 
     return run_unittest_files(
         ci_tests,

@@ -143,7 +143,7 @@ Chart key: rectangle = a step or check; rounded box = a data artifact; diamond =
 - `metric_values` — one row per value: `run_id` FK + `(metric_key, steps_key, constraint_key, step)` + `value`.
 - The baseline read is served by the composite index `runs(test_path, backend, suite, test_file_hash, trusted, created_at DESC)`.
 
-**Operations** — hosted Postgres setup is out-of-band in this round: when `NeonMetricHistoryStore` is implemented, provision the equivalent two tables and application role outside this repo, and keep runtime gate code DML-only. Old-row cleanup policy is a later operational concern, not part of the M0/M1 substrate.
+**Operations** — hosted Postgres setup is out-of-band: the two tables and application role are provisioned outside this repo, and runtime gate code stays DML-only (`NeonMetricHistoryStore` never issues DDL). Old-row cleanup policy is a later operational concern, not part of the M0/M1 substrate.
 
 ## Trust, cleanup, who writes
 
