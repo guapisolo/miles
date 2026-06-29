@@ -5,7 +5,7 @@ import warnings
 from collections.abc import Iterable
 
 from tests.ci.ci_register import CIRegistry, HWBackend, collect_tests, discover_ci_files
-from tests.ci.ci_utils import run_unittest_files
+from tests.ci.ci_utils import build_store_from_env, gate_provenance_from_env, is_nightly, run_unittest_files
 
 HW_MAPPING = {
     "cpu": HWBackend.CPU,
@@ -236,6 +236,14 @@ def run_a_suite(args):
     if args.enable_retry:
         timeout += args.retry_timeout_increase
 
+    # Regression-gate wiring: the store exists only when NEON_DATABASE_URL is
+    # set (CI), so the gate hook is a no-op locally. `is_nightly` is the
+    # baseline-writing signal (schedule event or stripped `nightly` label), not
+    # `args.nightly`. Provenance comes from the GitHub env.
+    gate_store = build_store_from_env()
+    gate_nightly = is_nightly(stripped_labels)
+    gate_provenance = gate_provenance_from_env()
+
     return run_unittest_files(
         ci_tests,
         timeout_per_file=timeout,
@@ -243,6 +251,9 @@ def run_a_suite(args):
         enable_retry=args.enable_retry,
         max_attempts=args.max_attempts,
         retry_wait_seconds=args.retry_wait_seconds,
+        gate_store=gate_store,
+        gate_nightly=gate_nightly,
+        gate_provenance=gate_provenance,
     )
 
 
