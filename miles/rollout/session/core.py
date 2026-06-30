@@ -1,11 +1,15 @@
+# doc-dev: docs/developer/multi-process-session-server.md
 """Logic layer of the session server: ``SessionCore``.
 
-- Each operation takes a request's primitives (HTTP method, query string, headers, already-read body bytes), mutates session state and/or proxies upstream via the injected ``backend``, and returns a Starlette ``Response``.
-- Knows nothing about HTTP servers or routing; the FastAPI adapter (``sessions.py`` + ``server.py``) reads each request and calls these methods.
-- One ``SessionCore`` owns exactly one ``SessionRegistry`` (the per-session TITO/trajectory state) and one proxy ``backend``.
+- The request-bearing operations take a request's primitives (HTTP method, query string, headers, already-read body bytes); every operation mutates session state and/or proxies upstream via the injected ``backend`` and returns a Starlette ``Response``.
+- Knows nothing about HTTP servers, processes, sockets, or IPC; it never touches the wire.
+- One ``SessionCore`` owns exactly one ``SessionRegistry`` (the per-session TITO/trajectory state) and one proxy ``backend``; which core a request belongs to is decided above it (routing/sharding).
 - Operations: ``health``, ``create_session``, ``get_session``, ``delete_session``, ``chat_completions``, and a generic ``proxy``.
+- Reused unchanged by both chassis: the single-process FastAPI adapter (``sessions.py`` + ``server.py``) and the multi-process worker (``worker.py``, primitives decoded off IPC).
+- ``create_session(session_id=None)``: the single-process path passes None (the registry mints); the multi-process router mints the id and passes it so the owning worker creates the trajectory under it.
+- ``build_session_core`` and ``error_response`` are the single source for core construction and the client error shape, used by both chassis so those contracts cannot drift.
 - Client-facing chat responses are rendered by ``_chat_client_response``, which strips the R3 replay payloads (``routed_experts`` / ``indexer_topk``) copy-on-write; the stored ``SessionRecord`` keeps the full upstream response, which is what ``GET /sessions/{id}`` serves to the training data path.
-- Correctness-critical path: ``chat_completions`` — the per-session lock is held for request prep and state update but never during the proxy call; the ``closing`` re-checks and the ``num_assistant`` mismatch check gate concurrent DELETE/chat.
+- Correctness-critical path: ``chat_completions`` — three phases around the per-session lock (see its docstring); the ``closing`` re-checks and the ``num_assistant`` mismatch check gate concurrent DELETE/chat.
 
 Structural extraction of the previous single-process route handlers with one deliberate contract change: chat responses no longer carry the R3 replay payloads (they are replay-only inputs, consumed from the records). All other observable behavior (status codes, error shapes, recorded trajectory) is unchanged.
 """
@@ -17,9 +21,11 @@ from dataclasses import dataclass
 
 from starlette.responses import Response
 
-from miles.rollout.session.errors import SessionNotFoundError, TokenizationError, UpstreamResponseError
+from miles.rollout.session.errors import SessionError, SessionNotFoundError, TokenizationError, UpstreamResponseError
 from miles.rollout.session.linear_trajectory import SessionRegistry
 from miles.rollout.session.types import GetSessionResponse, SessionRecord
+from miles.utils.chat_template_utils import get_tito_tokenizer
+from miles.utils.processing_utils import load_tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,26 @@ class ProxyRequest:
 def _render_json(payload) -> bytes:
     """Encode like Starlette's JSONResponse (compact, non-ASCII preserved)."""
     return json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+
+
+def error_response(exc: SessionError) -> Response:
+    """Render a SessionError as the client response."""
+    return Response(content=_render_json({"error": str(exc)}), status_code=exc.status_code, media_type=JSON_MEDIA_TYPE)
+
+
+def build_session_core(backend, args) -> "SessionCore":
+    """Construct a SessionCore (tokenizer + registry) from args."""
+    tokenizer = load_tokenizer(
+        args.hf_checkpoint, chat_template_path=getattr(args, "chat_template_path", None), trust_remote_code=True
+    )
+    tito_tokenizer = get_tito_tokenizer(
+        tokenizer,
+        tokenizer_type=getattr(args, "tito_model", "default"),
+        chat_template_kwargs=getattr(args, "apply_chat_template_kwargs", None),
+        allowed_append_roles=getattr(args, "tito_allowed_append_roles", None),
+    )
+    registry = SessionRegistry(args, tokenizer, tito_tokenizer=tito_tokenizer)
+    return SessionCore(backend, registry, args, getattr(args, "session_server_instance_id", None))
 
 
 _CLIENT_STRIPPED_META_KEYS = ("routed_experts", "indexer_topk")
@@ -116,8 +142,10 @@ class SessionCore:
             body["session_server_instance_id"] = self.instance_id
         return Response(content=_render_json(body), status_code=200, media_type=JSON_MEDIA_TYPE)
 
-    async def create_session(self) -> Response:
-        session_id = self.registry.create_session()
+    async def create_session(self, session_id: str | None = None) -> Response:
+        # None in single-process (the registry mints); the multi-process router
+        # mints the id (to route by it) and passes it so the owning worker creates under it.
+        session_id = self.registry.create_session(session_id)
         return Response(content=_render_json({"session_id": session_id}), status_code=200, media_type=JSON_MEDIA_TYPE)
 
     async def get_session(self, session_id: str) -> Response:
@@ -155,10 +183,16 @@ class SessionCore:
     ) -> Response:
         """Proxy a chat completion through the backend with TITO token tracking.
 
-        Flow: prepare pretokenized input_ids (lock held briefly) → proxy to
-        backend (NO lock) → validate response → update trajectory checkpoint and
-        append record (lock held briefly). The lock is NOT held during the slow
-        proxy call so DELETE/other ops are not blocked if the agent disconnects.
+        Three phases around the per-session lock: (1) under the lock, parse the
+        body, inject the TITO-required request fields, and prepare pretokenized
+        ``input_ids`` from the accumulated trajectory; (2) release the lock and
+        proxy to the backend — the slow LLM call runs unlocked so DELETE/other
+        ops are not blocked if the agent disconnects; (3) re-acquire the lock,
+        validate the response, and update the trajectory checkpoint + append the
+        record. ``closing`` is re-checked at each lock entry and, together with
+        the ``num_assistant`` mismatch check in phase 3, forms the concurrency
+        gate that drops a state update whose session was deleted or advanced
+        during the unlocked proxy.
         """
         session = self.registry.get_session(session_id)
         if session.closing:
