@@ -3,8 +3,8 @@
 
 * Consumes one merged per-run JSONL record plus the `register_ci_gate` specs
   declared in the test file, and decides whether the run is *trusted*.
-* The record is the passed attempt's merged JSONL; a later round picks which
-  attempt.
+* The record is the passing attempt's merged JSONL, selected and merged by the
+  harness caller (``tests.ci.ci_utils``) before the gate is invoked.
 * Each spec pairs a STEPS selection (which value(s) to pull: `"last"` /
   `"all"` / a step list) with a CONSTRAINT (the pass/fail rule). `"all"` and a
   step list fan out to one comparison coordinate per step, each judged only
@@ -21,8 +21,9 @@
 
 Caveats:
 
-* Do not add store writes here. Persistence is a later round; the gate stays
-  read-only.
+* Do not add store writes here. Persistence is the caller's job --
+  :func:`tests.ci.ci_utils.run_gate_hook` writes rows on nightly-marked runs --
+  and the gate itself stays read-only.
 """
 
 from __future__ import annotations

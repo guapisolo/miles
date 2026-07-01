@@ -275,10 +275,11 @@ def parse_ci_gate_specs(filename: str) -> list[CiGateSpec]:
     callee is the bare name `register_ci_gate`. Non-literal / invalid args raise
     ValueError naming the file and field.
 
-    Note for the future writer: two specs may still map to the same baseline
-    coordinate (identical steps + constraint literals, differing only in
-    policy metadata). The writer must dedupe metric_values by coordinate so
-    one run contributes one row per coordinate.
+    Two specs may still map to the same baseline coordinate (identical
+    steps + constraint literals, differing only in ``hard_ref`` / policy
+    metadata). The harness writer (``tests.ci.ci_utils.run_gate_hook``) does
+    not dedupe ``metric_values`` by coordinate; such a run writes one row
+    per spec.
     """
     with open(filename) as f:
         tree = ast.parse(f.read(), filename=filename)
