@@ -19,27 +19,24 @@ The gate compares a number only against earlier numbers of the same kind, from t
 
 The store's baseline query keys on exactly these (plus a `limit` for how many recent points to read): `recent_trusted_values(test_path, backend, suite, metric_key, steps_key, constraint_key, step, test_file_hash, limit)`.
 
-## Reduction: a run's series → one number
+## Extractor & constraint: what is compared, and by which rule
 
-Collection records a full per-metric series per run; the gate checks one scalar per `(metric_key, sub_label)`. `tests/ci/metric_history/reducers.py` owns the rules that collapse a series to that scalar:
+A gate declaration composes an extractor and a constraint, each a literal dict `{"name": ..., <params>}` validated at parse time:
 
-- `train/grad_norm` → mean of the last 5 numeric points (or all of them if fewer than 5).
-- `train/ppo_kl` → the step-0 value, with `abs_floor` `1e-6` (it sits near zero).
-- `train/train_rollout_logprob_abs_diff` → last numeric point.
-- `train/train_rollout_kl` → last numeric point.
-- `rollout/raw_reward` → last numeric point.
+- **Extractor** — which value(s) of the metric's series to compare; a step-scoped extractor fans out to one comparison per step, judged against that step's own history.
+- **Constraint** — whether one value passes against a reference: a tolerance band plus a direction.
 
-These five are exactly the metrics the collection backend captures (`TARGET_METRIC_KEYS`). An unlisted metric falls back to `last`.
-
-Each metric's `abs_floor` here seeds the gate's near-zero tolerance. A target series that is missing or has no numeric point raises `ReducerError`, never a silent skip.
+The authoritative names and params are the schema tables beside the functions (paths in the Map below); the doc does not duplicate them. A missing/empty series or a missing required step is an ERROR verdict, never a skip.
 
 ## The gate: two layers
 
-After a test passes, each comparison coordinate's value is checked with `|cur - ref| > max(rel * |ref|, abs_floor)` (`rel` default `0.20`; `abs_floor` only matters for metrics near zero, e.g. step-0 `ppo_kl`).
+After a test passes, each comparison coordinate's value is judged by its spec's constraint, twice:
 
-- **Hard gate** — always on. `ref` = a hardcoded safety limit. Runs even with zero history; generalizes today's `--ci-<metric>` thresholds.
-- **Historical gate** — activates with ≥1 trusted point in the series. `ref` = mean of the series' trusted runs. Catches drift.
+- **Hard gate** — always on. `ref` = the spec's `hard_ref`, a hardcoded safety limit. Runs even with zero history; generalizes today's `--ci-<metric>` thresholds.
+- **Historical gate** — activates with ≥1 trusted point at the coordinate. `ref` = mean of the coordinate's trusted values. Catches drift.
 - **Cold start** (0 trusted): historical gate is inactive, hard gate only — not an error.
+
+A fanned-out spec (`per_step` / `steps`) contributes one verdict per step; the run is trusted iff **every** coordinate's active checks pass.
 
 ## Storage: two backends, two tables
 
@@ -77,8 +74,10 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 | DB connection            | `NEON_DATABASE_URL` (CI secret)                                                        |
 | Storage contract         | `tests/ci/metric_history/storage/store.py` (+ `storage/sqlite_store.py` offline, `storage/neon_store.py` prod) |
 | Gate logic               | `tests/ci/metric_history/gate.py`                                                      |
+| Extractors + coordinate encoding | `tests/ci/metric_history/extractors.py`                                        |
+| Constraints              | `tests/ci/metric_history/constraints.py`                                               |
 | Collection backend       | `miles/utils/tracking_utils/ci_history.py`                                             |
-| Declare a gate on a test | `register_ci_gate(...)` (from `tests.ci.metric_history`) in the test file              |
+| Declare a gate on a test | `register_ci_gate(metric_key=..., hard_ref=..., extractor={...}, constraint={...})` (from `tests.ci.metric_history`) in the test file |
 
 
 
@@ -87,4 +86,5 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 
 - Any test-file edit is an intentional baseline reset for that series (the hash changes).
 - The nightly trigger (`schedule` cron + `nightly` label) already shipped (#1491); detection here is harness-side via `GITHUB_EVENT_NAME`, so this feature needs **no** `pr-test.yml` **edit**.
-- Open: should a brand-new test's first baselines need human confirmation before counting as trusted? (v1: no.) Per-series `rel` / `abs_floor` overrides beyond the global defaults.
+- Open: should a brand-new test's first baselines need human confirmation before counting as trusted? (v1: no.)
+- For the future writer: two specs may share a coordinate (same extractor, different constraint) — dedupe `metric_values` by coordinate so one run writes one row per coordinate.

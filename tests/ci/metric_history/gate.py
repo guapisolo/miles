@@ -5,19 +5,21 @@ The gate consumes one already-merged per-run NDJSON record (the passed attempt's
 record; a later round picks which attempt) and a set of ``register_ci_gate``
 specs declared in the test file, and decides whether the run is *trusted*.
 
-Two checks run per spec, both using the same rel-OR-abs tolerance
-``max(rel*|ref|, abs_floor)``:
+Each spec pairs an EXTRACTOR (which value(s) to pull from the metric's series)
+with a CONSTRAINT (the pass/fail rule). The extractor may fan out: ``per_step``
+and ``steps`` yield one comparison coordinate per step, so one spec produces N
+per-step verdicts, each compared only against the same step's history. Two
+checks run per coordinate, both using the spec's constraint:
 
 * HARD gate -- always active. Compares the current scalar against the static
-  ``hard_ref`` declared in the spec. Two-sided by default; one-sided (only an
-  increase fails) when ``higher_is_worse``.
+  ``hard_ref`` declared in the spec.
 * HISTORICAL gate -- active only when the store returns >=1 trusted baseline
-  value for this (identity, metric, sub_label). Compares the current scalar
-  against the mean of those values. With zero trusted values the historical gate
-  is INACTIVE -- a cold start, not a failure.
+  value for this (identity, coordinate). Compares against the mean of those
+  values. With zero trusted values the historical gate is INACTIVE -- a cold
+  start, not a failure.
 
-The run is trusted iff every *active* gate passed for every value. The gate is
-pure: it takes a :class:`MetricHistoryStore` by dependency injection, opens no
+The run is trusted iff every *active* gate passed for every coordinate. The gate
+is pure: it takes a :class:`MetricHistoryStore` by dependency injection, opens no
 connection, reads no wandb, and writes no rows. It only calls
 ``store.recent_trusted_values``; persistence is a later round.
 """
@@ -30,7 +32,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from tests.ci.ci_register import CIRegistry, HWBackend, ut_parse_one_file
-from tests.ci.metric_history.reducers import ReducerError, default_reducer_name, reduce_series
+from tests.ci.metric_history.constraints import evaluate_constraint
+from tests.ci.metric_history.extractors import ExtractorError, encode_coordinate, extract
 from tests.ci.metric_history.register import CiGateSpec, parse_ci_gate_specs
 from tests.ci.metric_history.storage import MetricHistoryStore
 
@@ -44,25 +47,29 @@ _BACKEND_STR: dict[HWBackend, str] = {
 
 
 class GateStatus(Enum):
-    """Outcome of one check (hard or historical) for one value."""
+    """Outcome of one check (hard or historical) for one coordinate."""
 
     PASS = "pass"
     FAIL = "fail"
     INACTIVE = "inactive"  # historical gate with no trusted baseline (cold start)
-    ERROR = "error"  # the metric could not be reduced (missing/empty series, bad reducer)
+    ERROR = "error"  # the metric could not be extracted (missing/empty series, bad step)
 
 
 @dataclass(frozen=True)
 class MetricGateResult:
-    """Per-(metric_key, sub_label) verdict.
+    """Per-coordinate verdict.
 
-    ``current`` is the reduced scalar, or None when reduction errored.
-    ``baseline_mean`` is the mean of trusted history when the historical gate is
-    active, else None. ``trusted`` is True iff every active check here passed.
+    ``sub_label`` is the encoded baseline coordinate (extractor identity + step +
+    author label); ``step`` is the step this coordinate came from (None for a
+    positional extractor like ``last``, or for an extraction error). ``current``
+    is the extracted scalar, or None when extraction errored. ``baseline_mean``
+    is the mean of trusted history when the historical gate is active, else None.
+    ``trusted`` is True iff every active check here passed.
     """
 
     metric_key: str
     sub_label: str | None
+    step: int | None
     current: float | None
     hard_status: GateStatus
     historical_status: GateStatus
@@ -90,10 +97,11 @@ class GateResult:
 
     @property
     def trusted(self) -> bool:
-        """The run is trusted iff every per-metric verdict is trusted.
+        """The run is trusted iff every per-coordinate verdict is trusted.
 
         An empty metrics list (no gate specs) is vacuously trusted: a file that
-        declares no gate cannot regress.
+        declares no gate cannot regress. One failing step of a fanned-out spec
+        untrusts the whole run.
         """
         return all(m.trusted for m in self.metrics)
 
@@ -102,28 +110,6 @@ def compute_test_file_hash(filename: str) -> str:
     """sha256 of the test file's raw bytes -- the store's ``test_file_hash``."""
     with open(filename, "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
-
-
-def _tolerance(ref: float, rel: float, abs_floor: float) -> float:
-    """The rel-OR-abs band: ``max(rel*|ref|, abs_floor)``.
-
-    A near-zero ``ref`` makes ``rel*|ref|`` vanish, so ``abs_floor`` is what
-    keeps a metric riding at ~1e-9 from flagging on a meaningless relative
-    percentage.
-    """
-    return max(rel * abs(ref), abs_floor)
-
-
-def _check_against(cur: float, ref: float, rel: float, abs_floor: float, higher_is_worse: bool) -> bool:
-    """True when ``cur`` is within tolerance of ``ref``.
-
-    Two-sided unless ``higher_is_worse``, where only an increase beyond
-    tolerance fails (a drop is always fine).
-    """
-    band = _tolerance(ref, rel, abs_floor)
-    if higher_is_worse:
-        return (cur - ref) <= band
-    return abs(cur - ref) <= band
 
 
 def parse_merged_record(record_path: str) -> dict[str, list]:
@@ -158,6 +144,27 @@ def _registry_for(filename: str) -> CIRegistry:
     return registries[0]
 
 
+def _error_result(
+    spec: CiGateSpec,
+    reason: str,
+    *,
+    sub_label: str | None = None,
+    step: int | None = None,
+    current: float | None = None,
+) -> MetricGateResult:
+    return MetricGateResult(
+        metric_key=spec.metric_key,
+        sub_label=sub_label if sub_label is not None else spec.sub_label,
+        step=step,
+        current=current,
+        hard_status=GateStatus.ERROR,
+        historical_status=GateStatus.INACTIVE,
+        baseline_n=0,
+        baseline_mean=None,
+        reason=reason,
+    )
+
+
 def _evaluate_spec(
     spec: CiGateSpec,
     by_metric: dict[str, list],
@@ -168,80 +175,66 @@ def _evaluate_spec(
     suite: str,
     test_file_hash: str,
     history_limit: int,
-) -> MetricGateResult:
-    reducer_name = spec.reducer or default_reducer_name(spec.metric_key)
+) -> list[MetricGateResult]:
     series = by_metric.get(spec.metric_key)
-
     if series is None:
-        return MetricGateResult(
-            metric_key=spec.metric_key,
-            sub_label=spec.sub_label,
-            current=None,
-            hard_status=GateStatus.ERROR,
-            historical_status=GateStatus.INACTIVE,
-            baseline_n=0,
-            baseline_mean=None,
-            reason=f"required metric {spec.metric_key!r} missing from record",
-        )
+        return [_error_result(spec, f"required metric {spec.metric_key!r} missing from record")]
 
     try:
-        cur = reduce_series(series, reducer_name)
-    except ReducerError as e:
-        return MetricGateResult(
-            metric_key=spec.metric_key,
-            sub_label=spec.sub_label,
-            current=None,
-            hard_status=GateStatus.ERROR,
-            historical_status=GateStatus.INACTIVE,
-            baseline_n=0,
-            baseline_mean=None,
-            reason=f"metric {spec.metric_key!r} ({reducer_name}): {e}",
+        extractions = extract(series, spec.extractor)
+    except ExtractorError as e:
+        return [_error_result(spec, f"metric {spec.metric_key!r} ({spec.extractor['name']}): {e}")]
+
+    results: list[MetricGateResult] = []
+    for ex in extractions:
+        coord_sub_label = encode_coordinate(ex.coord, spec.sub_label)
+
+        hard = evaluate_constraint(spec.constraint, ex.value, spec.hard_ref)
+        hard_status = GateStatus.PASS if hard.ok else GateStatus.FAIL
+        reasons: list[str] = []
+        if not hard.ok:
+            reasons.append(f"hard: cur={ex.value:.6g} vs ref={spec.hard_ref:.6g} exceeds band={hard.band:.6g}")
+
+        trusted_values = store.recent_trusted_values(
+            test_path,
+            backend,
+            suite,
+            spec.metric_key,
+            coord_sub_label,
+            test_file_hash,
+            history_limit,
         )
+        if not trusted_values:
+            historical_status = GateStatus.INACTIVE
+            baseline_mean = None
+            reasons.append("historical: cold start (0 trusted baselines)")
+        else:
+            baseline_mean = sum(trusted_values) / len(trusted_values)
+            hist = evaluate_constraint(spec.constraint, ex.value, baseline_mean)
+            historical_status = GateStatus.PASS if hist.ok else GateStatus.FAIL
+            if not hist.ok:
+                reasons.append(
+                    f"historical: cur={ex.value:.6g} vs mean={baseline_mean:.6g} "
+                    f"(n={len(trusted_values)}) exceeds band={hist.band:.6g}"
+                )
 
-    hard_ok = _check_against(cur, spec.hard_ref, spec.rel, spec.abs_floor, spec.higher_is_worse)
-    hard_status = GateStatus.PASS if hard_ok else GateStatus.FAIL
-    reasons: list[str] = []
-    if not hard_ok:
-        band = _tolerance(spec.hard_ref, spec.rel, spec.abs_floor)
-        reasons.append(f"hard: cur={cur:.6g} vs ref={spec.hard_ref:.6g} exceeds band={band:.6g}")
+        if hard_status == GateStatus.PASS and historical_status in (GateStatus.PASS, GateStatus.INACTIVE):
+            reasons.insert(0, "ok")
 
-    trusted_values = store.recent_trusted_values(
-        test_path,
-        backend,
-        suite,
-        spec.metric_key,
-        spec.sub_label,
-        test_file_hash,
-        history_limit,
-    )
-    if not trusted_values:
-        historical_status = GateStatus.INACTIVE
-        baseline_mean = None
-        reasons.append("historical: cold start (0 trusted baselines)")
-    else:
-        baseline_mean = sum(trusted_values) / len(trusted_values)
-        hist_ok = _check_against(cur, baseline_mean, spec.rel, spec.abs_floor, spec.higher_is_worse)
-        historical_status = GateStatus.PASS if hist_ok else GateStatus.FAIL
-        if not hist_ok:
-            band = _tolerance(baseline_mean, spec.rel, spec.abs_floor)
-            reasons.append(
-                f"historical: cur={cur:.6g} vs mean={baseline_mean:.6g} "
-                f"(n={len(trusted_values)}) exceeds band={band:.6g}"
+        results.append(
+            MetricGateResult(
+                metric_key=spec.metric_key,
+                sub_label=coord_sub_label,
+                step=ex.step,
+                current=ex.value,
+                hard_status=hard_status,
+                historical_status=historical_status,
+                baseline_n=len(trusted_values),
+                baseline_mean=baseline_mean,
+                reason="; ".join(reasons),
             )
-
-    if hard_status == GateStatus.PASS and historical_status in (GateStatus.PASS, GateStatus.INACTIVE):
-        reasons.insert(0, "ok")
-
-    return MetricGateResult(
-        metric_key=spec.metric_key,
-        sub_label=spec.sub_label,
-        current=cur,
-        hard_status=hard_status,
-        historical_status=historical_status,
-        baseline_n=len(trusted_values),
-        baseline_mean=baseline_mean,
-        reason="; ".join(reasons),
-    )
+        )
+    return results
 
 
 def evaluate_gate(
@@ -257,7 +250,8 @@ def evaluate_gate(
     (backend, suite) identity and its contents the ``test_file_hash``.
     ``merged_record_path`` is the merged per-run NDJSON of the passed attempt --
     the gate never globs a base directory to find it. ``store`` answers the
-    baseline query and nothing else (no writes, no connection opened here).
+    baseline query and nothing else (no writes, no connection opened here). A
+    fanned-out spec contributes one MetricGateResult per step.
     """
     specs = parse_ci_gate_specs(test_filename)
     registry = _registry_for(test_filename)
@@ -265,19 +259,20 @@ def evaluate_gate(
     test_file_hash = compute_test_file_hash(test_filename)
     by_metric = parse_merged_record(merged_record_path)
 
-    results = [
-        _evaluate_spec(
-            spec,
-            by_metric,
-            store,
-            test_path=registry.filename,
-            backend=backend,
-            suite=registry.suite,
-            test_file_hash=test_file_hash,
-            history_limit=history_limit,
+    results: list[MetricGateResult] = []
+    for spec in specs:
+        results.extend(
+            _evaluate_spec(
+                spec,
+                by_metric,
+                store,
+                test_path=registry.filename,
+                backend=backend,
+                suite=registry.suite,
+                test_file_hash=test_file_hash,
+                history_limit=history_limit,
+            )
         )
-        for spec in specs
-    ]
 
     return GateResult(
         test_path=registry.filename,

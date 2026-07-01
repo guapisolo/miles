@@ -7,9 +7,9 @@
   :class:`NeonMetricHistoryStore` placeholder, plus :data:`NEON_DATABASE_URL_ENV`.
 * The gate declaration marker :func:`register_ci_gate` and its parsed
   :class:`CiGateSpec`.
-* Not re-exported: gate evaluation (:mod:`tests.ci.metric_history.gate`), series
-  reduction (:mod:`tests.ci.metric_history.reducers`) -- import those modules
-  directly.
+* Not re-exported: gate evaluation (:mod:`tests.ci.metric_history.gate`),
+  extractors (:mod:`tests.ci.metric_history.extractors`), constraints
+  (:mod:`tests.ci.metric_history.constraints`) -- import those modules directly.
 """
 
 from tests.ci.metric_history.register import CiGateSpec, register_ci_gate
