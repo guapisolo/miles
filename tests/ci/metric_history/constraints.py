@@ -1,28 +1,25 @@
 # doc-dev: docs/ci/03-metric-history-gate.md
 """Constraint functions for the CI regression gate.
 
-A constraint decides whether one extracted scalar ``cur`` passes against a
-reference ``ref`` -- the static ``hard_ref`` for the hard gate, or the mean of
-the trusted baseline for the historical gate (the *same* constraint is applied
-to both). Constraints are a pluggable, name-keyed registry: ``register_ci_gate``
-declares one as a literal dict ``{"name": ..., <params>}`` and the parser
-validates it against :data:`CONSTRAINT_SCHEMAS` before the gate ever runs. The
-constraint is never part of the baseline coordinate, so tightening or loosening
-a rule does not reset history.
-
-Both constraints today are tolerance bands with a 3-way ``direction``:
-
+* A constraint decides whether one extracted scalar ``cur`` passes against a
+  reference ``ref``. The *same* constraint is applied twice -- ``ref`` is the
+  spec's static ``hard_ref`` for the hard gate, or the mean of the trusted
+  baseline for the historical gate.
+* Pluggable, name-keyed registry: ``register_ci_gate`` declares a constraint
+  as a literal dict ``{"name": ..., <params>}``, and the parser validates it
+  against :data:`CONSTRAINT_SCHEMAS` before the gate ever runs.
+* Both constraints today are tolerance bands with a 3-way ``direction``.
 * ``rel`` -- band ``= rel * |ref|`` (a relative percentage).
-* ``abs`` -- band ``= max(rel * |ref|, abs_floor)``; ``abs_floor`` keeps a metric
-  riding near zero (where ``rel * |ref|`` vanishes) from flagging on a
-  meaningless relative percentage. ``rel`` defaults to 0, so a bare ``abs`` is a
-  pure absolute band.
-
-``direction`` narrows what counts as a failure:
-
-* ``two_sided``       -- any deviation beyond the band fails.
-* ``higher_is_worse`` -- only an increase beyond the band fails (a drop passes).
-* ``lower_is_worse``  -- only a decrease beyond the band fails (a rise passes).
+* ``abs`` -- band ``= max(rel * |ref|, abs_floor)``. ``abs_floor`` keeps a
+  metric riding near zero (where ``rel * |ref|`` vanishes) from flagging on a
+  meaningless relative percentage; ``rel`` defaults to 0, so a bare ``abs`` is
+  a pure absolute band.
+* ``direction`` narrows what counts as a failure: ``two_sided`` -- any
+  deviation beyond the band fails; ``higher_is_worse`` -- only an increase
+  beyond the band fails (a drop passes); ``lower_is_worse`` -- only a decrease
+  beyond the band fails (a rise passes).
+* The constraint is never part of the baseline coordinate, so tightening or
+  loosening a rule does not reset history.
 """
 
 from __future__ import annotations

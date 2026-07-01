@@ -1,27 +1,29 @@
 # doc-dev: docs/ci/03-metric-history-gate.md
 """Offline regression gate for the CI metric-history system.
 
-The gate consumes one already-merged per-run NDJSON record (the passed attempt's
-record; a later round picks which attempt) and a set of ``register_ci_gate``
-specs declared in the test file, and decides whether the run is *trusted*.
+* Consumes one merged per-run NDJSON record plus the ``register_ci_gate`` specs
+  declared in the test file, and decides whether the run is *trusted*.
+* The record is the passed attempt's merged NDJSON; a later round picks which
+  attempt.
+* Each spec pairs an EXTRACTOR (which value(s) to pull) with a CONSTRAINT (the
+  pass/fail rule). ``per_step`` / ``steps`` fan out to one comparison coordinate
+  per step, each judged only against that same step's history.
+* Two checks run per coordinate, both using the spec's constraint. The HARD
+  gate is always active and compares against the static ``hard_ref``.
+* The HISTORICAL gate is active only when the store returns >=1 trusted
+  baseline value for the (identity, coordinate), and compares against the mean
+  of those values. Zero trusted values means INACTIVE -- a cold start, not a
+  failure.
+* The run is trusted iff every *active* check passed for every coordinate.
+* The gate is pure and read-only: the store is injected via
+  :class:`MetricHistoryStore` and the only store call is
+  ``store.recent_trusted_values`` -- no connection opened, no wandb read, no
+  rows written.
 
-Each spec pairs an EXTRACTOR (which value(s) to pull from the metric's series)
-with a CONSTRAINT (the pass/fail rule). The extractor may fan out: ``per_step``
-and ``steps`` yield one comparison coordinate per step, so one spec produces N
-per-step verdicts, each compared only against the same step's history. Two
-checks run per coordinate, both using the spec's constraint:
+Caveats:
 
-* HARD gate -- always active. Compares the current scalar against the static
-  ``hard_ref`` declared in the spec.
-* HISTORICAL gate -- active only when the store returns >=1 trusted baseline
-  value for this (identity, coordinate). Compares against the mean of those
-  values. With zero trusted values the historical gate is INACTIVE -- a cold
-  start, not a failure.
-
-The run is trusted iff every *active* gate passed for every coordinate. The gate
-is pure: it takes a :class:`MetricHistoryStore` by dependency injection, opens no
-connection, reads no wandb, and writes no rows. It only calls
-``store.recent_trusted_values``; persistence is a later round.
+* Do not add store writes here. Persistence is a later round; the gate stays
+  read-only.
 """
 
 from __future__ import annotations

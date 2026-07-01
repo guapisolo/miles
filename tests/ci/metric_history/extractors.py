@@ -1,27 +1,29 @@
 # doc-dev: docs/ci/03-metric-history-gate.md
 """Extractors + coordinate encoding for the CI regression gate.
 
-An extractor pulls the comparison value(s) out of one metric's per-run series
-(``[[step, value], ...]``; step may be None). ``register_ci_gate`` declares one
-as a literal dict ``{"name": ..., <params>}``; the parser validates it against
-:data:`EXTRACTOR_SCHEMAS`. Extractors are pure and return a list of
-:class:`Extraction` -- one entry per comparison coordinate:
-
-* ``last``     -- the last numeric point (1 coordinate).
+* An extractor pulls the comparison value(s) out of one metric's per-run
+  series ``[[step, value], ...]``; step may be None.
+* ``register_ci_gate`` declares one as a literal dict ``{"name": ..., <params>}``;
+  the parser validates it against :data:`EXTRACTOR_SCHEMAS`.
+* Extractors are pure and return a list of :class:`Extraction` -- one entry per
+  comparison coordinate.
+* ``last`` -- the last numeric point (1 coordinate).
 * ``per_step`` -- every step present in the series, fanned out (N coordinates).
-* ``steps``    -- the named steps, fanned out (``len(steps)`` coordinates).
-  A named step missing from the series is an error, not a silent skip.
+* ``steps`` -- the named steps, fanned out (``len(steps)`` coordinates); a named
+  step missing from the series is an error, not a silent skip.
+* A fanned coordinate is identified by its step, so this run's step-0 value is
+  compared only against past runs' step-0 values.
+* :func:`encode_coordinate` turns an extraction's coordinate token + the
+  author's ``sub_label`` into the single ``sub_label`` string the store keys on;
+  the constraint is never part of it.
+* Raising :class:`ExtractorError` (rather than returning a sentinel) lets the
+  gate turn the failure into a clear per-coordinate verdict.
 
-A non-finite value (NaN/±Inf) at a coordinate the extractor selects is an
-ExtractorError -- judged, never silently dropped. Points whose value is not a
-number at all (bool/None/...) are ignored, as are points no extractor selects.
+Caveats:
 
-A fanned coordinate is identified by its step, so this run's step-0 value is
-compared only against past runs' step-0 values. :func:`encode_coordinate` turns
-an extraction's coordinate token + the author's ``sub_label`` into the single
-``sub_label`` string the store keys on; the constraint is never part of it.
-Raising :class:`ExtractorError` (rather than returning a sentinel) lets the gate
-turn the failure into a clear per-coordinate verdict.
+* A non-finite value (NaN/±Inf) at a coordinate the extractor selects is an
+  ExtractorError -- judged, never silently dropped. Points whose value is not a
+  number at all (bool/None/...) are ignored, as are points no extractor selects.
 """
 
 from __future__ import annotations

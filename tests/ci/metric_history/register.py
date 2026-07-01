@@ -1,14 +1,20 @@
 # doc-dev: docs/ci/03-metric-history-gate.md
 """Declare and parse metric-history regression gates.
 
-``register_ci_gate(...)`` is the marker a test file uses to declare a gate. Like
-``register_cuda_ci`` it is a runtime no-op, parsed out of the file's AST rather
-than executed -- so its Python signature does NOT validate calls; the parser
-here does, at parse time. A gate composes an ``extractor`` (which value(s) to
-pull from a metric's series) and a ``constraint`` (the pass/fail rule), each a
-literal dict ``{"name": ..., <params>}`` validated against the per-name schemas
-in :mod:`extractors` / :mod:`constraints`. ``parse_ci_gate_specs`` extracts every
-declaration as a :class:`CiGateSpec`.
+* ``register_ci_gate(...)`` is the marker a test file uses to declare a gate.
+* Like ``register_cuda_ci`` it is a runtime no-op, parsed out of the file's AST
+  rather than executed.
+* A gate composes an ``extractor`` (which value(s) to pull from a metric's
+  series) and a ``constraint`` (the pass/fail rule).
+* Extractor and constraint are each a literal dict ``{"name": ..., <params>}``,
+  validated against the per-name schemas in :mod:`extractors` /
+  :mod:`constraints`.
+* ``parse_ci_gate_specs`` extracts every declaration as a :class:`CiGateSpec`.
+
+Caveats:
+
+* ``register_ci_gate``'s Python signature does NOT validate calls -- the parser
+  here does, at parse time.
 """
 
 from __future__ import annotations
