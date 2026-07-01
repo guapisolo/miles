@@ -15,22 +15,9 @@ from miles.utils.eval_config import EvalDatasetConfig, build_eval_dataset_config
 from miles.utils.hf_config import is_dsa, load_hf_config
 from miles.utils.logging_utils import configure_logger
 from miles.utils.misc import load_function
+from miles.utils.tracking_utils import RECORD_DIR_ENV
 
 logger = logging.getLogger(__name__)
-
-CI_GATE_RECORD_DIR_ENV = "MILES_CI_GATE_RECORD_DIR"
-
-
-def resolve_ci_enable_metrics_capture(env=None):
-    """Whether CI metric-history capture is on for this process.
-
-    On iff MILES_CI_GATE_RECORD_DIR is present (and non-empty): the CI harness
-    injects that directory to both locate the per-test record and enable capture.
-    There is no CLI flag, so ordinary (non-CI) runs always resolve False.
-    """
-    if env is None:
-        env = os.environ
-    return bool(env.get(CI_GATE_RECORD_DIR_ENV))
 
 
 def reset_arg(parser, name, **kwargs):
@@ -1944,7 +1931,9 @@ def parse_args(add_custom_arguments=None):
                 "Contributions are welcome if you are interested in improving it."
             )
 
-    args.ci_enable_metrics_capture = resolve_ci_enable_metrics_capture()
+    # On iff the CI harness injected MILES_CI_GATE_RECORD_DIR (the same env var
+    # locates the per-test record). No CLI flag: non-CI runs always stay False.
+    args.ci_enable_metrics_capture = bool(os.environ.get(RECORD_DIR_ENV))
 
     miles_validate_args(args)
 
