@@ -7,11 +7,14 @@ as a literal dict ``{"name": ..., <params>}``; the parser validates it against
 :data:`EXTRACTOR_SCHEMAS`. Extractors are pure and return a list of
 :class:`Extraction` -- one entry per comparison coordinate:
 
-* ``last``     -- the last finite numeric point (1 coordinate).
+* ``last``     -- the last numeric point (1 coordinate).
 * ``per_step`` -- every step present in the series, fanned out (N coordinates).
-* ``steps``    -- the named steps, fanned out (``len(steps)`` coordinates);
-  ``step_zero`` == ``steps: [0]``. A named step missing from the series is an
-  error, not a silent skip.
+* ``steps``    -- the named steps, fanned out (``len(steps)`` coordinates).
+  A named step missing from the series is an error, not a silent skip.
+
+A non-finite value (NaN/±Inf) at a coordinate the extractor selects is an
+ExtractorError -- judged, never silently dropped. Points whose value is not a
+number at all (bool/None/...) are ignored, as are points no extractor selects.
 
 A fanned coordinate is identified by its step, so this run's step-0 value is
 compared only against past runs' step-0 values. :func:`encode_coordinate` turns
@@ -48,16 +51,13 @@ class Extraction:
     value: float
 
 
-def _is_finite_number(value: object) -> bool:
-    """A usable metric value: a real int/float (not bool) that is finite.
+def _is_number(value: object) -> bool:
+    """A real int/float (not bool — it sneaks through ``isinstance(x, int)``).
 
-    A bool is not a number for our purposes (it sneaks through
-    ``isinstance(x, int)``), and NaN/Inf are dropped so they never reach a
-    comparison.
+    Finiteness is deliberately not checked here: non-finite values stay in the
+    series and error at selection time, never silently dropped.
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return False
-    return math.isfinite(value)
+    return not isinstance(value, bool) and isinstance(value, (int, float))
 
 
 def _valid_step(step: object) -> bool:
@@ -65,17 +65,18 @@ def _valid_step(step: object) -> bool:
 
 
 def _numeric_points(series: Sequence[Point]) -> list[tuple[int | None, float]]:
-    """(step, value) for each point whose value is a finite number.
+    """(step, value) for each point whose value is a number.
 
-    A non-int (or bool) step is normalized to None; the value is kept. Points
-    with a non-numeric / non-finite value are dropped.
+    A non-int (or bool) step is normalized to None; the value is kept —
+    including non-finite floats, which the extractors reject if selected.
+    Points with a non-numeric value are dropped.
     """
     out: list[tuple[int | None, float]] = []
     for point in series:
         if len(point) < 2:
             continue
         step, value = point[0], point[1]
-        if not _is_finite_number(value):
+        if not _is_number(value):
             continue
         out.append((step if _valid_step(step) else None, float(value)))
     return out
@@ -84,15 +85,17 @@ def _numeric_points(series: Sequence[Point]) -> list[tuple[int | None, float]]:
 def _extract_last(series: Sequence[Point]) -> list[Extraction]:
     points = _numeric_points(series)
     if not points:
-        raise ExtractorError("series has no finite numeric point")
+        raise ExtractorError("series has no numeric point")
     step, value = points[-1]
+    if not math.isfinite(value):
+        raise ExtractorError(f"last: non-finite value {value!r} at the last point (step {step})")
     return [Extraction(coord="last", step=step, value=value)]
 
 
 def _extract_per_step(series: Sequence[Point]) -> list[Extraction]:
     points = _numeric_points(series)
     if not points:
-        raise ExtractorError("series has no finite numeric point")
+        raise ExtractorError("series has no numeric point")
     out: list[Extraction] = []
     seen: set[int] = set()
     for step, value in points:
@@ -100,6 +103,8 @@ def _extract_per_step(series: Sequence[Point]) -> list[Extraction]:
             raise ExtractorError("per_step: a numeric point carries no step index")
         if step in seen:
             raise ExtractorError(f"per_step: duplicate step {step} in series")
+        if not math.isfinite(value):
+            raise ExtractorError(f"per_step: non-finite value {value!r} at step {step}")
         seen.add(step)
         out.append(Extraction(coord=f"step={step}", step=step, value=value))
     return out
@@ -117,6 +122,8 @@ def _extract_steps(series: Sequence[Point], steps: Sequence[int]) -> list[Extrac
     for k in steps:
         if k not in by_step:
             raise ExtractorError(f"steps: required step {k} missing from series")
+        if not math.isfinite(by_step[k]):
+            raise ExtractorError(f"steps: non-finite value {by_step[k]!r} at required step {k}")
         out.append(Extraction(coord=f"step={k}", step=k, value=by_step[k]))
     return out
 

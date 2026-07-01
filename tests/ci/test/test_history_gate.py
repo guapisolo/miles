@@ -8,6 +8,7 @@ NDJSON record). No network, no real DB connection opened by the gate, no wandb.
 from __future__ import annotations
 
 import json
+import math
 import textwrap
 from pathlib import Path
 
@@ -81,6 +82,35 @@ def test_parse_merged_record(tmp_path):
     path = _write_record(tmp_path, {"train/grad_norm": [[0, 0.5], [1, 1.0]], "rollout/raw_reward": [[0, 0.3]]})
     got = parse_merged_record(path)
     assert got == {"train/grad_norm": [[0, 0.5], [1, 1.0]], "rollout/raw_reward": [[0, 0.3]]}
+
+
+def test_parse_merged_record_decodes_non_finite_markers(tmp_path):
+    path = _write_record(tmp_path, {"train/grad_norm": [[0, 0.5], [1, "NaN"], [2, "Infinity"], [3, "-Infinity"]]})
+    series = parse_merged_record(path)["train/grad_norm"]
+    assert series[0] == [0, 0.5]
+    assert math.isnan(series[1][1])
+    assert series[2][1] == math.inf
+    assert series[3][1] == -math.inf
+
+
+def test_non_finite_at_gated_coordinate_errors_and_untrusts(tmp_path, store):
+    test_file = _write_test_file(
+        tmp_path,
+        """
+        register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
+                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+        """,
+    )
+    # Capture-side marker for a NaN at the last (gated) step: ERROR, not a
+    # silent fallback to the previous finite point.
+    record = _write_record(tmp_path, {"train/grad_norm": [[0, 0.9], [1, "NaN"]]})
+
+    result = evaluate_gate(test_file, record, store)
+
+    m = result.metrics[0]
+    assert m.hard_status == GateStatus.ERROR
+    assert "non-finite" in m.reason
+    assert result.trusted is False
 
 
 # --- cold start (no trusted history) ----------------------------------------

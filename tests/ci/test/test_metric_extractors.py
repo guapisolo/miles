@@ -23,11 +23,36 @@ def test_last_picks_last_numeric_point():
     assert got[0].value == pytest.approx(0.35)
 
 
-def test_extractors_skip_bool_none_nan_inf():
-    # bool sneaks through isinstance(int); NaN/Inf must never reach a comparison.
-    series = [[0, True], [1, None], [2, float("nan")], [3, float("inf")], [4, 2.5]]
+def test_extractors_skip_bool_and_none_values():
+    # bool sneaks through isinstance(int); None is not a number. Non-numeric
+    # points are ignored -- only numeric points count toward selection.
+    series = [[0, True], [1, None], [2, 2.5]]
     got = extract(series, {"name": "last"})
     assert got[0].value == pytest.approx(2.5)
+
+
+def test_last_non_finite_at_selected_point_errors():
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(ExtractorError, match="non-finite"):
+            extract([[0, 1.0], [1, bad]], {"name": "last"})
+
+
+def test_last_ignores_non_selected_non_finite():
+    # A mid-series NaN is not the selected coordinate: last gates the actual
+    # last point, which is finite here.
+    got = extract([[0, float("nan")], [1, 2.5]], {"name": "last"})
+    assert got[0].step == 1
+    assert got[0].value == pytest.approx(2.5)
+
+
+def test_per_step_non_finite_errors():
+    with pytest.raises(ExtractorError, match="non-finite value nan at step 1"):
+        extract([[0, 1.0], [1, float("nan")]], {"name": "per_step"})
+
+
+def test_steps_non_finite_at_named_step_errors():
+    with pytest.raises(ExtractorError, match="non-finite value -inf at required step 1"):
+        extract([[0, 1.0], [1, float("-inf")]], {"name": "steps", "steps": [1]})
 
 
 def test_empty_series_errors_clearly():

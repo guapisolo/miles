@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -112,11 +113,24 @@ def compute_test_file_hash(filename: str) -> str:
         return hashlib.sha256(f.read()).hexdigest()
 
 
+# Capture serializes non-finite floats as these markers so record lines stay
+# strict JSON; decode them back before extraction judges the values.
+_NONFINITE_MARKERS: dict[str, float] = {"NaN": math.nan, "Infinity": math.inf, "-Infinity": -math.inf}
+
+
+def _decode_value(value: object) -> object:
+    if isinstance(value, str) and value in _NONFINITE_MARKERS:
+        return _NONFINITE_MARKERS[value]
+    return value
+
+
 def parse_merged_record(record_path: str) -> dict[str, list]:
     """Read a merged NDJSON record into ``{metric_key: series}``.
 
-    Each line is ``{"metric": key, "series": [[step, value], ...]}``. A repeated
-    metric key (should not happen post-merge) keeps the last line's series.
+    Each line is ``{"metric": key, "series": [[step, value], ...]}``. Non-finite
+    values arrive as the capture-side string markers and are decoded back to
+    floats here. A repeated metric key (should not happen post-merge) keeps the
+    last line's series.
     """
     by_metric: dict[str, list] = {}
     with open(record_path, encoding="utf-8") as f:
@@ -125,7 +139,10 @@ def parse_merged_record(record_path: str) -> dict[str, list]:
             if not line:
                 continue
             rec = json.loads(line)
-            by_metric[rec["metric"]] = rec["series"]
+            by_metric[rec["metric"]] = [
+                [point[0], _decode_value(point[1])] if isinstance(point, list) and len(point) >= 2 else point
+                for point in rec["series"]
+            ]
     return by_metric
 
 

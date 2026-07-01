@@ -26,7 +26,7 @@ A gate declaration composes an extractor and a constraint, each a literal dict `
 - **Extractor** — which value(s) of the metric's series to compare; a step-scoped extractor fans out to one comparison per step, judged against that step's own history.
 - **Constraint** — whether one value passes against a reference: a tolerance band plus a direction.
 
-The authoritative names and params are the schema tables beside the functions (paths in the Map below); the doc does not duplicate them. A missing/empty series or a missing required step is an ERROR verdict, never a skip.
+The authoritative names and params are the schema tables beside the functions (paths in the Map below); the doc does not duplicate them. A missing/empty series, a missing required step, or a non-finite value (`NaN` / `±Inf`) at a selected coordinate is an ERROR verdict, never a skip — non-finite is judged here, not silently dropped (capture records it faithfully as a strict-JSON string marker the gate-side reader decodes; `write_run` refuses it at the DB boundary).
 
 ## The gate: two layers
 
