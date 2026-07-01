@@ -21,7 +21,7 @@ The store's baseline query keys on exactly these (plus a `limit` for how many re
 
 ## Reduction: a run's series → one number
 
-Collection records a full per-metric series per run; the gate checks one scalar per `(metric_key, sub_label)`. `tests/ci/metric_reducers.py` owns the rules that collapse a series to that scalar:
+Collection records a full per-metric series per run; the gate checks one scalar per `(metric_key, sub_label)`. `tests/ci/metric_history/reducers.py` owns the rules that collapse a series to that scalar:
 
 - `train/grad_norm` → mean of the last 5 numeric points (or all of them if fewer than 5).
 - `train/ppo_kl` → the step-0 value, with `abs_floor` `1e-6` (it sits near zero).
@@ -76,9 +76,9 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 | Enable capture           | set `MILES_CI_GATE_RECORD_DIR` (injected by the CI harness; no CLI flag)               |
 | DB connection            | `NEON_DATABASE_URL` (CI secret)                                                        |
 | Storage contract         | `tests/ci/metric_history/storage/store.py` (+ `storage/sqlite_store.py` offline, `storage/neon_store.py` prod) |
-| Gate logic               | `tests/ci/history_gate.py`                                                             |
+| Gate logic               | `tests/ci/metric_history/gate.py`                                                      |
 | Collection backend       | `miles/utils/tracking_utils/ci_history.py`                                             |
-| Declare a gate on a test | `register_ci_gate(...)` in the test file                                               |
+| Declare a gate on a test | `register_ci_gate(...)` (from `tests.ci.metric_history`) in the test file              |
 
 
 

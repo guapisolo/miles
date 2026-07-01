@@ -12,8 +12,8 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from tests.ci.history_gate import GateStatus, compute_test_file_hash, evaluate_gate, parse_merged_record
 from tests.ci.metric_history import MetricSample, RunIdentity, RunProvenance, SQLiteMetricHistoryStore
+from tests.ci.metric_history.gate import GateStatus, compute_test_file_hash, evaluate_gate, parse_merged_record
 
 PROVENANCE = RunProvenance(
     commit_sha="deadbeef",
@@ -35,7 +35,8 @@ def store():
 def _write_test_file(tmp_path: Path, gate_lines: str, *, name: str = "test_e2e_fixture.py") -> str:
     body = textwrap.dedent(
         f"""
-        from tests.ci.ci_register import register_cuda_ci, register_ci_gate
+        from tests.ci.ci_register import register_cuda_ci
+        from tests.ci.metric_history import register_ci_gate
         register_cuda_ci(est_time=600, suite="stage-c-8-gpu-h100")
         {textwrap.dedent(gate_lines).strip()}
         """

@@ -29,9 +29,10 @@ import json
 from dataclasses import dataclass, field
 from enum import Enum
 
-from tests.ci.ci_register import CiGateSpec, CIRegistry, HWBackend, parse_ci_gate_specs, ut_parse_one_file
-from tests.ci.metric_history import MetricHistoryStore
-from tests.ci.metric_reducers import ReducerError, default_reducer_name, reduce_series
+from tests.ci.ci_register import CIRegistry, HWBackend, ut_parse_one_file
+from tests.ci.metric_history.reducers import ReducerError, default_reducer_name, reduce_series
+from tests.ci.metric_history.register import CiGateSpec, parse_ci_gate_specs
+from tests.ci.metric_history.storage import MetricHistoryStore
 
 # Maps the parsed HWBackend enum to the lowercase backend string the store keys
 # on. The store's identity tuple is all strings; CIRegistry.backend is the enum.

@@ -6,8 +6,8 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from tests.ci.ci_register import CIRegistry, HWBackend, parse_ci_gate_specs, ut_parse_one_file
-from tests.ci.metric_reducers import (
+from tests.ci.ci_register import CIRegistry, HWBackend, ut_parse_one_file
+from tests.ci.metric_history.reducers import (
     METRIC_SPECS,
     ReducerError,
     default_reducer_name,
@@ -16,6 +16,7 @@ from tests.ci.metric_reducers import (
     reduce_series,
     reduce_step_zero,
 )
+from tests.ci.metric_history.register import parse_ci_gate_specs
 
 
 # --- Reducers ---------------------------------------------------------------
@@ -96,7 +97,8 @@ def _make_fixture(body: str, tmp_path: Path, name: str = "test_gatefix.py") -> s
 def test_parse_single_spec_with_defaults(tmp_path):
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_cuda_ci, register_ci_gate
+        from tests.ci.ci_register import register_cuda_ci
+        from tests.ci.metric_history import register_ci_gate
         register_cuda_ci(est_time=600, suite="stage-c-8-gpu-h100")
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.5)
         """,
@@ -120,7 +122,7 @@ def test_parse_single_spec_with_defaults(tmp_path):
 def test_parse_all_fields(tmp_path):
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_ci_gate
+        from tests.ci.metric_history import register_ci_gate
         register_ci_gate(
             metric_key="train/ppo_kl",
             hard_ref=0.0,
@@ -150,7 +152,7 @@ def test_parse_all_fields(tmp_path):
 def test_parse_multiple_specs(tmp_path):
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_ci_gate
+        from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0)
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.8, higher_is_worse=False)
         """,
@@ -163,7 +165,7 @@ def test_parse_multiple_specs(tmp_path):
 def test_unknown_kwarg_rejected(tmp_path):
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_ci_gate
+        from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0, bogus=3)
         """,
         tmp_path,
@@ -175,7 +177,7 @@ def test_unknown_kwarg_rejected(tmp_path):
 def test_non_literal_arg_rejected(tmp_path):
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_ci_gate
+        from tests.ci.metric_history import register_ci_gate
         X = 1.0
         register_ci_gate(metric_key="train/grad_norm", hard_ref=X)
         """,
@@ -188,7 +190,7 @@ def test_non_literal_arg_rejected(tmp_path):
 def test_missing_required_metric_key_rejected(tmp_path):
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_ci_gate
+        from tests.ci.metric_history import register_ci_gate
         register_ci_gate(hard_ref=1.0)
         """,
         tmp_path,
@@ -200,7 +202,7 @@ def test_missing_required_metric_key_rejected(tmp_path):
 def test_missing_required_hard_ref_rejected(tmp_path):
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_ci_gate
+        from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/grad_norm")
         """,
         tmp_path,
@@ -212,7 +214,7 @@ def test_missing_required_hard_ref_rejected(tmp_path):
 def test_positional_arg_rejected(tmp_path):
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_ci_gate
+        from tests.ci.metric_history import register_ci_gate
         register_ci_gate("train/grad_norm", 1.0)
         """,
         tmp_path,
@@ -224,7 +226,7 @@ def test_positional_arg_rejected(tmp_path):
 def test_non_bool_higher_is_worse_rejected(tmp_path):
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_ci_gate
+        from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0, higher_is_worse=1)
         """,
         tmp_path,
@@ -238,7 +240,8 @@ def test_register_ci_gate_does_not_disturb_suite_parsing(tmp_path):
     # call and ignore the register_ci_gate calls beside it.
     path = _make_fixture(
         """
-        from tests.ci.ci_register import register_cuda_ci, register_ci_gate
+        from tests.ci.ci_register import register_cuda_ci
+        from tests.ci.metric_history import register_ci_gate
         register_cuda_ci(est_time=600, suite="stage-c-8-gpu-h100", labels=["megatron"])
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.5)
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.8)
@@ -253,6 +256,6 @@ def test_register_ci_gate_does_not_disturb_suite_parsing(tmp_path):
 
 
 def test_register_ci_gate_runtime_is_noop():
-    from tests.ci.ci_register import register_ci_gate
+    from tests.ci.metric_history import register_ci_gate
 
     assert register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0) is None
