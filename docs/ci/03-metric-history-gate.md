@@ -19,6 +19,20 @@ The gate compares a number only against earlier numbers of the same kind, from t
 
 The store's baseline query keys on exactly these (plus a `limit` for how many recent points to read): `recent_trusted_values(test_path, backend, suite, metric_key, steps_key, constraint_key, step, test_file_hash, limit)`.
 
+## Reduction: a run's series → one number
+
+Collection records a full per-metric series per run; the gate checks one scalar per `(metric_key, sub_label)`. `tests/ci/metric_reducers.py` owns the rules that collapse a series to that scalar:
+
+- `train/grad_norm` → mean of the last 5 numeric points (or all of them if fewer than 5).
+- `train/ppo_kl` → the step-0 value, with `abs_floor` `1e-6` (it sits near zero).
+- `train/train_rollout_logprob_abs_diff` → last numeric point.
+- `train/train_rollout_kl` → last numeric point.
+- `rollout/raw_reward` → last numeric point.
+
+These five are exactly the metrics the collection backend captures (`TARGET_METRIC_KEYS`). An unlisted metric falls back to `last`.
+
+Each metric's `abs_floor` here seeds the gate's near-zero tolerance. A target series that is missing or has no numeric point raises `ReducerError`, never a silent skip.
+
 ## The gate: two layers
 
 After a test passes, each comparison coordinate's value is checked with `|cur - ref| > max(rel * |ref|, abs_floor)` (`rel` default `0.20`; `abs_floor` only matters for metrics near zero, e.g. step-0 `ppo_kl`).

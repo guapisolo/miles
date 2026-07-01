@@ -1,3 +1,4 @@
+# doc-dev: docs/ci/03-metric-history-gate.md
 """Per-metric reducers for the CI regression gate.
 
 A merged per-run record is one NDJSON file whose lines are

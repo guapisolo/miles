@@ -1,3 +1,4 @@
+# doc-dev: docs/ci/03-metric-history-gate.md
 """Offline regression gate for the CI metric-history system.
 
 The gate consumes one already-merged per-run NDJSON record (the passed attempt's
