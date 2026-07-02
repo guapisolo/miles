@@ -1,0 +1,5 @@
+# Benchmark experiment artifacts are NOT committed — they are per-run data, not
+# source. Keep SUMMARY.md (the human-written findings) and this file; ignore the
+# raw result JSONs and the bulky uvicorn access logs.
+*.json
+*.log
