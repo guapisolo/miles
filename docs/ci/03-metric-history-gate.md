@@ -28,6 +28,30 @@ A gate declaration composes an extractor and a constraint, each a literal dict `
 
 The authoritative names and params are the schema tables beside the functions (paths in the Map below); the doc does not duplicate them. A missing/empty series, a missing required step, or a non-finite value (`NaN` / `±Inf`) at a selected coordinate is an ERROR verdict, never a skip — non-finite is judged here, not silently dropped (capture records it faithfully as a strict-JSON string marker the gate-side reader decodes; `write_run` refuses it at the DB boundary).
 
+A declaration sits at top level of the test file, next to its CI registration — `register_*_ci` decides where the test runs, `register_ci_gate` what is judged after it passes. A gate declaration alone does nothing: an unregistered file is never collected.
+
+```python
+from tests.ci.ci_register import register_cuda_ci
+from tests.ci.metric_history import register_ci_gate
+
+register_cuda_ci(est_time=300, suite="stage-c-8-gpu-h100")
+
+register_ci_gate(
+    metric_key="train/ppo_kl",                     # must be a captured key (whitelist)
+    hard_ref=0.05,                                 # hard gate: always-on absolute limit
+    extractor={"name": "steps", "steps": [0, 1]},  # judge steps 0 and 1, each against its own history
+    constraint={"name": "abs", "abs_floor": 0.02, "direction": "higher_is_worse"},
+)
+```
+
+**PLANNED, not implemented** — for the standard metrics the declaration shrinks to one line; today this is a parse error (all three fields above are required):
+
+```python
+register_ci_gate(metric_key="train/train_rollout_logprob_abs_diff")
+# ≡ the full form above: extractor + constraint filled from the per-metric_key
+#   defaults table beside the parser (register.py); hard_ref optional (see Notes)
+```
+
 ## The gate: two layers
 
 After a test passes, each comparison coordinate's value is judged by its spec's constraint, twice:
@@ -37,6 +61,32 @@ After a test passes, each comparison coordinate's value is judged by its spec's 
 - **Cold start** (0 trusted): historical gate is inactive, hard gate only — not an error.
 
 A fanned-out spec (`per_step` / `steps`) contributes one verdict per step; the run is trusted iff **every** coordinate's active checks pass.
+
+How one spec flows from declaration to verdict:
+
+```mermaid
+flowchart TD
+    decl["register_ci_gate(metric_key, hard_ref, extractor, constraint)<br>literal args in the test file — runtime no-op"]
+    minimal["PLANNED: register_ci_gate(metric_key=...)<br>extractor/constraint filled from the per-metric_key<br>defaults table at parse time; hard_ref optional"]
+    decl -- "AST walk + per-name schema validation<br>(parse_ci_gate_specs)" --> spec["CiGateSpec<br>normalized extractor + constraint dicts"]
+    minimal -.-> spec
+    record["merged per-run NDJSON record<br>parse_merged_record → {metric_key: series}"] --> series["series = by_metric.get(spec.metric_key)<br>(first step of _evaluate_spec)"]
+    spec --> series
+    series -- "extract(series, extractor)<br>per_step / steps fan out: one coordinate per step" --> coord["Extraction (value, step)<br>coordinate = encode_coordinate → v1&#124;step=k&#124;lbl=…"]
+    series -- "missing metric · empty series ·<br>missing required step · non-finite value" --> err["ERROR<br>hard=ERROR, historical=INACTIVE<br>coordinate untrusted"]
+    coord --> hard{"HARD gate — always on<br>constraint(cur, ref = hard_ref)"}
+    coord --> histq{"recent_trusted_values<br>(identity, coordinate, limit=20)"}
+    hard -.->|"PLANNED: hard_ref absent"| hardoff["HARD = INACTIVE — not a failure<br>first trusted run seeds the baseline"]
+    histq -- "0 rows → cold start" --> inactive["HISTORICAL = INACTIVE<br>not a failure"]
+    histq -- "n ≥ 1 rows" --> hist{"HISTORICAL gate<br>constraint(cur, ref = mean of n values)"}
+    hard --> verdict["per-coordinate MetricGateResult<br>run trusted ⇔ every coordinate has hard=PASS<br>and historical ∈ {PASS, INACTIVE}"]
+    hist --> verdict
+    inactive --> verdict
+    err --> verdict
+    hardoff -.-> verdict
+    classDef planned stroke-dasharray: 6 4,opacity:0.75;
+    class minimal,hardoff planned;
+```
 
 ## Storage: two backends, two tables
 
