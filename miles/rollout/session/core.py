@@ -5,9 +5,9 @@
 - Knows nothing about HTTP servers, processes, sockets, or IPC; it never touches the wire.
 - One ``SessionCore`` owns exactly one ``SessionRegistry`` (the per-session TITO/trajectory state) and one proxy ``backend``; which core a request belongs to is decided above it (routing/sharding).
 - Operations: ``health``, ``create_session``, ``get_session``, ``delete_session``, ``chat_completions``, and a generic ``proxy``.
-- Reused unchanged by both chassis: the single-process FastAPI adapter (``sessions.py`` + ``server.py``) and the multi-process worker (``worker.py``, primitives decoded off IPC).
-- ``create_session(session_id=None)``: the single-process path passes None (the registry mints); the multi-process router mints the id and passes it so the owning worker creates the trajectory under it.
-- ``build_session_core`` and ``error_response`` are the single source for core construction and the client error shape, used by both chassis so those contracts cannot drift.
+- Driven by the session worker (``worker.py``), which decodes each request's primitives off IPC and calls these methods.
+- ``create_session(session_id=None)``: the router mints the id and passes it so the owning worker creates the trajectory under it; passing None lets the registry mint (core-level callers and tests).
+- ``build_session_core`` and ``error_response`` are the single source for core construction and the client error shape.
 - Client-facing chat responses are rendered by ``_chat_client_response``, which strips the R3 replay payloads (``routed_experts`` / ``indexer_topk``) copy-on-write; the stored ``SessionRecord`` keeps the full upstream response, which is what ``GET /sessions/{id}`` serves to the training data path.
 - Correctness-critical path: ``chat_completions`` — three phases around the per-session lock (see its docstring); the ``closing`` re-checks and the ``num_assistant`` mismatch check gate concurrent DELETE/chat.
 
@@ -110,7 +110,7 @@ def _chat_client_response(result: dict, response: dict) -> Response:
 def proxy_result_to_response(result: dict) -> Response:
     """Build the client response from a proxy result.
 
-    Mirrors the previous ``SessionServer.build_proxy_response``: re-emit JSON
+    Mirrors the pre-extraction single-process response rendering: re-emit JSON
     bodies as compact JSON (application/json), pass non-JSON bodies through
     unchanged, and drop wire-level framing headers from upstream.
     """
