@@ -62,31 +62,64 @@ After a test passes, each comparison coordinate's value is judged by its spec's 
 
 A fanned-out spec (`per_step` / `steps`) contributes one verdict per step; the run is trusted iff **every** coordinate's active checks pass.
 
+The gate's data input is the run's **merged per-run NDJSON record**: the per-process capture snapshots (one file per training process) merged into a single file, one line per metric — `{"metric": <key>, "series": [[step, value], ...]}`. The gate never builds this file, it only reads it (`parse_merged_record`), decoding the capture-side non-finite string markers back to floats.
+
 How one spec flows from declaration to verdict:
 
 ```mermaid
 flowchart TD
-    decl["register_ci_gate(metric_key, hard_ref, extractor, constraint)<br>literal args in the test file — runtime no-op"]
-    minimal["PLANNED: register_ci_gate(metric_key=...)<br>extractor/constraint filled from the per-metric_key<br>defaults table at parse time; hard_ref optional"]
-    decl -- "AST walk + per-name schema validation<br>(parse_ci_gate_specs)" --> spec["CiGateSpec<br>normalized extractor + constraint dicts"]
-    minimal -.-> spec
-    record["merged per-run NDJSON record<br>parse_merged_record → {metric_key: series}"] --> series["series = by_metric.get(spec.metric_key)<br>(first step of _evaluate_spec)"]
-    spec --> series
-    series -- "extract(series, extractor)<br>per_step / steps fan out: one coordinate per step" --> coord["Extraction (value, step)<br>coordinate = encode_coordinate → v1&#124;step=k&#124;lbl=…"]
-    series -- "missing metric · empty series ·<br>missing required step · non-finite value" --> err["ERROR<br>hard=ERROR, historical=INACTIVE<br>coordinate untrusted"]
-    coord --> hard{"HARD gate — always on<br>constraint(cur, ref = hard_ref)"}
-    coord --> histq{"recent_trusted_values<br>(identity, coordinate, limit=20)"}
-    hard -.->|"PLANNED: hard_ref absent"| hardoff["HARD = INACTIVE — not a failure<br>first trusted run seeds the baseline"]
-    histq -- "0 rows → cold start" --> inactive["HISTORICAL = INACTIVE<br>not a failure"]
-    histq -- "n ≥ 1 rows" --> hist{"HISTORICAL gate<br>constraint(cur, ref = mean of n values)"}
-    hard --> verdict["per-coordinate MetricGateResult<br>run trusted ⇔ every coordinate has hard=PASS<br>and historical ∈ {PASS, INACTIVE}"]
-    hist --> verdict
-    inactive --> verdict
-    err --> verdict
-    hardoff -.-> verdict
+    subgraph parse_sg["declare & parse — static, per test file"]
+        decl["the gate declaration — a marker in the test file, runtime no-op<br>register_ci_gate(metric_key, hard_ref, extractor, constraint)"]
+        minimal["PLANNED, not implemented: one-line form<br>register_ci_gate(metric_key=...)"]
+        spec(["the parsed spec (data) — what to judge, by which rule<br>CiGateSpec: normalized extractor + constraint dicts"])
+        decl -- "read the file's AST, never execute it<br>(hence literal-only args); per-name schema validation<br>parse_ci_gate_specs" --> spec
+        minimal -. "same parse; missing fields filled from a<br>per-metric_key defaults table (PLANNED)" .-> spec
+    end
+
+    record(["the run's captured metrics (data — one file per run, parsed once)<br>merged per-run NDJSON record: raw per-step log() values,<br>capture whitelist TARGET_METRIC_KEYS only<br>parse_merged_record → {metric_key: series}"])
+
+    subgraph eval_sg["evaluate — _evaluate_spec, once per spec"]
+        lookup["find the spec's metric in the record<br>series = by_metric.get(spec.metric_key)"]
+        pick["pick the value(s) to judge — ×N, one per selected step<br>extract(series, extractor) → list of Extraction (value, step)"]
+        coord(["one comparison coordinate (data) — the key this value's history<br>is stored under; constraint / hard_ref deliberately NOT encoded<br>encode_coordinate → 'v1&#124;step=k&#124;lbl=…' (format: see Identity)"])
+        err["outcome: ERROR — judged, never skipped<br>hard = ERROR, historical = INACTIVE, coordinate untrusted"]
+        hard["HARD check — absolute safety limit, works with zero history;<br>always on (today hard_ref is required)<br>evaluate_constraint(constraint, value, ref = hard_ref) → PASS &#124; FAIL"]
+        hardoff["PLANNED: hard_ref omitted ⇒ HARD = INACTIVE — not a failure"]
+        histq{"does this coordinate have<br>any trusted history?<br>recent_trusted_values(run-series identity,<br>metric_key, coordinate, limit = 20)"}
+        inactive["outcome: HISTORICAL = INACTIVE — cold start, not a failure"]
+        hist["HISTORICAL check — drift against this coordinate's own past<br>evaluate_constraint(constraint, value, ref = mean of n values) → PASS &#124; FAIL"]
+        result(["one verdict per coordinate (data)<br>MetricGateResult: hard status + historical status + reason"])
+        lookup -- "metric missing from the record" --> err
+        lookup --> pick
+        pick -- "ExtractorError: empty series ·<br>required step missing · non-finite value" --> err
+        pick --> coord
+        coord --> hard
+        coord --> histq
+        hard -.->|"PLANNED"| hardoff
+        histq -- "0 rows" --> inactive
+        histq -- "n ≥ 1 rows" --> hist
+        hard --> result
+        hardoff -.-> result
+        hist --> result
+        inactive --> result
+        err --> result
+    end
+
+    spec --> lookup
+    record --> lookup
+
+    trust["run-level verdict — after all specs, once per run<br>run trusted ⇔ every coordinate: hard = PASS<br>and historical ∈ {PASS, INACTIVE}<br>(what the verdict triggers: see 'Trust, cleanup, who writes')"]
+    store[("this test's own metric history (storage)<br>MetricHistoryStore — SQLite offline · Neon hosted backend")]
+
+    result --> trust
+    store -- "baseline read" --> histq
+    trust -- "a trusted run's values are persisted (write_run) and become<br>future baselines — writer: the harness, on nightly-marked runs<br>only (see 'Trust, cleanup, who writes')" --> store
+
     classDef planned stroke-dasharray: 6 4,opacity:0.75;
     class minimal,hardoff planned;
 ```
+
+Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises only from a historical cold start (and, PLANNED, from an omitted `hard_ref`). *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the coordinate encoding `v1|step=k|lbl=…` (`lbl` = the author's optional `sub_label`) are defined in the Identity section above.
 
 ## Storage: two backends, two tables
 
