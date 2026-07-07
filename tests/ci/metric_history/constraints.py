@@ -1,22 +1,22 @@
 # doc-dev: docs/ci/03-metric-history-gate.md
 """Constraint functions for the CI regression gate.
 
-* A constraint decides whether one extracted scalar ``cur`` passes against a
-  reference ``ref``. The *same* constraint is applied twice -- ``ref`` is the
-  spec's static ``hard_ref`` for the hard gate, or the mean of the trusted
+* A constraint decides whether one extracted scalar `cur` passes against a
+  reference `ref`. The *same* constraint is applied twice -- `ref` is the
+  spec's static `hard_ref` for the hard gate, or the mean of the trusted
   baseline for the historical gate.
-* Pluggable, name-keyed registry: ``register_ci_gate`` declares a constraint
-  as a literal dict ``{"name": ..., <params>}``, and the parser validates it
+* Pluggable, name-keyed registry: `register_ci_gate` declares a constraint
+  as a literal dict `{"name": ..., <params>}`, and the parser validates it
   against :data:`CONSTRAINT_SCHEMAS` before the gate ever runs.
-* Both constraints today are tolerance bands with a 3-way ``direction``.
-* ``rel`` -- band ``= rel * |ref|`` (a relative percentage).
-* ``abs`` -- band ``= max(rel * |ref|, abs_floor)``. ``abs_floor`` keeps a
-  metric riding near zero (where ``rel * |ref|`` vanishes) from flagging on a
-  meaningless relative percentage; ``rel`` defaults to 0, so a bare ``abs`` is
+* Both constraints today are tolerance bands with a 3-way `direction`.
+* `rel` -- band `= rel * |ref|` (a relative percentage).
+* `abs` -- band `= max(rel * |ref|, abs_floor)`. `abs_floor` keeps a
+  metric riding near zero (where `rel * |ref|` vanishes) from flagging on a
+  meaningless relative percentage; `rel` defaults to 0, so a bare `abs` is
   a pure absolute band.
-* ``direction`` narrows what counts as a failure: ``two_sided`` -- any
-  deviation beyond the band fails; ``higher_is_worse`` -- only an increase
-  beyond the band fails (a drop passes); ``lower_is_worse`` -- only a decrease
+* `direction` narrows what counts as a failure: `two_sided` -- any
+  deviation beyond the band fails; `higher_is_worse` -- only an increase
+  beyond the band fails (a drop passes); `lower_is_worse` -- only a decrease
   beyond the band fails (a rise passes).
 * The constraint is never part of the baseline coordinate, so tightening or
   loosening a rule does not reset history.
@@ -36,7 +36,7 @@ class ConstraintError(ValueError):
 
 @dataclass(frozen=True)
 class ConstraintOutcome:
-    """Whether ``cur`` passed, and the tolerance band that was applied."""
+    """Whether `cur` passed, and the tolerance band that was applied."""
 
     ok: bool
     band: float
@@ -82,7 +82,7 @@ CONSTRAINT_SCHEMAS: dict[str, dict[str, tuple[str, bool, object]]] = {
 
 
 def evaluate_constraint(constraint: dict, cur: float, ref: float) -> ConstraintOutcome:
-    """Apply a normalized constraint dict to ``cur`` vs ``ref``."""
+    """Apply a normalized constraint dict to `cur` vs `ref`."""
     fn = CONSTRAINTS.get(constraint["name"])
     if fn is None:
         raise ConstraintError(f"unknown constraint {constraint['name']!r}; known: {sorted(CONSTRAINTS)}")

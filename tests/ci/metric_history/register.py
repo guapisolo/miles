@@ -1,19 +1,19 @@
 # doc-dev: docs/ci/03-metric-history-gate.md
 """Declare and parse metric-history regression gates.
 
-* ``register_ci_gate(...)`` is the marker a test file uses to declare a gate.
-* Like ``register_cuda_ci`` it is a runtime no-op, parsed out of the file's AST
+* `register_ci_gate(...)` is the marker a test file uses to declare a gate.
+* Like `register_cuda_ci` it is a runtime no-op, parsed out of the file's AST
   rather than executed.
-* A gate composes an ``extractor`` (which value(s) to pull from a metric's
-  series) and a ``constraint`` (the pass/fail rule).
-* Extractor and constraint are each a literal dict ``{"name": ..., <params>}``,
+* A gate composes an `extractor` (which value(s) to pull from a metric's
+  series) and a `constraint` (the pass/fail rule).
+* Extractor and constraint are each a literal dict `{"name": ..., <params>}`,
   validated against the per-name schemas in :mod:`extractors` /
   :mod:`constraints`.
-* ``parse_ci_gate_specs`` extracts every declaration as a :class:`CiGateSpec`.
+* `parse_ci_gate_specs` extracts every declaration as a :class:`CiGateSpec`.
 
 Caveats:
 
-* ``register_ci_gate``'s Python signature does NOT validate calls -- the parser
+* `register_ci_gate`'s Python signature does NOT validate calls -- the parser
   here does, at parse time.
 """
 
@@ -39,14 +39,14 @@ def register_ci_gate(
 ):
     """Declare one history-gate spec for the test file it sits in.
 
-    Parsed via AST (like ``register_cuda_ci``); a runtime no-op. Every argument
-    is keyword-only and must be a literal. ``metric_key`` names the target
-    metric; ``hard_ref``, when given, is the hard gate's absolute reference --
-    omitted, the hard layer is INACTIVE for this spec. ``extractor`` and
-    ``constraint`` are literal dicts ``{"name": ..., <params>}`` -- see
+    Parsed via AST (like `register_cuda_ci`); a runtime no-op. Every argument
+    is keyword-only and must be a literal. `metric_key` names the target
+    metric; `hard_ref`, when given, is the hard gate's absolute reference --
+    omitted, the hard layer is INACTIVE for this spec. `extractor` and
+    `constraint` are literal dicts `{"name": ..., <params>}` -- see
     :data:`extractors.EXTRACTOR_SCHEMAS` / :data:`constraints.CONSTRAINT_SCHEMAS`
-    for the valid names and params. ``sub_label`` labels a measurement (e.g. a
-    shard); ``enforce`` and ``allowlist_reason`` are policy metadata the gate
+    for the valid names and params. `sub_label` labels a measurement (e.g. a
+    shard); `enforce` and `allowlist_reason` are policy metadata the gate
     carries without acting on (the verdict is informational this round).
     """
     return None
@@ -69,12 +69,12 @@ _FIELDS: dict[str, tuple[bool, object]] = {
 
 @dataclass(frozen=True)
 class CiGateSpec:
-    """One parsed ``register_ci_gate`` declaration.
+    """One parsed `register_ci_gate` declaration.
 
-    ``extractor`` / ``constraint`` are normalized dicts (name + validated params
-    + filled defaults). ``filename`` is the test file the spec governs; the gate
+    `extractor` / `constraint` are normalized dicts (name + validated params
+    + filled defaults). `filename` is the test file the spec governs; the gate
     derives identity from its CIRegistry and value identity from the extractor
-    coordinate + ``sub_label``.
+    coordinate + `sub_label`.
     """
 
     filename: str
@@ -95,8 +95,8 @@ def _literal(node: ast.AST) -> object:
     """A Python literal from an AST node: a constant, a negative number, or a
     list / dict of the same. Rejects any non-literal (name, call, expression).
 
-    Negative numbers matter because ``-1.0`` is an ``ast.UnaryOp``, not an
-    ``ast.Constant``; a plain constant check would wrongly reject them. Dict keys
+    Negative numbers matter because `-1.0` is an `ast.UnaryOp`, not an
+    `ast.Constant`; a plain constant check would wrongly reject them. Dict keys
     must be string literals and duplicates are rejected (a plain dict would
     silently keep the last).
     """
@@ -268,10 +268,10 @@ def _parse_ci_gate_call(call: ast.Call, filename: str) -> CiGateSpec:
 
 
 def parse_ci_gate_specs(filename: str) -> list[CiGateSpec]:
-    """Return every ``register_ci_gate`` spec declared at top level in ``filename``.
+    """Return every `register_ci_gate` spec declared at top level in `filename`.
 
-    Parsed the same way as ``register_cuda_ci``: top-level ``Expr(Call)`` whose
-    callee is the bare name ``register_ci_gate``. Non-literal / invalid args raise
+    Parsed the same way as `register_cuda_ci`: top-level `Expr(Call)` whose
+    callee is the bare name `register_ci_gate`. Non-literal / invalid args raise
     ValueError naming the file and field.
 
     Note for the future writer: two specs may map to the same baseline coordinate

@@ -1,16 +1,16 @@
 # doc-dev: docs/ci/03-metric-history-gate.md
 """Offline regression gate for the CI metric-history system.
 
-* Consumes one merged per-run NDJSON record plus the ``register_ci_gate`` specs
+* Consumes one merged per-run NDJSON record plus the `register_ci_gate` specs
   declared in the test file, and decides whether the run is *trusted*.
 * The record is the passed attempt's merged NDJSON; a later round picks which
   attempt.
 * Each spec pairs an EXTRACTOR (which value(s) to pull) with a CONSTRAINT (the
-  pass/fail rule). ``per_step`` / ``steps`` fan out to one comparison coordinate
+  pass/fail rule). `per_step` / `steps` fan out to one comparison coordinate
   per step, each judged only against that same step's history.
 * Two checks run per coordinate, both using the spec's constraint. The HARD
-  gate compares against the static ``hard_ref`` and is active only when the
-  spec declares one -- no ``hard_ref`` means INACTIVE, not a failure.
+  gate compares against the static `hard_ref` and is active only when the
+  spec declares one -- no `hard_ref` means INACTIVE, not a failure.
 * The HISTORICAL gate is active only when the store returns >=1 trusted
   baseline value for the (identity, coordinate), and compares against the mean
   of those values. Zero trusted values means INACTIVE -- a cold start, not a
@@ -18,7 +18,7 @@
 * The run is trusted iff every *active* check passed for every coordinate.
 * The gate is pure and read-only: the store is injected via
   :class:`MetricHistoryStore` and the only store call is
-  ``store.recent_trusted_values`` -- no connection opened, no wandb read, no
+  `store.recent_trusted_values` -- no connection opened, no wandb read, no
   rows written.
 
 Caveats:
@@ -63,12 +63,12 @@ class GateStatus(Enum):
 class MetricGateResult:
     """Per-coordinate verdict.
 
-    ``sub_label`` is the encoded baseline coordinate (extractor identity + step +
-    author label); ``step`` is the step this coordinate came from (None for a
-    positional extractor like ``last``, or for an extraction error). ``current``
-    is the extracted scalar, or None when extraction errored. ``baseline_mean``
+    `sub_label` is the encoded baseline coordinate (extractor identity + step +
+    author label); `step` is the step this coordinate came from (None for a
+    positional extractor like `last`, or for an extraction error). `current`
+    is the extracted scalar, or None when extraction errored. `baseline_mean`
     is the mean of trusted history when the historical gate is active, else None.
-    ``trusted`` is True iff every active check here passed.
+    `trusted` is True iff every active check here passed.
     """
 
     metric_key: str
@@ -109,7 +109,7 @@ class GateResult:
 
 
 def compute_test_file_hash(filename: str) -> str:
-    """sha256 of the test file's raw bytes -- the store's ``test_file_hash``."""
+    """sha256 of the test file's raw bytes -- the store's `test_file_hash`."""
     with open(filename, "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
 
@@ -126,9 +126,9 @@ def _decode_value(value: object) -> object:
 
 
 def parse_merged_record(record_path: str) -> dict[str, list]:
-    """Read a merged NDJSON record into ``{metric_key: series}``.
+    """Read a merged NDJSON record into `{metric_key: series}`.
 
-    Each line is ``{"metric": key, "series": [[step, value], ...]}``. Non-finite
+    Each line is `{"metric": key, "series": [[step, value], ...]}`. Non-finite
     values arrive as the capture-side string markers and are decoded back to
     floats here. A repeated metric key (should not happen post-merge) keeps the
     last line's series.
@@ -267,12 +267,12 @@ def evaluate_gate(
     *,
     history_limit: int = 20,
 ) -> GateResult:
-    """Evaluate every ``register_ci_gate`` spec in ``test_filename`` against a record.
+    """Evaluate every `register_ci_gate` spec in `test_filename` against a record.
 
-    ``test_filename`` is the repo-relative test path; its CIRegistry supplies the
-    (backend, suite) identity and its contents the ``test_file_hash``.
-    ``merged_record_path`` is the merged per-run NDJSON of the passed attempt --
-    the gate never globs a base directory to find it. ``store`` answers the
+    `test_filename` is the repo-relative test path; its CIRegistry supplies the
+    (backend, suite) identity and its contents the `test_file_hash`.
+    `merged_record_path` is the merged per-run NDJSON of the passed attempt --
+    the gate never globs a base directory to find it. `store` answers the
     baseline query and nothing else (no writes, no connection opened here). A
     fanned-out spec contributes one MetricGateResult per step.
     """
