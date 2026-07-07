@@ -30,9 +30,9 @@ from tests.ci.metric_history.extractors import COORD_RESERVED, EXTRACTOR_SCHEMAS
 def register_ci_gate(
     *,
     metric_key: str,
-    hard_ref: float,
     extractor: dict,
     constraint: dict,
+    hard_ref: float | None = None,
     sub_label: str | None = None,
     enforce: bool = False,
     allowlist_reason: str | None = None,
@@ -40,8 +40,9 @@ def register_ci_gate(
     """Declare one history-gate spec for the test file it sits in.
 
     Parsed via AST (like ``register_cuda_ci``); a runtime no-op. Every argument
-    is keyword-only and must be a literal. ``metric_key`` names the target metric
-    and ``hard_ref`` the always-on absolute reference. ``extractor`` and
+    is keyword-only and must be a literal. ``metric_key`` names the target
+    metric; ``hard_ref``, when given, is the hard gate's absolute reference --
+    omitted, the hard layer is INACTIVE for this spec. ``extractor`` and
     ``constraint`` are literal dicts ``{"name": ..., <params>}`` -- see
     :data:`extractors.EXTRACTOR_SCHEMAS` / :data:`constraints.CONSTRAINT_SCHEMAS`
     for the valid names and params. ``sub_label`` labels a measurement (e.g. a
@@ -57,7 +58,7 @@ _REQUIRED = object()
 # Top-level register_ci_gate fields: name -> (required, default).
 _FIELDS: dict[str, tuple[bool, object]] = {
     "metric_key": (True, _REQUIRED),
-    "hard_ref": (True, _REQUIRED),
+    "hard_ref": (False, None),
     "extractor": (True, _REQUIRED),
     "constraint": (True, _REQUIRED),
     "sub_label": (False, None),
@@ -78,7 +79,7 @@ class CiGateSpec:
 
     filename: str
     metric_key: str
-    hard_ref: float
+    hard_ref: float | None
     extractor: dict
     constraint: dict
     sub_label: str | None = None
@@ -198,6 +199,12 @@ def _require_number(value: object, field: str) -> float:
     return float(value)
 
 
+def _require_opt_number(value: object, field: str) -> float | None:
+    if value is None:
+        return None
+    return _require_number(value, field)
+
+
 def _require_bool(value: object, field: str) -> bool:
     if not isinstance(value, bool):
         raise _ParseError(f"{field} must be a boolean")
@@ -249,7 +256,7 @@ def _parse_ci_gate_call(call: ast.Call, filename: str) -> CiGateSpec:
         return CiGateSpec(
             filename=filename,
             metric_key=_require_str(raw["metric_key"], "metric_key"),
-            hard_ref=_require_number(raw["hard_ref"], "hard_ref"),
+            hard_ref=_require_opt_number(raw["hard_ref"], "hard_ref"),
             extractor=_normalize_axis("extractor", raw["extractor"], EXTRACTOR_SCHEMAS),
             constraint=_normalize_axis("constraint", raw["constraint"], CONSTRAINT_SCHEMAS),
             sub_label=_require_sub_label(raw["sub_label"]),

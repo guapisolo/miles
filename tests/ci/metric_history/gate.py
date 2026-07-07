@@ -9,7 +9,8 @@
   pass/fail rule). ``per_step`` / ``steps`` fan out to one comparison coordinate
   per step, each judged only against that same step's history.
 * Two checks run per coordinate, both using the spec's constraint. The HARD
-  gate is always active and compares against the static ``hard_ref``.
+  gate compares against the static ``hard_ref`` and is active only when the
+  spec declares one -- no ``hard_ref`` means INACTIVE, not a failure.
 * The HISTORICAL gate is active only when the store returns >=1 trusted
   baseline value for the (identity, coordinate), and compares against the mean
   of those values. Zero trusted values means INACTIVE -- a cold start, not a
@@ -54,7 +55,7 @@ class GateStatus(Enum):
 
     PASS = "pass"
     FAIL = "fail"
-    INACTIVE = "inactive"  # historical gate with no trusted baseline (cold start)
+    INACTIVE = "inactive"  # check not applicable: historical cold start, or hard with no hard_ref
     ERROR = "error"  # the metric could not be extracted (missing/empty series, bad step)
 
 
@@ -82,10 +83,8 @@ class MetricGateResult:
 
     @property
     def trusted(self) -> bool:
-        return self.hard_status == GateStatus.PASS and self.historical_status in (
-            GateStatus.PASS,
-            GateStatus.INACTIVE,
-        )
+        ok = (GateStatus.PASS, GateStatus.INACTIVE)
+        return self.hard_status in ok and self.historical_status in ok
 
 
 @dataclass(frozen=True)
@@ -208,11 +207,15 @@ def _evaluate_spec(
     for ex in extractions:
         coord_sub_label = encode_coordinate(ex.coord, spec.sub_label)
 
-        hard = evaluate_constraint(spec.constraint, ex.value, spec.hard_ref)
-        hard_status = GateStatus.PASS if hard.ok else GateStatus.FAIL
         reasons: list[str] = []
-        if not hard.ok:
-            reasons.append(f"hard: cur={ex.value:.6g} vs ref={spec.hard_ref:.6g} exceeds band={hard.band:.6g}")
+        if spec.hard_ref is None:
+            hard_status = GateStatus.INACTIVE
+            reasons.append("hard: inactive (no hard_ref)")
+        else:
+            hard = evaluate_constraint(spec.constraint, ex.value, spec.hard_ref)
+            hard_status = GateStatus.PASS if hard.ok else GateStatus.FAIL
+            if not hard.ok:
+                reasons.append(f"hard: cur={ex.value:.6g} vs ref={spec.hard_ref:.6g} exceeds band={hard.band:.6g}")
 
         trusted_values = store.recent_trusted_values(
             test_path,
@@ -237,7 +240,8 @@ def _evaluate_spec(
                     f"(n={len(trusted_values)}) exceeds band={hist.band:.6g}"
                 )
 
-        if hard_status == GateStatus.PASS and historical_status in (GateStatus.PASS, GateStatus.INACTIVE):
+        ok_statuses = (GateStatus.PASS, GateStatus.INACTIVE)
+        if hard_status in ok_statuses and historical_status in ok_statuses:
             reasons.insert(0, "ok")
 
         results.append(

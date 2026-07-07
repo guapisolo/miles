@@ -156,6 +156,68 @@ def test_cold_start_hard_failure(tmp_path, store):
     assert result.trusted is False
 
 
+# --- optional hard_ref (hard layer inactive) ---------------------------------
+
+
+def test_no_hard_ref_cold_start_vacuously_trusted(tmp_path, store):
+    test_file = _write_test_file(
+        tmp_path,
+        """
+        register_ci_gate(metric_key="train/grad_norm",
+                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+        """,
+    )
+    record = _write_record(tmp_path, {"train/grad_norm": [[0, 0.9]]})
+
+    result = evaluate_gate(test_file, record, store)
+
+    m = result.metrics[0]
+    assert m.hard_status == GateStatus.INACTIVE
+    assert m.historical_status == GateStatus.INACTIVE
+    assert "hard: inactive" in m.reason
+    # Zero active checks: vacuously trusted -- this run seeds the baseline.
+    assert result.trusted is True
+
+
+def test_no_hard_ref_historical_still_gates(tmp_path, store):
+    test_file = _write_test_file(
+        tmp_path,
+        """
+        register_ci_gate(metric_key="train/grad_norm",
+                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+        """,
+    )
+    _seed_baseline(store, test_file, metric_key="train/grad_norm", sub_label=COORD_LAST, values=[1.0, 1.0])
+    # 2.0 vs mean 1.0, band = 0.20 -> historical fails; hard stays INACTIVE.
+    record = _write_record(tmp_path, {"train/grad_norm": [[0, 2.0]]})
+
+    result = evaluate_gate(test_file, record, store)
+
+    m = result.metrics[0]
+    assert m.hard_status == GateStatus.INACTIVE
+    assert m.historical_status == GateStatus.FAIL
+    assert result.trusted is False
+
+
+def test_no_hard_ref_historical_pass_trusted(tmp_path, store):
+    test_file = _write_test_file(
+        tmp_path,
+        """
+        register_ci_gate(metric_key="train/grad_norm",
+                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+        """,
+    )
+    _seed_baseline(store, test_file, metric_key="train/grad_norm", sub_label=COORD_LAST, values=[1.0, 1.0])
+    record = _write_record(tmp_path, {"train/grad_norm": [[0, 1.1]]})
+
+    result = evaluate_gate(test_file, record, store)
+
+    m = result.metrics[0]
+    assert m.hard_status == GateStatus.INACTIVE
+    assert m.historical_status == GateStatus.PASS
+    assert result.trusted is True
+
+
 # --- historical gate --------------------------------------------------------
 
 

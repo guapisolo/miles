@@ -289,7 +289,7 @@ def test_non_literal_inside_dict_rejected(tmp_path):
         parse_ci_gate_specs(path)
 
 
-@pytest.mark.parametrize("missing", ["metric_key", "hard_ref", "extractor", "constraint"])
+@pytest.mark.parametrize("missing", ["metric_key", "extractor", "constraint"])
 def test_missing_required_field_rejected(tmp_path, missing):
     fields = {
         "metric_key": 'metric_key="train/x"',
@@ -307,6 +307,32 @@ def test_missing_required_field_rejected(tmp_path, missing):
         tmp_path,
     )
     with pytest.raises(ValueError, match=f"{missing} is required"):
+        parse_ci_gate_specs(path)
+
+
+def test_hard_ref_optional_parses_to_none(tmp_path):
+    path = _make_fixture(
+        """
+        from tests.ci.metric_history import register_ci_gate
+        register_ci_gate(metric_key="train/x",
+                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2})
+        """,
+        tmp_path,
+    )
+    (spec,) = parse_ci_gate_specs(path)
+    assert spec.hard_ref is None
+
+
+def test_hard_ref_non_number_still_rejected(tmp_path):
+    path = _make_fixture(
+        """
+        from tests.ci.metric_history import register_ci_gate
+        register_ci_gate(metric_key="train/x", hard_ref="0.5",
+                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2})
+        """,
+        tmp_path,
+    )
+    with pytest.raises(ValueError, match="hard_ref must be a number"):
         parse_ci_gate_specs(path)
 
 

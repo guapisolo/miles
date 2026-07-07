@@ -38,27 +38,27 @@ register_cuda_ci(est_time=300, suite="stage-c-8-gpu-h100")
 
 register_ci_gate(
     metric_key="train/ppo_kl",                     # must be a captured key (whitelist)
-    hard_ref=0.05,                                 # hard gate: always-on absolute limit
+    hard_ref=0.05,                                 # hard gate: absolute limit (optional — omit ⇒ hard layer INACTIVE)
     extractor={"name": "steps", "steps": [0, 1]},  # judge steps 0 and 1, each against its own history
     constraint={"name": "abs", "abs_floor": 0.02, "direction": "higher_is_worse"},
 )
 ```
 
-**PLANNED, not implemented** — for the standard metrics the declaration shrinks to one line; today this is a parse error (all three fields above are required):
+**PLANNED, not implemented** — for the standard metrics the declaration shrinks to one line; today this is a parse error (extractor and constraint are still required):
 
 ```python
 register_ci_gate(metric_key="train/train_rollout_logprob_abs_diff")
 # ≡ the full form above: extractor + constraint filled from the per-metric_key
-#   defaults table beside the parser (register.py); hard_ref optional (see Notes)
+#   defaults table beside the parser (register.py); hard_ref already optional
 ```
 
 ## The gate: two layers
 
 After a test passes, each comparison coordinate's value is judged by its spec's constraint, twice:
 
-- **Hard gate** — always on. `ref` = the spec's `hard_ref`, a hardcoded safety limit. Runs even with zero history; generalizes today's `--ci-<metric>` thresholds.
+- **Hard gate** — on for every spec that declares `hard_ref` (a hardcoded safety limit). Runs even with zero history; generalizes today's `--ci-<metric>` thresholds. `hard_ref` omitted ⇒ this layer is INACTIVE for that spec — not a failure.
 - **Historical gate** — activates with ≥1 trusted point at the coordinate. `ref` = mean of the coordinate's trusted values. Catches drift.
-- **Cold start** (0 trusted): historical gate is inactive, hard gate only — not an error.
+- **Cold start** (0 trusted): historical gate is inactive — not an error. With `hard_ref` also omitted, zero checks are active and the run is vacuously trusted: that is how a fresh baseline gets seeded (recover a poisoned seed via `mark_untrusted`).
 
 A fanned-out spec (`per_step` / `steps`) contributes one verdict per step; the run is trusted iff **every** coordinate's active checks pass.
 
@@ -69,7 +69,7 @@ How one spec flows from declaration to verdict:
 ```mermaid
 flowchart TD
     subgraph parse_sg["declare & parse — static, per test file"]
-        decl["the gate declaration — a marker in the test file, runtime no-op<br>register_ci_gate(metric_key, hard_ref, extractor, constraint)"]
+        decl["the gate declaration — a marker in the test file, runtime no-op<br>register_ci_gate(metric_key, extractor, constraint[, hard_ref])"]
         minimal["PLANNED, not implemented: one-line form<br>register_ci_gate(metric_key=...)"]
         spec(["the parsed spec (data) — what to judge, by which rule<br>CiGateSpec: normalized extractor + constraint dicts"])
         decl -- "read the file's AST, never execute it<br>(hence literal-only args); per-name schema validation<br>parse_ci_gate_specs" --> spec
@@ -83,8 +83,8 @@ flowchart TD
         pick["pick the value(s) to judge — ×N, one per selected step<br>extract(series, extractor) → list of Extraction (value, step)"]
         coord(["one comparison coordinate (data) — the key this value's history<br>is stored under; constraint / hard_ref deliberately NOT encoded<br>encode_coordinate → 'v1&#124;step=k&#124;lbl=…' (format: see Identity)"])
         err["outcome: ERROR — judged, never skipped<br>hard = ERROR, historical = INACTIVE, coordinate untrusted"]
-        hard["HARD check — absolute safety limit, works with zero history;<br>always on (today hard_ref is required)<br>evaluate_constraint(constraint, value, ref = hard_ref) → PASS &#124; FAIL"]
-        hardoff["PLANNED: hard_ref omitted ⇒ HARD = INACTIVE — not a failure"]
+        hard["HARD check — absolute safety limit, works with zero history;<br>on when the spec declares hard_ref<br>evaluate_constraint(constraint, value, ref = hard_ref) → PASS &#124; FAIL"]
+        hardoff["outcome: HARD = INACTIVE — hard_ref omitted, not a failure"]
         histq{"does this coordinate have<br>any trusted history?<br>recent_trusted_values(run-series identity,<br>metric_key, coordinate, limit = 20)"}
         inactive["outcome: HISTORICAL = INACTIVE — cold start, not a failure"]
         hist["HISTORICAL check — drift against this coordinate's own past<br>evaluate_constraint(constraint, value, ref = mean of n values) → PASS &#124; FAIL"]
@@ -95,11 +95,11 @@ flowchart TD
         pick --> coord
         coord --> hard
         coord --> histq
-        hard -.->|"PLANNED"| hardoff
+        hard -- "hard_ref omitted" --> hardoff
         histq -- "0 rows" --> inactive
         histq -- "n ≥ 1 rows" --> hist
         hard --> result
-        hardoff -.-> result
+        hardoff --> result
         hist --> result
         inactive --> result
         err --> result
@@ -108,7 +108,7 @@ flowchart TD
     spec --> lookup
     record --> lookup
 
-    trust["run-level verdict — after all specs, once per run<br>run trusted ⇔ every coordinate: hard = PASS<br>and historical ∈ {PASS, INACTIVE}<br>(what the verdict triggers: see 'Trust, cleanup, who writes')"]
+    trust["run-level verdict — after all specs, once per run<br>run trusted ⇔ every coordinate: hard ∈ {PASS, INACTIVE}<br>and historical ∈ {PASS, INACTIVE}<br>(what the verdict triggers: see 'Trust, cleanup, who writes')"]
     store[("this test's own metric history (storage)<br>MetricHistoryStore — SQLite offline · Neon hosted backend")]
 
     result --> trust
@@ -116,10 +116,10 @@ flowchart TD
     trust -- "a trusted run's values are persisted (write_run) and become<br>future baselines — writer: the harness, on nightly-marked runs<br>only (see 'Trust, cleanup, who writes')" --> store
 
     classDef planned stroke-dasharray: 6 4,opacity:0.75;
-    class minimal,hardoff planned;
+    class minimal planned;
 ```
 
-Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises only from a historical cold start (and, PLANNED, from an omitted `hard_ref`). *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the coordinate encoding `v1|step=k|lbl=…` (`lbl` = the author's optional `sub_label`) are defined in the Identity section above.
+Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises from a historical cold start or from a spec that declares no `hard_ref`. *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the coordinate encoding `v1|step=k|lbl=…` (`lbl` = the author's optional `sub_label`) are defined in the Identity section above.
 
 ## Storage: two backends, two tables
 
@@ -160,7 +160,7 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 | Extractors + coordinate encoding | `tests/ci/metric_history/extractors.py`                                        |
 | Constraints              | `tests/ci/metric_history/constraints.py`                                               |
 | Collection backend       | `miles/utils/tracking_utils/ci_history.py`                                             |
-| Declare a gate on a test | `register_ci_gate(metric_key=..., hard_ref=..., extractor={...}, constraint={...})` (from `tests.ci.metric_history`) in the test file |
+| Declare a gate on a test | `register_ci_gate(metric_key=..., extractor={...}, constraint={...}[, hard_ref=...])` (from `tests.ci.metric_history`) in the test file |
 
 
 
