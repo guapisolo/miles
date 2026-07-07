@@ -225,8 +225,8 @@ class TestPassingAttemptSelection:
         registry = _registry(test_file)
 
         # Attempt 1 "failed" with a bad metric (0.10), attempt 2 "passed" (0.80).
-        bad_record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.10]]}, name="attempt-1.merged.ndjson")
-        good_record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.80]]}, name="attempt-2.merged.ndjson")
+        bad_record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.10]]}, name="attempt-1.merged.jsonl")
+        good_record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.80]]}, name="attempt-2.merged.jsonl")
 
         # Only the passing attempt's record path is handed to the hook -- this
         # is exactly what run_unittest_files selects (it captures the merged
@@ -259,7 +259,7 @@ class TestNightlyWrite:
             """,
         )
         registry = _registry(test_file)
-        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.81]]}, name="m.ndjson")
+        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.81]]}, name="m.jsonl")
 
         assert _count_runs(store) == 0
         run_gate_hook(
@@ -316,7 +316,7 @@ class TestNightlyWrite:
         )
         registry = _registry(test_file)
         # 0.90 vs ref 0.30, band 0.06 -> hard fails -> not trusted.
-        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.90]]}, name="m.ndjson")
+        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.90]]}, name="m.jsonl")
 
         run_gate_hook(
             test_file,
@@ -360,7 +360,7 @@ class TestPrShadow:
             """,
         )
         registry = _registry(test_file)
-        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.81]]}, name="m.ndjson")
+        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.81]]}, name="m.jsonl")
 
         with caplog.at_level("INFO"):
             run_gate_hook(
@@ -400,7 +400,7 @@ class TestNeverBlocks:
             """,
         )
         registry = _registry(test_file)
-        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.95]]}, name="m.ndjson")
+        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.95]]}, name="m.jsonl")
 
         result = run_gate_hook(
             test_file,
@@ -425,7 +425,7 @@ class TestNeverBlocks:
             """,
         )
         registry = _registry(test_file)
-        missing_record = str(tmp_path / "does_not_exist.ndjson")
+        missing_record = str(tmp_path / "does_not_exist.jsonl")
 
         with caplog.at_level("WARNING"):
             result = run_gate_hook(
@@ -453,7 +453,7 @@ class TestNeverBlocks:
             """,
         )
         registry = _registry(test_file)
-        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.81]]}, name="m.ndjson")
+        record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.81]]}, name="m.jsonl")
 
         class _ExplodingStore(SQLiteMetricHistoryStore):
             def write_run(self, *a, **k):
@@ -492,7 +492,7 @@ def test_hook_signature_matches_metric_sample_contract(tmp_path, store, monkeypa
     )
     registry = _registry(test_file)
     # Record has a different metric; rollout/raw_reward is missing -> current None.
-    record = _write_record(tmp_path, {"train/grad_norm": [[0, 1.0]]}, name="m.ndjson")
+    record = _write_record(tmp_path, {"train/grad_norm": [[0, 1.0]]}, name="m.jsonl")
 
     run_gate_hook(
         test_file,

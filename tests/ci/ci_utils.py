@@ -37,7 +37,7 @@ def _attempt_record_dir(base_dir: str, filename: str, attempt: int) -> str:
 
 
 def _merge_attempt_records(attempt_dir: str, merged_path: str) -> None:
-    """Merge every per-process NDJSON file under `attempt_dir` into one record.
+    """Merge every per-process JSONL file under `attempt_dir` into one record.
 
     Each per-process file holds lines of `{"metric": key, "series": [[step, value], ...]}`.
     The same metric key may appear in more than one file; concatenate
@@ -48,7 +48,7 @@ def _merge_attempt_records(attempt_dir: str, merged_path: str) -> None:
         return
     merged: dict[str, list[list]] = {}
     for fname in sorted(os.listdir(attempt_dir)):
-        if not fname.endswith(".ndjson"):
+        if not fname.endswith(".jsonl"):
             continue
         with open(os.path.join(attempt_dir, fname), encoding="utf-8") as f:
             for line in f:
@@ -516,13 +516,13 @@ def run_unittest_files(
                         file_passed = True
                         if attempt_record_dir is not None:
                             # The training process has exited, so its per-process
-                            # NDJSON records are complete. Merge the passing
+                            # JSONL records are complete. Merge the passing
                             # attempt's records into the one per-run record the
                             # gate consumes. Gate infrastructure: a merge I/O
                             # error must never propagate and change the test's
                             # pass/fail, so it is caught and logged and only
                             # skips the gate hook.
-                            merged_path = f"{attempt_record_dir}.merged.ndjson"
+                            merged_path = f"{attempt_record_dir}.merged.jsonl"
                             try:
                                 _merge_attempt_records(attempt_record_dir, merged_path)
                                 passing_record_path = merged_path
