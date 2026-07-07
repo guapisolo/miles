@@ -13,7 +13,7 @@ The gate compares a number only against earlier numbers of the same kind, from t
 
 - **Run series** (the "same test"): `(test_path, backend, suite, test_file_hash)`. `test_file_hash` = sha256 of the test file's **contents**, so editing the test starts a fresh series. Runs differing on any field never share a baseline.
 - **Value within a run**: `(metric_key, steps_key, constraint_key, step)` — the declaring gate's literal content plus which point:
-  - `steps_key` / `constraint_key` are canonical JSON of the declaration's raw `steps` / `constraint` literals. The key is built from what the author wrote — never a normalized form — so a code-side default change can never silently re-key a series; any edit to the declaration already resets the series via `test_file_hash`.
+  - `steps_key` / `constraint_key` are canonical JSON of the declaration's raw `steps` / `constraint` literals: no whitespace, dict keys sorted, list order kept as written, a string keyword stored with its JSON quotes — `steps=[0, 1]` → `[0,1]`, `steps="last"` → `"last"` (quotes included). Built from the raw literal, never the normalized form, so a code-side default change can never silently re-key a series; any edit to the declaration already resets the series via `test_file_hash`.
   - `step` is the point the value came from: step `k` for a per-step value, `-1` for a whole-series reduction (e.g. `steps="last"`) — a reduced value keys on a constant, never the step it happened to land on, or its history would fragment across runs of different lengths.
   - Step-0 `ppo_kl` is compared only against past step-0 `ppo_kl` — never against step 1 or `grad_norm`.
 

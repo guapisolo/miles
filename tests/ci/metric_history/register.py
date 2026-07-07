@@ -10,9 +10,9 @@
 * `constraint` is a literal dict of band params (`rel` / `abs_floor` /
   `direction`), validated against the schema in :mod:`constraints`.
 * A spec also carries `extractor_key` / `rule_key` -- canonical JSON of the
-  `steps` / `constraint` literals exactly as written -- which, plus the
-  extraction's `step`, form the identity a stored value's history is keyed
-  under.
+  raw `steps` / `constraint` literals (see :func:`_canonical_key` for the
+  exact serialization) -- which, plus the extraction's `step`, form the
+  identity a stored value's history is keyed under.
 * `parse_ci_gate_specs` extracts every declaration as a :class:`CiGateSpec`.
 
 Caveats:
@@ -233,9 +233,10 @@ def _require_opt_str(value: object, field: str) -> str | None:
 
 
 def _canonical_key(raw: object) -> str:
-    """Canonical JSON (sorted keys, no whitespace) of a declaration literal
-    (the `steps` string/list or the `constraint` dict), as the stored
-    identity key.
+    """Canonical JSON of a declaration literal (the `steps` string/list or
+    the `constraint` dict), as the stored identity key: no whitespace, dict
+    keys sorted, list order kept as written, a bare string keyword
+    serialized with its JSON quotes (`"last"` -> `'"last"'`).
 
     Deliberately built from the literal as written in the test file, NOT the
     normalized form: filled-in defaults live in code, so a code-side default
