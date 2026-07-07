@@ -8,7 +8,7 @@
 * The gate declaration marker :func:`register_ci_gate` and its parsed
   :class:`CiGateSpec`.
 * Not re-exported: gate evaluation (:mod:`tests.ci.metric_history.gate`),
-  extractors (:mod:`tests.ci.metric_history.extractors`), constraints
+  step selection (:mod:`tests.ci.metric_history.selection`), constraints
   (:mod:`tests.ci.metric_history.constraints`) -- import those modules directly.
 """
 

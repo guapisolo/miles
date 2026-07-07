@@ -9,9 +9,9 @@
   (the pass/fail rule).
 * `constraint` is a literal dict of band params (`rel` / `abs_floor` /
   `direction`), validated against the schema in :mod:`constraints`.
-* A spec also carries `extractor_key` / `rule_key` -- canonical JSON of the
+* A spec also carries `steps_key` / `constraint_key` -- canonical JSON of the
   raw `steps` / `constraint` literals (see :func:`_canonical_key` for the
-  exact serialization) -- which, plus the extraction's `step`, form the
+  exact serialization) -- which, plus the selection's `step`, form the
   identity a stored value's history is keyed under.
 * `parse_ci_gate_specs` extracts every declaration as a :class:`CiGateSpec`.
 
@@ -76,7 +76,7 @@ class CiGateSpec:
 
     `steps` is the validated selection literal (`"last"` | `"all"` | a list of
     step indices); `constraint` is a normalized dict (name + validated params
-    + filled defaults); both drive execution. `extractor_key` / `rule_key` are
+    + filled defaults); both drive execution. `steps_key` / `constraint_key` are
     canonical JSON of the same literals as written and, with the extraction's
     `step`, form the stored value's identity. `filename` is the test file the
     spec governs; run identity comes from its CIRegistry.
@@ -87,8 +87,8 @@ class CiGateSpec:
     hard_ref: float | None
     steps: str | list[int]
     constraint: dict
-    extractor_key: str
-    rule_key: str
+    steps_key: str
+    constraint_key: str
     enforce: bool = False
     allowlist_reason: str | None = None
 
@@ -278,8 +278,8 @@ def _parse_ci_gate_call(call: ast.Call, filename: str) -> CiGateSpec:
             hard_ref=_require_opt_number(raw["hard_ref"], "hard_ref"),
             steps=_validate_steps(raw["steps"]),
             constraint=_normalize_constraint(raw["constraint"]),
-            extractor_key=_canonical_key(raw["steps"]),
-            rule_key=_canonical_key(raw["constraint"]),
+            steps_key=_canonical_key(raw["steps"]),
+            constraint_key=_canonical_key(raw["constraint"]),
             enforce=_require_bool(raw["enforce"], "enforce"),
             allowlist_reason=_require_opt_str(raw["allowlist_reason"], "allowlist_reason"),
         )

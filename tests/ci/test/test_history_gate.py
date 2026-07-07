@@ -64,7 +64,7 @@ def _write_record(tmp_path: Path, by_metric: dict[str, list], *, name: str = "me
 
 
 def _seed_baseline(
-    store, test_filename, *, metric_key, extractor_key, rule_key, step, values, suite="stage-c-8-gpu-h100"
+    store, test_filename, *, metric_key, steps_key, constraint_key, step, values, suite="stage-c-8-gpu-h100"
 ):
     identity = RunIdentity(
         test_path=test_filename,
@@ -78,7 +78,7 @@ def _seed_baseline(
             PROVENANCE,
             created_at=f"2026-06-0{i + 1}T00:00:00+00:00",
             trusted=True,
-            values=[MetricSample(metric_key, extractor_key, rule_key, step, v)],
+            values=[MetricSample(metric_key, steps_key, constraint_key, step, v)],
         )
 
 
@@ -141,7 +141,7 @@ def test_cold_start_hard_only_no_error(tmp_path, store):
     # No baselines yet: historical gate inactive, NOT an error, NOT a failure.
     assert m.historical_status == GateStatus.INACTIVE
     assert m.baseline_n == 0
-    assert m.extractor_key == LAST_KEY
+    assert m.steps_key == LAST_KEY
     assert m.step == -1
     assert result.trusted is True
 
@@ -199,8 +199,8 @@ def test_no_hard_ref_historical_still_gates(tmp_path, store):
         store,
         test_file,
         metric_key="train/grad_norm",
-        extractor_key=LAST_KEY,
-        rule_key=_key({"rel": 0.20}),
+        steps_key=LAST_KEY,
+        constraint_key=_key({"rel": 0.20}),
         step=-1,
         values=[1.0, 1.0],
     )
@@ -227,8 +227,8 @@ def test_no_hard_ref_historical_pass_trusted(tmp_path, store):
         store,
         test_file,
         metric_key="train/grad_norm",
-        extractor_key=LAST_KEY,
-        rule_key=_key({"rel": 0.20}),
+        steps_key=LAST_KEY,
+        constraint_key=_key({"rel": 0.20}),
         step=-1,
         values=[1.0, 1.0],
     )
@@ -258,8 +258,8 @@ def test_historical_failure(tmp_path, store):
         store,
         test_file,
         metric_key="rollout/raw_reward",
-        extractor_key=LAST_KEY,
-        rule_key=_key({"rel": 0.20}),
+        steps_key=LAST_KEY,
+        constraint_key=_key({"rel": 0.20}),
         step=-1,
         values=[0.80, 0.82, 0.78],
     )
@@ -286,8 +286,8 @@ def test_historical_pass_within_tolerance(tmp_path, store):
         store,
         test_file,
         metric_key="rollout/raw_reward",
-        extractor_key=LAST_KEY,
-        rule_key=_key({"rel": 0.20}),
+        steps_key=LAST_KEY,
+        constraint_key=_key({"rel": 0.20}),
         step=-1,
         values=[0.80, 0.82, 0.78],
     )
@@ -312,8 +312,8 @@ def test_drift_beyond_historical_band_not_trusted(tmp_path, store):
         store,
         test_file,
         metric_key="train/grad_norm",
-        extractor_key=LAST_KEY,
-        rule_key=_key({"rel": 0.50}),
+        steps_key=LAST_KEY,
+        constraint_key=_key({"rel": 0.50}),
         step=-1,
         values=[1.0, 1.0, 1.0],
     )
@@ -364,8 +364,8 @@ def test_all_reads_per_step_baselines(tmp_path, store):
         store,
         test_file,
         metric_key="train/ppo_kl",
-        extractor_key=_key("all"),
-        rule_key=kl_rule,
+        steps_key=_key("all"),
+        constraint_key=kl_rule,
         step=0,
         values=[0.1, 0.1],
     )
@@ -373,8 +373,8 @@ def test_all_reads_per_step_baselines(tmp_path, store):
         store,
         test_file,
         metric_key="train/ppo_kl",
-        extractor_key=_key("all"),
-        rule_key=kl_rule,
+        steps_key=_key("all"),
+        constraint_key=kl_rule,
         step=1,
         values=[0.9, 0.9],
     )
@@ -421,8 +421,8 @@ def test_all_and_explicit_steps_have_separate_coordinates(tmp_path, store):
         store,
         test_file,
         metric_key="train/ppo_kl",
-        extractor_key=_key("all"),
-        rule_key=_key({"rel": 0.50}),
+        steps_key=_key("all"),
+        constraint_key=_key({"rel": 0.50}),
         step=0,
         values=[0.1, 0.1],
     )
@@ -437,7 +437,7 @@ def test_all_and_explicit_steps_have_separate_coordinates(tmp_path, store):
 
 
 def test_rule_is_part_of_coordinate(tmp_path, store):
-    # Two gates, same steps, different constraints: different rule_key,
+    # Two gates, same steps, different constraints: different constraint_key,
     # so each judges against its own baseline series.
     gate_lines = """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=1.0,
@@ -450,8 +450,8 @@ def test_rule_is_part_of_coordinate(tmp_path, store):
         store,
         test_file,
         metric_key="rollout/raw_reward",
-        extractor_key=LAST_KEY,
-        rule_key=_key({"rel": 0.50}),
+        steps_key=LAST_KEY,
+        constraint_key=_key({"rel": 0.50}),
         step=-1,
         values=[1.0, 1.0, 1.0],
     )
@@ -459,7 +459,7 @@ def test_rule_is_part_of_coordinate(tmp_path, store):
 
     result = evaluate_gate(test_file, record, store)
     loose, tight = result.metrics
-    assert loose.rule_key != tight.rule_key
+    assert loose.constraint_key != tight.constraint_key
     assert loose.baseline_n == 3
     assert loose.historical_status == GateStatus.PASS  # band 0.5
     # The tight rule's own series is unseeded: cold start, not a shared read.
@@ -486,8 +486,8 @@ def test_near_zero_not_flagged_on_relative_pct(tmp_path, store):
         store,
         test_file,
         metric_key="train/ppo_kl",
-        extractor_key=_key([0]),
-        rule_key=_key({"abs_floor": 1e-6, "rel": 0.20}),
+        steps_key=_key([0]),
+        constraint_key=_key({"abs_floor": 1e-6, "rel": 0.20}),
         step=0,
         values=[1e-9, 2e-9, 1e-9],
     )

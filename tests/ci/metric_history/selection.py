@@ -6,7 +6,7 @@
 * `steps` is the declaration's flat literal, validated by the parser:
   `"last"` | `"all"` | a non-empty list of step indices. There is no
   name-keyed registry -- the selection space is a closed enum.
-* Selection is pure and returns a list of :class:`Extraction` -- one entry per
+* Selection is pure and returns a list of :class:`Selection` -- one entry per
   comparison coordinate.
 * `"last"` -- the last numeric point (1 coordinate, `step = -1`).
 * `"all"` -- every step present in the series, fanned out (N coordinates).
@@ -14,13 +14,13 @@
   step missing from the series is an error, not a silent skip.
 * A fanned coordinate is identified by its step, so this run's step-0 value is
   compared only against past runs' step-0 values.
-* Raising :class:`ExtractorError` (rather than returning a sentinel) lets the
+* Raising :class:`SelectionError` (rather than returning a sentinel) lets the
   gate turn the failure into a clear per-coordinate verdict.
 
 Caveats:
 
 * A non-finite value (NaN/±Inf) at a coordinate the selection picks is an
-  ExtractorError -- judged, never silently dropped. Points whose value is not a
+  SelectionError -- judged, never silently dropped. Points whose value is not a
   number at all (bool/None/...) are ignored, as are points no selection picks.
 """
 
@@ -33,12 +33,12 @@ from dataclasses import dataclass
 Point = Sequence  # [step, value]
 
 
-class ExtractorError(ValueError):
+class SelectionError(ValueError):
     """A required series is absent, empty, or ill-formed for this selection."""
 
 
 @dataclass(frozen=True)
-class Extraction:
+class Selection:
     """One comparison value pulled from a series.
 
     `step` is the identity role: step `k` for a per-step value, `-1` for a
@@ -84,53 +84,53 @@ def _numeric_points(series: Sequence[Point]) -> list[tuple[int | None, float]]:
     return out
 
 
-def _select_last(series: Sequence[Point]) -> list[Extraction]:
+def _select_last(series: Sequence[Point]) -> list[Selection]:
     points = _numeric_points(series)
     if not points:
-        raise ExtractorError("series has no numeric point")
+        raise SelectionError("series has no numeric point")
     step, value = points[-1]
     if not math.isfinite(value):
-        raise ExtractorError(f"last: non-finite value {value!r} at the last point (step {step})")
-    return [Extraction(step=-1, at_step=step, value=value)]
+        raise SelectionError(f"last: non-finite value {value!r} at the last point (step {step})")
+    return [Selection(step=-1, at_step=step, value=value)]
 
 
-def _select_all(series: Sequence[Point]) -> list[Extraction]:
+def _select_all(series: Sequence[Point]) -> list[Selection]:
     points = _numeric_points(series)
     if not points:
-        raise ExtractorError("series has no numeric point")
-    out: list[Extraction] = []
+        raise SelectionError("series has no numeric point")
+    out: list[Selection] = []
     seen: set[int] = set()
     for step, value in points:
         if step is None:
-            raise ExtractorError("all: a numeric point carries no step index")
+            raise SelectionError("all: a numeric point carries no step index")
         if step in seen:
-            raise ExtractorError(f"all: duplicate step {step} in series")
+            raise SelectionError(f"all: duplicate step {step} in series")
         if not math.isfinite(value):
-            raise ExtractorError(f"all: non-finite value {value!r} at step {step}")
+            raise SelectionError(f"all: non-finite value {value!r} at step {step}")
         seen.add(step)
-        out.append(Extraction(step=step, at_step=step, value=value))
+        out.append(Selection(step=step, at_step=step, value=value))
     return out
 
 
-def _select_steps(series: Sequence[Point], steps: Sequence[int]) -> list[Extraction]:
+def _select_steps(series: Sequence[Point], steps: Sequence[int]) -> list[Selection]:
     by_step: dict[int, float] = {}
     for step, value in _numeric_points(series):
         if step is None:
             continue
         if step in by_step:
-            raise ExtractorError(f"steps: duplicate step {step} in series")
+            raise SelectionError(f"steps: duplicate step {step} in series")
         by_step[step] = value
-    out: list[Extraction] = []
+    out: list[Selection] = []
     for k in steps:
         if k not in by_step:
-            raise ExtractorError(f"steps: required step {k} missing from series")
+            raise SelectionError(f"steps: required step {k} missing from series")
         if not math.isfinite(by_step[k]):
-            raise ExtractorError(f"steps: non-finite value {by_step[k]!r} at required step {k}")
-        out.append(Extraction(step=k, at_step=k, value=by_step[k]))
+            raise SelectionError(f"steps: non-finite value {by_step[k]!r} at required step {k}")
+        out.append(Selection(step=k, at_step=k, value=by_step[k]))
     return out
 
 
-def select(series: Sequence[Point], steps: str | Sequence[int]) -> list[Extraction]:
+def select(series: Sequence[Point], steps: str | Sequence[int]) -> list[Selection]:
     """Apply a validated `steps` literal to a series."""
     if steps == "last":
         return _select_last(series)
@@ -138,4 +138,4 @@ def select(series: Sequence[Point], steps: str | Sequence[int]) -> list[Extracti
         return _select_all(series)
     if isinstance(steps, (list, tuple)):
         return _select_steps(series, steps)
-    raise ExtractorError(f'invalid steps {steps!r}; valid: "last", "all", or a list of step indices')
+    raise SelectionError(f'invalid steps {steps!r}; valid: "last", "all", or a list of step indices')

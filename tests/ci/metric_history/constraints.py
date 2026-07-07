@@ -15,7 +15,7 @@
   beyond the band fails (a rise passes).
 * The declaration literal is validated against :data:`CONSTRAINT_SCHEMA` at
   parse time; `evaluate_constraint` expects the normalized dict (defaults
-  filled). The literal as written is the spec's `rule_key`, part of the
+  filled). The literal as written is the spec's `constraint_key`, part of the
   stored value's identity (see register.py).
 """
 

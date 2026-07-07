@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from tests.ci.ci_register import CIRegistry, HWBackend, ut_parse_one_file
 from tests.ci.metric_history.constraints import evaluate_constraint
-from tests.ci.metric_history.extractors import ExtractorError, select
 from tests.ci.metric_history.register import parse_ci_gate_specs
+from tests.ci.metric_history.selection import SelectionError, select
 
 # --- step selection -----------------------------------------------------------
 
@@ -34,7 +34,7 @@ def test_selection_skips_bool_and_none_values():
 
 def test_last_non_finite_at_selected_point_errors():
     for bad in (float("nan"), float("inf")):
-        with pytest.raises(ExtractorError, match="non-finite"):
+        with pytest.raises(SelectionError, match="non-finite"):
             select([[0, 1.0], [1, bad]], "last")
 
 
@@ -47,18 +47,18 @@ def test_last_ignores_non_selected_non_finite():
 
 
 def test_all_non_finite_errors():
-    with pytest.raises(ExtractorError, match="all: non-finite value nan at step 1"):
+    with pytest.raises(SelectionError, match="all: non-finite value nan at step 1"):
         select([[0, 1.0], [1, float("nan")]], "all")
 
 
 def test_steps_non_finite_at_named_step_errors():
-    with pytest.raises(ExtractorError, match="non-finite value -inf at required step 1"):
+    with pytest.raises(SelectionError, match="non-finite value -inf at required step 1"):
         select([[0, 1.0], [1, float("-inf")]], [1])
 
 
 def test_empty_series_errors_clearly():
     for steps in ("last", "all", [0]):
-        with pytest.raises(ExtractorError):
+        with pytest.raises(SelectionError):
             select([], steps)
 
 
@@ -72,12 +72,12 @@ def test_all_fans_out_one_extraction_per_step():
 
 
 def test_all_null_step_errors():
-    with pytest.raises(ExtractorError, match="no step index"):
+    with pytest.raises(SelectionError, match="no step index"):
         select([[0, 1.0], [None, 2.0]], "all")
 
 
 def test_all_duplicate_step_errors():
-    with pytest.raises(ExtractorError, match="duplicate step"):
+    with pytest.raises(SelectionError, match="duplicate step"):
         select([[0, 1.0], [0, 2.0]], "all")
 
 
@@ -87,7 +87,7 @@ def test_steps_picks_named_steps():
 
 
 def test_steps_missing_named_step_errors():
-    with pytest.raises(ExtractorError, match="required step 3 missing"):
+    with pytest.raises(SelectionError, match="required step 3 missing"):
         select([[0, 0.001], [1, 0.5]], [3])
 
 
@@ -201,9 +201,9 @@ def test_declaration_keys_are_canonical_json(tmp_path):
         tmp_path,
     )
     fanned, reduced = parse_ci_gate_specs(path)
-    assert fanned.extractor_key == "[0,1]"
-    assert fanned.rule_key == '{"abs_floor":0.02}'
-    assert reduced.extractor_key == '"last"'
+    assert fanned.steps_key == "[0,1]"
+    assert fanned.constraint_key == '{"abs_floor":0.02}'
+    assert reduced.steps_key == '"last"'
 
 
 def test_declaration_keys_use_raw_literal_not_normalized(tmp_path):
@@ -220,8 +220,8 @@ def test_declaration_keys_use_raw_literal_not_normalized(tmp_path):
     )
     s = parse_ci_gate_specs(path)[0]
     assert s.constraint == {"rel": 0.2, "abs_floor": 0.0, "direction": "two_sided"}
-    assert s.rule_key == '{"rel":0.2}'
-    assert "direction" not in s.rule_key
+    assert s.constraint_key == '{"rel":0.2}'
+    assert "direction" not in s.constraint_key
 
 
 def test_abs_optional_rel_defaults_to_zero(tmp_path):

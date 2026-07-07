@@ -35,7 +35,7 @@ PROVENANCE = RunProvenance(
 )
 
 # Canonical-JSON declaration keys, as the parser would derive them from a
-# test file's literal extractor / constraint dicts.
+# test file's literal steps / constraint declarations.
 LAST_EXTRACTOR = '{"name":"last"}'
 STEPS_EXTRACTOR = '{"name":"steps","steps":[0,1]}'
 REL_RULE = '{"name":"rel","rel":0.2}'

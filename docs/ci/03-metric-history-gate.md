@@ -84,8 +84,8 @@ flowchart TD
 
     subgraph eval_sg["evaluate — _evaluate_spec, once per spec"]
         lookup["find the spec's metric in the record<br>series = by_metric.get(spec.metric_key)"]
-        pick["pick the value(s) to judge — ×N, one per selected step<br>select(series, steps) → list of Extraction (value, step)"]
-        coord(["one comparison coordinate (data) — the key this value's history<br>is stored under: (metric_key, extractor_key, rule_key, step)<br>= the declaration's steps/constraint literals as canonical JSON + the point (see Identity)"])
+        pick["pick the value(s) to judge — ×N, one per selected step<br>select(series, steps) → list of Selection (value, step)"]
+        coord(["one comparison coordinate (data) — the key this value's history<br>is stored under: (metric_key, steps_key, constraint_key, step)<br>= the declaration's steps/constraint literals as canonical JSON + the point (see Identity)"])
         err["outcome: ERROR — judged, never skipped<br>hard = ERROR, historical = INACTIVE, coordinate untrusted"]
         hard["HARD check — absolute safety limit, works with zero history;<br>on when the spec declares hard_ref<br>evaluate_constraint(constraint, value, ref = hard_ref) → PASS &#124; FAIL"]
         hardoff["outcome: HARD = INACTIVE — hard_ref omitted, not a failure"]
@@ -95,7 +95,7 @@ flowchart TD
         result(["one verdict per coordinate (data)<br>MetricGateResult: hard status + historical status + reason"])
         lookup -- "metric missing from the record" --> err
         lookup --> pick
-        pick -- "ExtractorError: empty series ·<br>required step missing · non-finite value" --> err
+        pick -- "SelectionError: empty series ·<br>required step missing · non-finite value" --> err
         pick --> coord
         coord --> hard
         coord --> histq
@@ -123,7 +123,7 @@ flowchart TD
     class minimal planned;
 ```
 
-Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises from a historical cold start or from a spec that declares no `hard_ref`. *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the value coordinate `(metric_key, extractor_key, rule_key, step)` are defined in the Identity section above.
+Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises from a historical cold start or from a spec that declares no `hard_ref`. *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the value coordinate `(metric_key, steps_key, constraint_key, step)` are defined in the Identity section above.
 
 ## Storage: two backends, two tables
 
@@ -161,7 +161,7 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 | DB connection            | `NEON_DATABASE_URL` (CI secret)                                                        |
 | Storage contract         | `tests/ci/metric_history/storage/store.py` (+ `storage/sqlite_store.py` offline, `storage/neon_store.py` prod) |
 | Gate logic               | `tests/ci/metric_history/gate.py`                                                      |
-| Step selection           | `tests/ci/metric_history/extractors.py`                                        |
+| Step selection           | `tests/ci/metric_history/selection.py`                                        |
 | Constraints              | `tests/ci/metric_history/constraints.py`                                               |
 | Collection backend       | `miles/utils/tracking_utils/ci_history.py`                                             |
 | Declare a gate on a test | `register_ci_gate(metric_key=..., steps=..., constraint={...}[, hard_ref=...])` (from `tests.ci.metric_history`) in the test file |

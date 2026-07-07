@@ -38,8 +38,8 @@ from enum import Enum
 
 from tests.ci.ci_register import CIRegistry, HWBackend, ut_parse_one_file
 from tests.ci.metric_history.constraints import evaluate_constraint
-from tests.ci.metric_history.extractors import ExtractorError, select
 from tests.ci.metric_history.register import CiGateSpec, parse_ci_gate_specs
+from tests.ci.metric_history.selection import SelectionError, select
 from tests.ci.metric_history.storage import MetricHistoryStore
 
 # Maps the parsed HWBackend enum to the lowercase backend string the store keys
@@ -57,25 +57,25 @@ class GateStatus(Enum):
     PASS = "pass"
     FAIL = "fail"
     INACTIVE = "inactive"  # check not applicable: historical cold start, or hard with no hard_ref
-    ERROR = "error"  # the metric could not be extracted (missing/empty series, bad step)
+    ERROR = "error"  # the metric could not be selected (missing/empty series, bad step)
 
 
 @dataclass(frozen=True)
 class MetricGateResult:
     """Per-coordinate verdict.
 
-    `(metric_key, extractor_key, rule_key, step)` is the baseline coordinate;
-    `step` is None only when extraction errored (there is no coordinate to
+    `(metric_key, steps_key, constraint_key, step)` is the baseline coordinate;
+    `step` is None only when selection errored (there is no coordinate to
     name), `-1` for a whole-series reduction like `steps="last"`. `at_step` is the
     step the value actually came from, for reporting. `current` is the
-    extracted scalar, or None when extraction errored. `baseline_mean` is the
+    extracted scalar, or None when selection errored. `baseline_mean` is the
     mean of trusted history when the historical gate is active, else None.
     `trusted` is True iff every active check here passed.
     """
 
     metric_key: str
-    extractor_key: str
-    rule_key: str
+    steps_key: str
+    constraint_key: str
     step: int | None
     at_step: int | None
     current: float | None
@@ -169,8 +169,8 @@ def _registry_for(filename: str) -> CIRegistry:
 def _error_result(spec: CiGateSpec, reason: str) -> MetricGateResult:
     return MetricGateResult(
         metric_key=spec.metric_key,
-        extractor_key=spec.extractor_key,
-        rule_key=spec.rule_key,
+        steps_key=spec.steps_key,
+        constraint_key=spec.constraint_key,
         step=None,
         at_step=None,
         current=None,
@@ -198,12 +198,12 @@ def _evaluate_spec(
         return [_error_result(spec, f"required metric {spec.metric_key!r} missing from record")]
 
     try:
-        extractions = select(series, spec.steps)
-    except ExtractorError as e:
+        selections = select(series, spec.steps)
+    except SelectionError as e:
         return [_error_result(spec, f"metric {spec.metric_key!r} (steps={spec.steps!r}): {e}")]
 
     results: list[MetricGateResult] = []
-    for ex in extractions:
+    for ex in selections:
         reasons: list[str] = []
         if spec.hard_ref is None:
             hard_status = GateStatus.INACTIVE
@@ -219,8 +219,8 @@ def _evaluate_spec(
             backend,
             suite,
             spec.metric_key,
-            spec.extractor_key,
-            spec.rule_key,
+            spec.steps_key,
+            spec.constraint_key,
             ex.step,
             test_file_hash,
             history_limit,
@@ -246,8 +246,8 @@ def _evaluate_spec(
         results.append(
             MetricGateResult(
                 metric_key=spec.metric_key,
-                extractor_key=spec.extractor_key,
-                rule_key=spec.rule_key,
+                steps_key=spec.steps_key,
+                constraint_key=spec.constraint_key,
                 step=ex.step,
                 at_step=ex.at_step,
                 current=ex.value,
