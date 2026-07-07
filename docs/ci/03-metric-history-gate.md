@@ -85,6 +85,16 @@ flowchart TD
         minimal -. "same parse; missing fields filled from a<br>per-metric_key defaults table (PLANNED)" .-> spec
     end
 
+    subgraph capture_sg["capture & merge — per attempt, harness-side"]
+        snaps(["per-process JSONL snapshots (data — one record subdir per attempt)<br>atomically rewritten during the run; non-finite → string markers"])
+        passq{"did the test attempt pass?"}
+        drop["outcome: records discarded — no merge, no gate, no write;<br>a retried test is judged on its passing attempt's own records"]
+        merge["merge the PASSING attempt's files into the merged per-run record<br>same metric key in several processes: series are concatenated, then sorted by step<br>ci_utils.run_unittest_files"]
+        snaps --> passq
+        passq -- "failed" --> drop
+        passq -- "passed" --> merge
+    end
+
     record(["the run's captured metrics (data — one file per run, parsed once)<br>merged per-run JSONL record: raw per-step log() values,<br>capture whitelist TARGET_METRIC_KEYS only<br>parse_merged_record → {metric_key: series}"])
 
     subgraph eval_sg["evaluate — _evaluate_spec, once per spec"]
@@ -115,6 +125,7 @@ flowchart TD
     end
 
     spec --> lookup
+    merge --> record
     record --> lookup
 
     trust["run-level verdict — after all specs, once per run<br>run trusted ⇔ every coordinate: hard ∈ {PASS, INACTIVE}<br>and historical ∈ {PASS, INACTIVE}<br>(what the verdict triggers: see 'Trust, cleanup, who writes')"]
