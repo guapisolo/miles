@@ -1,9 +1,9 @@
 # doc-dev: docs/ci/03-metric-history-gate.md
 """Offline regression gate for the CI metric-history system.
 
-* Consumes one merged per-run NDJSON record plus the `register_ci_gate` specs
+* Consumes one merged per-run JSONL record plus the `register_ci_gate` specs
   declared in the test file, and decides whether the run is *trusted*.
-* The record is the passed attempt's merged NDJSON; a later round picks which
+* The record is the passed attempt's merged JSONL; a later round picks which
   attempt.
 * Each spec pairs a STEPS selection (which value(s) to pull: `"last"` /
   `"all"` / a step list) with a CONSTRAINT (the pass/fail rule). `"all"` and a
@@ -130,7 +130,7 @@ def _decode_value(value: object) -> object:
 
 
 def parse_merged_record(record_path: str) -> dict[str, list]:
-    """Read a merged NDJSON record into `{metric_key: series}`.
+    """Read a merged JSONL record into `{metric_key: series}`.
 
     Each line is `{"metric": key, "series": [[step, value], ...]}`. Non-finite
     values arrive as the capture-side string markers and are decoded back to
@@ -272,7 +272,7 @@ def evaluate_gate(
 
     `test_filename` is the repo-relative test path; its CIRegistry supplies the
     (backend, suite) identity and its contents the `test_file_hash`.
-    `merged_record_path` is the merged per-run NDJSON of the passed attempt --
+    `merged_record_path` is the merged per-run JSONL of the passed attempt --
     the gate never globs a base directory to find it. `store` answers the
     baseline query and nothing else (no writes, no connection opened here). A
     fanned-out spec contributes one MetricGateResult per step.

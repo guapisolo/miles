@@ -2,7 +2,7 @@
 
 These run fully offline against an in-memory :class:`SQLiteMetricHistoryStore`
 and on-disk fixture files (a test file declaring register_ci_gate + a merged
-NDJSON record). No network, no real DB connection opened by the gate, no wandb.
+JSONL record). No network, no real DB connection opened by the gate, no wandb.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def _write_test_file(tmp_path: Path, gate_lines: str, *, name: str = "test_e2e_f
     return str(p)
 
 
-def _write_record(tmp_path: Path, by_metric: dict[str, list], *, name: str = "merged.ndjson") -> str:
+def _write_record(tmp_path: Path, by_metric: dict[str, list], *, name: str = "merged.jsonl") -> str:
     p = tmp_path / name
     with open(p, "w", encoding="utf-8") as f:
         for metric, series in by_metric.items():
@@ -588,11 +588,11 @@ def test_higher_is_worse_drop_passes_increase_fails(tmp_path, store):
         """,
     )
     # A drop well below ref must pass (one-sided).
-    low = _write_record(tmp_path, {"train/grad_norm": [[0, 0.1]]}, name="low.ndjson")
+    low = _write_record(tmp_path, {"train/grad_norm": [[0, 0.1]]}, name="low.jsonl")
     assert evaluate_gate(test_file, low, store).metrics[0].hard_status == GateStatus.PASS
 
     # A rise beyond band = 0.10*2.0 = 0.2 must fail.
-    high = _write_record(tmp_path, {"train/grad_norm": [[0, 3.0]]}, name="high.ndjson")
+    high = _write_record(tmp_path, {"train/grad_norm": [[0, 3.0]]}, name="high.jsonl")
     assert evaluate_gate(test_file, high, store).metrics[0].hard_status == GateStatus.FAIL
 
 
@@ -606,11 +606,11 @@ def test_lower_is_worse_rise_passes_drop_fails(tmp_path, store):
                          constraint={"rel": 0.10, "direction": "lower_is_worse"})
         """,
     )
-    high = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.95]]}, name="high.ndjson")
+    high = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.95]]}, name="high.jsonl")
     assert evaluate_gate(test_file, high, store).metrics[0].hard_status == GateStatus.PASS
 
     # Drop beyond band = 0.10*0.80 = 0.08 -> 0.70 fails.
-    low = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.70]]}, name="low.ndjson")
+    low = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.70]]}, name="low.jsonl")
     assert evaluate_gate(test_file, low, store).metrics[0].hard_status == GateStatus.FAIL
 
 
