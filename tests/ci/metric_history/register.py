@@ -276,9 +276,9 @@ def parse_ci_gate_specs(filename: str) -> list[CiGateSpec]:
     ValueError naming the file and field.
 
     Two specs may still map to the same baseline coordinate (identical
-    steps + constraint literals, differing only in ``hard_ref`` / policy
-    metadata). The harness writer (``tests.ci.ci_utils.run_gate_hook``) does
-    not dedupe ``metric_values`` by coordinate; such a run writes one row
+    steps + constraint literals, differing only in `hard_ref` / policy
+    metadata). The harness writer (`tests.ci.ci_utils.run_gate_hook`) does
+    not dedupe `metric_values` by coordinate; such a run writes one row
     per spec.
     """
     with open(filename) as f:

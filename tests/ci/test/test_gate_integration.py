@@ -1,16 +1,16 @@
 """Integration tests for wiring the regression gate into the CI harness.
 
 These exercise the helpers and the gate hook extracted into
-``tests.ci.ci_utils`` directly -- no real DB, no real CUDA run. The store is an
+`tests.ci.ci_utils` directly -- no real DB, no real CUDA run. The store is an
 in-memory :class:`SQLiteMetricHistoryStore`; the GitHub environment is
 monkeypatched.
 
 Covered:
 
 * passing-attempt selection: only the PASSED attempt's record feeds the gate.
-* nightly write: a ``schedule`` event makes the hook persist a baseline row
-  whose ``trusted`` flag comes from the verdict.
-* PR no-write: a ``pull_request`` event writes no row and emits a shadow
+* nightly write: a `schedule` event makes the hook persist a baseline row
+  whose `trusted` flag comes from the verdict.
+* PR no-write: a `pull_request` event writes no row and emits a shadow
   verdict string.
 * never-blocks: a not-trusted verdict, and a gate that raises, both leave the
   test's pass/fail untouched.

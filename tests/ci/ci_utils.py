@@ -37,9 +37,9 @@ def _attempt_record_dir(base_dir: str, filename: str, attempt: int) -> str:
 
 
 def _merge_attempt_records(attempt_dir: str, merged_path: str) -> None:
-    """Merge every per-process NDJSON file under ``attempt_dir`` into one record.
+    """Merge every per-process NDJSON file under `attempt_dir` into one record.
 
-    Each per-process file holds lines of ``{"metric": key, "series": [[step, value], ...]}``.
+    Each per-process file holds lines of `{"metric": key, "series": [[step, value], ...]}`.
     The same metric key may appear across processes (driver + actors); concatenate
     their series and sort by step so the merged per-run record is coherent. Runs
     only for the PASSING attempt, right before the gate hook consumes the result.
@@ -185,12 +185,12 @@ def write_github_step_summary(content: str):
 def is_nightly(labels: set[str] | None = None) -> bool:
     """True when this run should write trusted baselines.
 
-    A run is a baseline-writing nightly when the GitHub event is ``schedule`` or
-    when a ``nightly`` label is present. ``labels`` must be the RAW PR labels:
-    ``nightly`` is not a ``run-ci-<domain>`` label, so ``strip_run_ci_prefix``
+    A run is a baseline-writing nightly when the GitHub event is `schedule` or
+    when a `nightly` label is present. `labels` must be the RAW PR labels:
+    `nightly` is not a `run-ci-<domain>` label, so `strip_run_ci_prefix`
     drops it -- passing *stripped* labels here would make the label path dead.
     This is the harness signal for "this run produces baselines", distinct from
-    ``args.nightly`` / ``NIGHTLY_SUITES`` which select which *tests* run.
+    `args.nightly` / `NIGHTLY_SUITES` which select which *tests* run.
     """
     if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
         return True
@@ -200,10 +200,10 @@ def is_nightly(labels: set[str] | None = None) -> bool:
 
 
 def _gate_pr_number_from_env() -> int | None:
-    """Parse the PR number out of ``GITHUB_COMMIT_NAME`` (``{sha}_{pr|non-pr}``).
+    """Parse the PR number out of `GITHUB_COMMIT_NAME` (`{sha}_{pr|non-pr}`).
 
-    The workflow sets ``GITHUB_COMMIT_NAME = {github.sha}_{pr_number||'non-pr'}``.
-    A push / schedule run carries the ``non-pr`` sentinel and yields None.
+    The workflow sets `GITHUB_COMMIT_NAME = {github.sha}_{pr_number||'non-pr'}`.
+    A push / schedule run carries the `non-pr` sentinel and yields None.
     """
     commit_name = os.environ.get("GITHUB_COMMIT_NAME")
     if not commit_name or "_" not in commit_name:
@@ -218,8 +218,8 @@ def _gate_pr_number_from_env() -> int | None:
 
 
 def _gate_commit_sha_from_env() -> str:
-    """The run's commit sha: prefer ``GITHUB_SHA``; fall back to the sha encoded
-    in ``GITHUB_COMMIT_NAME`` (``{sha}_{pr|non-pr}``); else empty string."""
+    """The run's commit sha: prefer `GITHUB_SHA`; fall back to the sha encoded
+    in `GITHUB_COMMIT_NAME` (`{sha}_{pr|non-pr}`); else empty string."""
     sha = os.environ.get("GITHUB_SHA")
     if sha:
         return sha
@@ -242,10 +242,10 @@ def _gate_int_env(name: str) -> int | None:
 def gate_provenance_from_env() -> RunProvenance:
     """Build a :class:`RunProvenance` from the GitHub Actions environment.
 
-    Reads ``GITHUB_SHA`` (or the sha embedded in ``GITHUB_COMMIT_NAME``),
-    ``GITHUB_RUN_ID``, ``GITHUB_RUN_ATTEMPT``, ``GITHUB_EVENT_NAME``,
-    ``GITHUB_REF``, and the PR number embedded in ``GITHUB_COMMIT_NAME``. Missing
-    values become ``None`` (run_id / attempt / pr_number) or an empty string
+    Reads `GITHUB_SHA` (or the sha embedded in `GITHUB_COMMIT_NAME`),
+    `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `GITHUB_EVENT_NAME`,
+    `GITHUB_REF`, and the PR number embedded in `GITHUB_COMMIT_NAME`. Missing
+    values become `None` (run_id / attempt / pr_number) or an empty string
     (commit_sha) rather than raising -- provenance is audit metadata, never part
     of the baseline key.
     """
@@ -262,7 +262,7 @@ def gate_provenance_from_env() -> RunProvenance:
 def build_store_from_env():
     """Return the metric-history store for this environment, or None.
 
-    A hosted store is used only when ``NEON_DATABASE_URL`` is set (CI with the
+    A hosted store is used only when `NEON_DATABASE_URL` is set (CI with the
     secret inherited). Locally / in dev the var is unset and this returns None,
     which disables the gate hook entirely -- no store, no evaluation, no writes.
 
@@ -302,8 +302,8 @@ def run_gate_hook(
     """Evaluate the history gate for one passed CUDA test and act on the verdict.
 
     NIGHTLY-marked run -> persist the run as a trusted/untrusted baseline via
-    ``store.write_run``. ORDINARY PR run -> never write; log a shadow verdict and
-    append it to ``GITHUB_STEP_SUMMARY``.
+    `store.write_run`. ORDINARY PR run -> never write; log a shadow verdict and
+    append it to `GITHUB_STEP_SUMMARY`.
 
     The entire body is wrapped: any gate or store error is caught and logged and
     NEVER propagates, so the gate verdict can never change the test's pass/fail

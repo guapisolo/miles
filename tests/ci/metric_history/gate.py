@@ -4,7 +4,7 @@
 * Consumes one merged per-run JSONL record plus the `register_ci_gate` specs
   declared in the test file, and decides whether the run is *trusted*.
 * The record is the passing attempt's merged JSONL, selected and merged by the
-  harness caller (``tests.ci.ci_utils``) before the gate is invoked.
+  harness caller (`tests.ci.ci_utils`) before the gate is invoked.
 * Each spec pairs a STEPS selection (which value(s) to pull: `"last"` /
   `"all"` / a step list) with a CONSTRAINT (the pass/fail rule). `"all"` and a
   step list fan out to one comparison coordinate per step, each judged only
@@ -245,22 +245,22 @@ def evaluate_gate(
 ) -> GateResult:
     """Evaluate every `register_ci_gate` spec in `test_filename` against a record.
 
-    ``test_filename`` is the repo-relative test path; it supplies the
-    ``test_file_hash`` (sha256 of its contents). Gate identity
-    (test_path/backend/suite) comes from ``registry`` when the real harness
-    passes one -- it has already chosen which ``register_*_ci()`` call applies,
-    so a file with several (e.g. ``register_cuda_ci`` + ``register_rocm_ci``)
-    is handled without reparsing. When ``registry`` is None and the file has
-    gate specs, identity is reparsed via ``_registry_for`` (the isolated
+    `test_filename` is the repo-relative test path; it supplies the
+    `test_file_hash` (sha256 of its contents). Gate identity
+    (test_path/backend/suite) comes from `registry` when the real harness
+    passes one -- it has already chosen which `register_*_ci()` call applies,
+    so a file with several (e.g. `register_cuda_ci` + `register_rocm_ci`)
+    is handled without reparsing. When `registry` is None and the file has
+    gate specs, identity is reparsed via `_registry_for` (the isolated
     unit-test convenience, which still refuses a no-register or ambiguous file).
 
     A file with no gate specs is vacuously trusted and does NOT require a unique
-    registry: identity is taken from ``registry`` if given, else filled
-    best-effort from ``test_filename`` without raising on a dual-register or
+    registry: identity is taken from `registry` if given, else filled
+    best-effort from `test_filename` without raising on a dual-register or
     no-register file.
 
-    ``merged_record_path`` is the merged per-run JSONL of the passed attempt --
-    the gate never globs a base directory to find it. ``store`` answers the
+    `merged_record_path` is the merged per-run JSONL of the passed attempt --
+    the gate never globs a base directory to find it. `store` answers the
     baseline query and nothing else (no writes, no connection opened here). A
     fanned-out spec contributes one MetricGateResult per step.
     """

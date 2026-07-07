@@ -6,10 +6,10 @@
 * Mirrors :class:`~tests.ci.metric_history.storage.sqlite_store.SQLiteMetricHistoryStore`
   semantics exactly -- same write surface, same authoritative baseline query --
   so swapping backends changes no gate logic.
-* ``recent_trusted_values`` uses the authoritative baseline query verbatim
-  (plain equality on ``metric_key`` / ``steps_key`` / ``constraint_key`` /
-  ``step``), so its results match the SQLite backend's.
-* The DSN comes from the ``NEON_DATABASE_URL`` environment variable (a CI
+* `recent_trusted_values` uses the authoritative baseline query verbatim
+  (plain equality on `metric_key` / `steps_key` / `constraint_key` / `step`),
+  so its results match the SQLite backend's.
+* The DSN comes from the `NEON_DATABASE_URL` environment variable (a CI
   secret, provisioned out-of-band) unless one is passed explicitly. Credentials
   are never embedded and the host is never hardcoded.
 * The schema (the two tables and the application role) is provisioned
@@ -19,8 +19,8 @@
 
 Caveats:
 
-* Keep the ``psycopg`` import lazy inside :meth:`_connect`, never at module
-  load. The package ``__init__`` imports this module unconditionally, so a
+* Keep the `psycopg` import lazy inside :meth:`_connect`, never at module
+  load. The package `__init__` imports this module unconditionally, so a
   top-level driver import would make the whole metric-history package
   un-importable where the driver is not installed (offline test runs, the
   SQLite-only path); deferring it also lets the live-Postgres smoke test skip

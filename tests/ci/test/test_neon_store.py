@@ -3,11 +3,11 @@
 Two layers:
 
 * SQL/transaction unit tests that run WITHOUT a live database. They monkeypatch
-  ``psycopg.connect`` with a fake connection/cursor that records the executed
+  `psycopg.connect` with a fake connection/cursor that records the executed
   SQL and params plus commit/rollback calls, then assert the store issues the
   right statements within a single transaction.
-* A live-Postgres smoke test, guarded by ``@pytest.mark.skipif`` on the
-  ``MILES_TEST_POSTGRES_DSN`` env var. It provisions the two tables and round-trips
+* A live-Postgres smoke test, guarded by `@pytest.mark.skipif` on the
+  `MILES_TEST_POSTGRES_DSN` env var. It provisions the two tables and round-trips
   write_run -> recent_trusted_values -> mark_untrusted against a real server. It
   skips cleanly offline (no network, no import of an absent driver, no failure).
 """
@@ -120,7 +120,7 @@ class _FakeConn:
 
 @pytest.fixture
 def fake_conn(monkeypatch):
-    """Install a fake ``psycopg`` module whose ``connect`` returns one shared
+    """Install a fake `psycopg` module whose `connect` returns one shared
     fake connection, and hand that connection to the test."""
     conn = _FakeConn()
     fake_psycopg = types.ModuleType("psycopg")
