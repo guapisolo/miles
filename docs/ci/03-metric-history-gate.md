@@ -56,6 +56,44 @@ register_ci_gate(metric_key="train/train_rollout_logprob_abs_diff")
 #   defaults table beside the parser (register.py); hard_ref already optional
 ```
 
+## Roles & data flow
+
+**Goal:** split the pipeline into three decoupled roles — collector, harness, gate library — connected only by JSONL files and one store, so the training process never blocks on gating and the gate stays a pure, read-only library.
+
+Three roles, connected only by JSONL files and one DB — there is no long-lived "metrics manager"; the pipeline is per-test, driven by the harness:
+
+- **Collector (training process)** — `miles.utils.tracking_utils.TrackingManager` fans every `log()` out to all enabled backends; `WandbBackend` and `CiHistoryBackend` are parallel siblings in that registry, so wandb receives the same data independently and nothing downstream ever reads it back. `CiHistoryBackend` snapshots the fixed metric whitelist into per-process JSONL files under the harness-assigned record dir (`MILES_CI_GATE_RECORD_DIR`, injected by the CI harness; no CLI flag).
+- **Harness / finalizer (CI runner)** — `run_suite.py` builds the store from env (`NEON_DATABASE_URL`, a CI secret), resolves the nightly signal + provenance, and allocates the record dir (CUDA suites only); `ci_utils.run_unittest_files` hands each attempt its own record subdir and merges the PASSING attempt's per-process records into the merged per-run JSONL record (a metric key appearing in several processes gets its series concatenated and sorted by step); `ci_utils.run_gate_hook` then assigns identity, runs the gate, and acts on the verdict.
+- **Gate library (pure functions, read-only against storage)** — `register.py` parses `register_ci_gate` declarations out of the test file's AST at evaluation time (the call itself is a runtime no-op; nothing registers at runtime), `selection.py` picks comparison coordinates, `constraints.py` judges pass/fail, `gate.py:evaluate_gate` composes them over the store's baseline read.
+
+One CUDA test run, end to end:
+
+```mermaid
+flowchart TD
+    subgraph training_process["training process (miles core)"]
+        training_code["training code"] -- "log()" --> tracking_manager["TrackingManager"]
+        tracking_manager -- "fan-out (parallel)" --> wandb_backend["WandbBackend<br>write-only sink, never read back"]
+        tracking_manager --> ci_history_backend["CiHistoryBackend"]
+    end
+    ci_history_backend -- "per-process JSONL snapshots<br>(whitelist only; non-finite → string markers)" --> run_unittest_files
+    subgraph ci_harness["CI harness (tests/ci)"]
+        run_suite["run_suite.py<br>store from env · nightly signal · provenance · record dir"] --> run_unittest_files["run_unittest_files<br>per-attempt record subdir; merge the PASSING attempt"]
+        run_unittest_files --> run_gate_hook["run_gate_hook<br>assign identity → run the gate → act on the verdict"]
+    end
+    gate_specs["register_ci_gate specs in the test file<br>(runtime no-op)"] -. "AST parse" .-> evaluate_gate
+    run_gate_hook --> evaluate_gate
+    subgraph gate_library["gate library (pure, read-only against storage)"]
+        evaluate_gate["register → selection → constraints → evaluate_gate"]
+    end
+    evaluate_gate -- "recent_trusted_values (baseline read)" --> metric_store
+    run_gate_hook -- "nightly: write_run(values + trusted)<br>ordinary PR: shadow verdict → log + GITHUB_STEP_SUMMARY, no write" --> metric_store
+    subgraph storage
+        metric_store[("MetricHistoryStore<br>SQLite offline · Neon CI/prod")]
+    end
+```
+
+Capture is runtime behavior inside the training process, so it never blocks the run on metric *content*: a non-finite value (`NaN` / `±Inf`) is real evidence of the run and is recorded faithfully, encoded in the JSONL as the string marker `"NaN"` / `"Infinity"` / `"-Infinity"` so every line stays strict JSON (the gate-side reader decodes markers back to floats). Judging non-finite values is the gate's job, not the recorder's. A wrong *type* (non-int/float) is an authoring bug, not run evidence, and still fails loud at capture.
+
 ## The gate: two layers
 
 **Goal:** judge every declared coordinate twice — a hard absolute limit that works with zero history, and a historical drift check against the coordinate's own trusted past — so a fresh baseline can seed itself while slow regressions still get caught.
@@ -171,44 +209,6 @@ Chart key: rectangle = a step or check; rounded box = a data artifact; diamond =
 - A run is `trusted` iff it passed **all** active gates. A drifting run is still recorded, with `trusted = false`, so it can't drag the baseline. A test that fails then passes on **retry** is gated on its passing attempt's metrics and trusted normally — needing a retry is not itself a trust penalty.
 - **Clean a bad point**: `mark_untrusted` = `UPDATE runs SET trusted = false` on the run. The next gate read excludes it immediately — no rebaseline, no row deletion.
 - **Nightly-marked runs write baselines** — either the `schedule` cron (on `main`, post-merge) **or** a PR carrying the `nightly` label (the PR's own pre-merge code). Provenance (`event_name`, `pr_number`) records which, so a label-PR baseline is distinguishable from a post-merge one and can be `mark_untrusted`'d if it turns out bad. Ordinary (unlabeled) PR runs are read-only and only shadow.
-
-## Roles & data flow
-
-**Goal:** split the pipeline into three decoupled roles — collector, harness, gate library — connected only by JSONL files and one store, so the training process never blocks on gating and the gate stays a pure, read-only library.
-
-Three roles, connected only by JSONL files and one DB — there is no long-lived "metrics manager"; the pipeline is per-test, driven by the harness:
-
-- **Collector (training process)** — `miles.utils.tracking_utils.TrackingManager` fans every `log()` out to all enabled backends; `WandbBackend` and `CiHistoryBackend` are parallel siblings in that registry, so wandb receives the same data independently and nothing downstream ever reads it back. `CiHistoryBackend` snapshots the fixed metric whitelist into per-process JSONL files under the harness-assigned record dir (`MILES_CI_GATE_RECORD_DIR`, injected by the CI harness; no CLI flag).
-- **Harness / finalizer (CI runner)** — `run_suite.py` builds the store from env (`NEON_DATABASE_URL`, a CI secret), resolves the nightly signal + provenance, and allocates the record dir (CUDA suites only); `ci_utils.run_unittest_files` hands each attempt its own record subdir and merges the PASSING attempt's per-process records into the merged per-run JSONL record (a metric key appearing in several processes gets its series concatenated and sorted by step); `ci_utils.run_gate_hook` then assigns identity, runs the gate, and acts on the verdict.
-- **Gate library (pure functions, read-only against storage)** — `register.py` parses `register_ci_gate` declarations out of the test file's AST at evaluation time (the call itself is a runtime no-op; nothing registers at runtime), `selection.py` picks comparison coordinates, `constraints.py` judges pass/fail, `gate.py:evaluate_gate` composes them over the store's baseline read.
-
-One CUDA test run, end to end:
-
-```mermaid
-flowchart TD
-    subgraph training_process["training process (miles core)"]
-        training_code["training code"] -- "log()" --> tracking_manager["TrackingManager"]
-        tracking_manager -- "fan-out (parallel)" --> wandb_backend["WandbBackend<br>write-only sink, never read back"]
-        tracking_manager --> ci_history_backend["CiHistoryBackend"]
-    end
-    ci_history_backend -- "per-process JSONL snapshots<br>(whitelist only; non-finite → string markers)" --> run_unittest_files
-    subgraph ci_harness["CI harness (tests/ci)"]
-        run_suite["run_suite.py<br>store from env · nightly signal · provenance · record dir"] --> run_unittest_files["run_unittest_files<br>per-attempt record subdir; merge the PASSING attempt"]
-        run_unittest_files --> run_gate_hook["run_gate_hook<br>assign identity → run the gate → act on the verdict"]
-    end
-    gate_specs["register_ci_gate specs in the test file<br>(runtime no-op)"] -. "AST parse" .-> evaluate_gate
-    run_gate_hook --> evaluate_gate
-    subgraph gate_library["gate library (pure, read-only against storage)"]
-        evaluate_gate["register → selection → constraints → evaluate_gate"]
-    end
-    evaluate_gate -- "recent_trusted_values (baseline read)" --> metric_store
-    run_gate_hook -- "nightly: write_run(values + trusted)<br>ordinary PR: shadow verdict → log + GITHUB_STEP_SUMMARY, no write" --> metric_store
-    subgraph storage
-        metric_store[("MetricHistoryStore<br>SQLite offline · Neon CI/prod")]
-    end
-```
-
-Capture is runtime behavior inside the training process, so it never blocks the run on metric *content*: a non-finite value (`NaN` / `±Inf`) is real evidence of the run and is recorded faithfully, encoded in the JSONL as the string marker `"NaN"` / `"Infinity"` / `"-Infinity"` so every line stays strict JSON (the gate-side reader decodes markers back to floats). Judging non-finite values is the gate's job, not the recorder's. A wrong *type* (non-int/float) is an authoring bug, not run evidence, and still fails loud at capture.
 
 ## Rollout
 
