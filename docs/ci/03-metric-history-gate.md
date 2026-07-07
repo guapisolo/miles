@@ -19,14 +19,14 @@ The gate compares a number only against earlier numbers of the same kind, from t
 
 The store's baseline query keys on exactly these (plus a `limit` for how many recent points to read): `recent_trusted_values(test_path, backend, suite, metric_key, steps_key, constraint_key, step, test_file_hash, limit)`.
 
-## Extractor & constraint: what is compared, and by which rule
+## Steps & constraint: what is compared, and by which rule
 
-A gate declaration composes an extractor and a constraint, each a literal dict `{"name": ..., <params>}` validated at parse time:
+A gate declaration composes a step selection and a constraint, both validated at parse time:
 
-- **Extractor** — which value(s) of the metric's series to compare; a step-scoped extractor fans out to one comparison per step, judged against that step's own history.
-- **Constraint** — whether one value passes against a reference: a tolerance band plus a direction.
+- **`steps`** — which value(s) of the metric's series to compare: `"last"` (the series' last point, a whole-series reduction), `"all"` (every step present), or a list of step indices. `"all"` and a step list fan out to one comparison per step, judged against that step's own history.
+- **Constraint** — whether one value passes against a reference: a tolerance band plus a direction; a literal dict `{"name": ..., <params>}`.
 
-The authoritative names and params are the schema tables beside the functions (paths in the Map below); the doc does not duplicate them. A missing/empty series, a missing required step, or a non-finite value (`NaN` / `±Inf`) at a selected coordinate is an ERROR verdict, never a skip — non-finite is judged here, not silently dropped (capture records it faithfully as a strict-JSON string marker the gate-side reader decodes; `write_run` refuses it at the DB boundary).
+The authoritative constraint names and params are the schema tables beside the functions (paths in the Map below); the doc does not duplicate them. A missing/empty series, a missing required step, or a non-finite value (`NaN` / `±Inf`) at a selected coordinate is an ERROR verdict, never a skip — non-finite is judged here, not silently dropped (capture records it faithfully as a strict-JSON string marker the gate-side reader decodes; `write_run` refuses it at the DB boundary).
 
 A declaration sits at top level of the test file, next to its CI registration — `register_*_ci` decides where the test runs, `register_ci_gate` what is judged after it passes. A gate declaration alone does nothing: an unregistered file is never collected.
 
@@ -39,16 +39,16 @@ register_cuda_ci(est_time=300, suite="stage-c-8-gpu-h100")
 register_ci_gate(
     metric_key="train/ppo_kl",                     # must be a captured key (whitelist)
     hard_ref=0.05,                                 # hard gate: absolute limit (optional — omit ⇒ hard layer INACTIVE)
-    extractor={"name": "steps", "steps": [0, 1]},  # judge steps 0 and 1, each against its own history
+    steps=[0, 1],                                  # judge steps 0 and 1, each against its own history
     constraint={"name": "abs", "abs_floor": 0.02, "direction": "higher_is_worse"},
 )
 ```
 
-**PLANNED, not implemented** — for the standard metrics the declaration shrinks to one line; today this is a parse error (extractor and constraint are still required):
+**PLANNED, not implemented** — for the standard metrics the declaration shrinks to one line; today this is a parse error (steps and constraint are still required):
 
 ```python
 register_ci_gate(metric_key="train/train_rollout_logprob_abs_diff")
-# ≡ the full form above: extractor + constraint filled from the per-metric_key
+# ≡ the full form above: steps + constraint filled from the per-metric_key
 #   defaults table beside the parser (register.py); hard_ref already optional
 ```
 
@@ -60,7 +60,7 @@ After a test passes, each comparison coordinate's value is judged by its spec's 
 - **Historical gate** — activates with ≥1 trusted point at the coordinate. `ref` = mean of the coordinate's trusted values. Catches drift.
 - **Cold start** (0 trusted): historical gate is inactive — not an error. With `hard_ref` also omitted, zero checks are active and the run is vacuously trusted: that is how a fresh baseline gets seeded (recover a poisoned seed via `mark_untrusted`).
 
-A fanned-out spec (`per_step` / `steps`) contributes one verdict per step; the run is trusted iff **every** coordinate's active checks pass.
+A fanned-out spec (`steps="all"` or a step list) contributes one verdict per step; the run is trusted iff **every** coordinate's active checks pass.
 
 The gate's data input is the run's **merged per-run NDJSON record**:
 
@@ -73,9 +73,9 @@ How one spec flows from declaration to verdict:
 ```mermaid
 flowchart TD
     subgraph parse_sg["declare & parse — static, per test file"]
-        decl["the gate declaration — a marker in the test file, runtime no-op<br>register_ci_gate(metric_key, extractor, constraint[, hard_ref])"]
+        decl["the gate declaration — a marker in the test file, runtime no-op<br>register_ci_gate(metric_key, steps, constraint[, hard_ref])"]
         minimal["PLANNED, not implemented: one-line form<br>register_ci_gate(metric_key=...)"]
-        spec(["the parsed spec (data) — what to judge, by which rule<br>CiGateSpec: normalized extractor + constraint dicts"])
+        spec(["the parsed spec (data) — what to judge, by which rule<br>CiGateSpec: steps literal + normalized constraint dict"])
         decl -- "read the file's AST, never execute it<br>(hence literal-only args); per-name schema validation<br>parse_ci_gate_specs" --> spec
         minimal -. "same parse; missing fields filled from a<br>per-metric_key defaults table (PLANNED)" .-> spec
     end
@@ -84,8 +84,8 @@ flowchart TD
 
     subgraph eval_sg["evaluate — _evaluate_spec, once per spec"]
         lookup["find the spec's metric in the record<br>series = by_metric.get(spec.metric_key)"]
-        pick["pick the value(s) to judge — ×N, one per selected step<br>extract(series, extractor) → list of Extraction (value, step)"]
-        coord(["one comparison coordinate (data) — the key this value's history<br>is stored under: (metric_key, extractor_key, rule_key, step)<br>= the declaration's literal dicts as canonical JSON + the point (see Identity)"])
+        pick["pick the value(s) to judge — ×N, one per selected step<br>select(series, steps) → list of Extraction (value, step)"]
+        coord(["one comparison coordinate (data) — the key this value's history<br>is stored under: (metric_key, extractor_key, rule_key, step)<br>= the declaration's steps/constraint literals as canonical JSON + the point (see Identity)"])
         err["outcome: ERROR — judged, never skipped<br>hard = ERROR, historical = INACTIVE, coordinate untrusted"]
         hard["HARD check — absolute safety limit, works with zero history;<br>on when the spec declares hard_ref<br>evaluate_constraint(constraint, value, ref = hard_ref) → PASS &#124; FAIL"]
         hardoff["outcome: HARD = INACTIVE — hard_ref omitted, not a failure"]
@@ -161,10 +161,10 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 | DB connection            | `NEON_DATABASE_URL` (CI secret)                                                        |
 | Storage contract         | `tests/ci/metric_history/storage/store.py` (+ `storage/sqlite_store.py` offline, `storage/neon_store.py` prod) |
 | Gate logic               | `tests/ci/metric_history/gate.py`                                                      |
-| Extractors + coordinate encoding | `tests/ci/metric_history/extractors.py`                                        |
+| Step selection           | `tests/ci/metric_history/extractors.py`                                        |
 | Constraints              | `tests/ci/metric_history/constraints.py`                                               |
 | Collection backend       | `miles/utils/tracking_utils/ci_history.py`                                             |
-| Declare a gate on a test | `register_ci_gate(metric_key=..., extractor={...}, constraint={...}[, hard_ref=...])` (from `tests.ci.metric_history`) in the test file |
+| Declare a gate on a test | `register_ci_gate(metric_key=..., steps=..., constraint={...}[, hard_ref=...])` (from `tests.ci.metric_history`) in the test file |
 
 
 
@@ -174,4 +174,4 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 - Any test-file edit is an intentional baseline reset for that series (the hash changes).
 - The nightly trigger (`schedule` cron + `nightly` label) already shipped (#1491); detection here is harness-side via `GITHUB_EVENT_NAME`, so this feature needs **no** `pr-test.yml` **edit**.
 - Open: should a brand-new test's first baselines need human confirmation before counting as trusted? (v1: no.)
-- For the future writer: two specs may share a coordinate (same extractor, different constraint) — dedupe `metric_values` by coordinate so one run writes one row per coordinate.
+- For the future writer: two specs may share a coordinate (identical `steps` + `constraint`, differing only in `hard_ref` / policy metadata) — dedupe `metric_values` by coordinate so one run writes one row per coordinate.

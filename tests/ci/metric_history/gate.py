@@ -5,9 +5,10 @@
   declared in the test file, and decides whether the run is *trusted*.
 * The record is the passed attempt's merged NDJSON; a later round picks which
   attempt.
-* Each spec pairs an EXTRACTOR (which value(s) to pull) with a CONSTRAINT (the
-  pass/fail rule). `per_step` / `steps` fan out to one comparison coordinate
-  per step, each judged only against that same step's history.
+* Each spec pairs a STEPS selection (which value(s) to pull: `"last"` /
+  `"all"` / a step list) with a CONSTRAINT (the pass/fail rule). `"all"` and a
+  step list fan out to one comparison coordinate per step, each judged only
+  against that same step's history.
 * Two checks run per coordinate, both using the spec's constraint. The HARD
   gate compares against the static `hard_ref` and is active only when the
   spec declares one -- no `hard_ref` means INACTIVE, not a failure.
@@ -37,7 +38,7 @@ from enum import Enum
 
 from tests.ci.ci_register import CIRegistry, HWBackend, ut_parse_one_file
 from tests.ci.metric_history.constraints import evaluate_constraint
-from tests.ci.metric_history.extractors import ExtractorError, extract
+from tests.ci.metric_history.extractors import ExtractorError, select
 from tests.ci.metric_history.register import CiGateSpec, parse_ci_gate_specs
 from tests.ci.metric_history.storage import MetricHistoryStore
 
@@ -65,7 +66,7 @@ class MetricGateResult:
 
     `(metric_key, extractor_key, rule_key, step)` is the baseline coordinate;
     `step` is None only when extraction errored (there is no coordinate to
-    name), `-1` for a whole-series reduction like `last`. `at_step` is the
+    name), `-1` for a whole-series reduction like `steps="last"`. `at_step` is the
     step the value actually came from, for reporting. `current` is the
     extracted scalar, or None when extraction errored. `baseline_mean` is the
     mean of trusted history when the historical gate is active, else None.
@@ -197,9 +198,9 @@ def _evaluate_spec(
         return [_error_result(spec, f"required metric {spec.metric_key!r} missing from record")]
 
     try:
-        extractions = extract(series, spec.extractor)
+        extractions = select(series, spec.steps)
     except ExtractorError as e:
-        return [_error_result(spec, f"metric {spec.metric_key!r} ({spec.extractor['name']}): {e}")]
+        return [_error_result(spec, f"metric {spec.metric_key!r} (steps={spec.steps!r}): {e}")]
 
     results: list[MetricGateResult] = []
     for ex in extractions:

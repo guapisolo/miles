@@ -4,14 +4,15 @@
 * `register_ci_gate(...)` is the marker a test file uses to declare a gate.
 * Like `register_cuda_ci` it is a runtime no-op, parsed out of the file's AST
   rather than executed.
-* A gate composes an `extractor` (which value(s) to pull from a metric's
-  series) and a `constraint` (the pass/fail rule).
-* Extractor and constraint are each a literal dict `{"name": ..., <params>}`,
-  validated against the per-name schemas in :mod:`extractors` /
-  :mod:`constraints`.
-* A spec also carries `extractor_key` / `rule_key` -- canonical JSON of those
-  dicts exactly as written -- which, plus the extraction's `step`, form the
-  identity a stored value's history is keyed under.
+* A gate composes `steps` (which value(s) to pull from a metric's series:
+  `"last"` | `"all"` | a non-empty list of step indices) and a `constraint`
+  (the pass/fail rule).
+* `constraint` is a literal dict `{"name": ..., <params>}`, validated against
+  the per-name schemas in :mod:`constraints`.
+* A spec also carries `extractor_key` / `rule_key` -- canonical JSON of the
+  `steps` / `constraint` literals exactly as written -- which, plus the
+  extraction's `step`, form the identity a stored value's history is keyed
+  under.
 * `parse_ci_gate_specs` extracts every declaration as a :class:`CiGateSpec`.
 
 Caveats:
@@ -28,13 +29,12 @@ import math
 from dataclasses import dataclass
 
 from tests.ci.metric_history.constraints import CONSTRAINT_SCHEMAS, DIRECTIONS
-from tests.ci.metric_history.extractors import EXTRACTOR_SCHEMAS
 
 
 def register_ci_gate(
     *,
     metric_key: str,
-    extractor: dict,
+    steps: str | list[int],
     constraint: dict,
     hard_ref: float | None = None,
     enforce: bool = False,
@@ -45,12 +45,13 @@ def register_ci_gate(
     Parsed via AST (like `register_cuda_ci`); a runtime no-op. Every argument
     is keyword-only and must be a literal. `metric_key` names the target
     metric; `hard_ref`, when given, is the hard gate's absolute reference --
-    omitted, the hard layer is INACTIVE for this spec. `extractor` and
-    `constraint` are literal dicts `{"name": ..., <params>}` -- see
-    :data:`extractors.EXTRACTOR_SCHEMAS` / :data:`constraints.CONSTRAINT_SCHEMAS`
-    for the valid names and params. `enforce` and `allowlist_reason` are policy
-    metadata the gate carries without acting on (the verdict is informational
-    this round).
+    omitted, the hard layer is INACTIVE for this spec. `steps` picks the
+    comparison value(s): `"last"` (the series' last point), `"all"` (every
+    step present, fanned out), or a non-empty list of step indices.
+    `constraint` is a literal dict `{"name": ..., <params>}` -- see
+    :data:`constraints.CONSTRAINT_SCHEMAS` for the valid names and params.
+    `enforce` and `allowlist_reason` are policy metadata the gate carries
+    without acting on (the verdict is informational this round).
     """
     return None
 
@@ -62,7 +63,7 @@ _REQUIRED = object()
 _FIELDS: dict[str, tuple[bool, object]] = {
     "metric_key": (True, _REQUIRED),
     "hard_ref": (False, None),
-    "extractor": (True, _REQUIRED),
+    "steps": (True, _REQUIRED),
     "constraint": (True, _REQUIRED),
     "enforce": (False, False),
     "allowlist_reason": (False, None),
@@ -73,17 +74,18 @@ _FIELDS: dict[str, tuple[bool, object]] = {
 class CiGateSpec:
     """One parsed `register_ci_gate` declaration.
 
-    `extractor` / `constraint` are normalized dicts (name + validated params
-    + filled defaults) and drive execution. `extractor_key` / `rule_key` are
-    canonical JSON of the same dicts as literally written and, with the
-    extraction's `step`, form the stored value's identity. `filename` is the
-    test file the spec governs; run identity comes from its CIRegistry.
+    `steps` is the validated selection literal (`"last"` | `"all"` | a list of
+    step indices); `constraint` is a normalized dict (name + validated params
+    + filled defaults); both drive execution. `extractor_key` / `rule_key` are
+    canonical JSON of the same literals as written and, with the extraction's
+    `step`, form the stored value's identity. `filename` is the test file the
+    spec governs; run identity comes from its CIRegistry.
     """
 
     filename: str
     metric_key: str
     hard_ref: float | None
-    extractor: dict
+    steps: str | list[int]
     constraint: dict
     extractor_key: str
     rule_key: str
@@ -132,7 +134,8 @@ def _literal(node: ast.AST) -> object:
 
 
 def _validate_param(validator: str, value: object) -> object:
-    """Validate one extractor/constraint param; return it (normalized)."""
+    """Validate one schema param (also the flat `steps` list); return it
+    (normalized)."""
     if validator == "float_nonneg":
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise _ParseError("must be a number")
@@ -160,8 +163,8 @@ def _validate_param(validator: str, value: object) -> object:
 
 
 def _normalize_axis(axis: str, raw: object, schemas: dict) -> dict:
-    """Validate an extractor/constraint dict against its per-name schema and
-    return a normalized dict (name + validated params + filled defaults)."""
+    """Validate a `{"name": ..., <params>}` dict against its per-name schema
+    and return a normalized dict (name + validated params + filled defaults)."""
     if not isinstance(raw, dict):
         raise _ParseError(f"{axis} must be a dict")
     if "name" not in raw:
@@ -187,6 +190,18 @@ def _normalize_axis(axis: str, raw: object, schemas: dict) -> dict:
         else:
             normalized[param] = default
     return normalized
+
+
+def _validate_steps(value: object) -> str | list[int]:
+    """The declaration's `steps` literal: `"last"`, `"all"`, or a step list."""
+    if value == "last" or value == "all":
+        return value
+    if isinstance(value, list):
+        try:
+            return _validate_param("step_list", value)
+        except _ParseError as e:
+            raise _ParseError(f"steps: {e}") from None
+    raise _ParseError('steps must be "last", "all", or a non-empty list of step indices')
 
 
 def _require_str(value: object, field: str) -> str:
@@ -222,11 +237,12 @@ def _require_opt_str(value: object, field: str) -> str | None:
 
 
 def _canonical_key(raw: object) -> str:
-    """Canonical JSON (sorted keys, no whitespace) of a literal dict, as the
-    stored identity key.
+    """Canonical JSON (sorted keys, no whitespace) of a declaration literal
+    (the `steps` string/list or the `constraint` dict), as the stored
+    identity key.
 
-    Deliberately built from the dict as written in the test file, NOT the
-    normalized dict: filled-in defaults live in code, so a code-side default
+    Deliberately built from the literal as written in the test file, NOT the
+    normalized form: filled-in defaults live in code, so a code-side default
     change would silently rewrite normalized keys and reset every series. The
     raw literal changes only with the file -- exactly when `test_file_hash`
     resets the series anyway.
@@ -263,9 +279,9 @@ def _parse_ci_gate_call(call: ast.Call, filename: str) -> CiGateSpec:
             filename=filename,
             metric_key=_require_str(raw["metric_key"], "metric_key"),
             hard_ref=_require_opt_number(raw["hard_ref"], "hard_ref"),
-            extractor=_normalize_axis("extractor", raw["extractor"], EXTRACTOR_SCHEMAS),
+            steps=_validate_steps(raw["steps"]),
             constraint=_normalize_axis("constraint", raw["constraint"], CONSTRAINT_SCHEMAS),
-            extractor_key=_canonical_key(raw["extractor"]),
+            extractor_key=_canonical_key(raw["steps"]),
             rule_key=_canonical_key(raw["constraint"]),
             enforce=_require_bool(raw["enforce"], "enforce"),
             allowlist_reason=_require_opt_str(raw["allowlist_reason"], "allowlist_reason"),
@@ -282,7 +298,7 @@ def parse_ci_gate_specs(filename: str) -> list[CiGateSpec]:
     ValueError naming the file and field.
 
     Note for the future writer: two specs may still map to the same baseline
-    coordinate (identical extractor + constraint dicts, differing only in
+    coordinate (identical steps + constraint literals, differing only in
     `hard_ref` / policy metadata). The writer must dedupe metric_values by
     coordinate so one run contributes one row per coordinate.
     """

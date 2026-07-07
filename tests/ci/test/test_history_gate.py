@@ -26,13 +26,13 @@ PROVENANCE = RunProvenance(
 )
 
 
-def _key(d: dict) -> str:
+def _key(literal: object) -> str:
     """Canonical declaration key, matching register.py's `_canonical_key`."""
-    return json.dumps(d, sort_keys=True, separators=(",", ":"))
+    return json.dumps(literal, sort_keys=True, separators=(",", ":"))
 
 
-# Keys for the fixtures below: extractor / constraint dicts as written there.
-LAST_KEY = _key({"name": "last"})
+# Keys for the fixtures below: steps / constraint literals as written there.
+LAST_KEY = _key("last")
 
 
 @pytest.fixture
@@ -105,7 +105,7 @@ def test_non_finite_at_gated_coordinate_errors_and_untrusts(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     # Capture-side marker for a NaN at the last (gated) step: ERROR, not a
@@ -128,7 +128,7 @@ def test_cold_start_hard_only_no_error(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.31]]})
@@ -151,7 +151,7 @@ def test_cold_start_hard_failure(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     # 0.50 vs ref 0.30, band = 0.06 -> hard fails even with no history.
@@ -172,7 +172,7 @@ def test_no_hard_ref_cold_start_vacuously_trusted(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="train/grad_norm",
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     record = _write_record(tmp_path, {"train/grad_norm": [[0, 0.9]]})
@@ -192,7 +192,7 @@ def test_no_hard_ref_historical_still_gates(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="train/grad_norm",
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     _seed_baseline(
@@ -220,7 +220,7 @@ def test_no_hard_ref_historical_pass_trusted(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="train/grad_norm",
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     _seed_baseline(
@@ -250,7 +250,7 @@ def test_historical_failure(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     # Seed a trusted baseline around 0.80 under the `last` coordinate.
@@ -279,7 +279,7 @@ def test_historical_pass_within_tolerance(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     _seed_baseline(
@@ -305,7 +305,7 @@ def test_drift_beyond_historical_band_not_trusted(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="train/grad_norm", hard_ref=2.0,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.50})
+                         steps="last", constraint={"name": "rel", "rel": 0.50})
         """,
     )
     _seed_baseline(
@@ -331,12 +331,12 @@ def test_drift_beyond_historical_band_not_trusted(tmp_path, store):
 # --- per-step fan-out ---------------------------------------------------------
 
 
-def test_per_step_fans_out_one_result_per_step(tmp_path, store):
+def test_all_fans_out_one_result_per_step(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
-                         extractor={"name": "per_step"}, constraint={"name": "rel", "rel": 0.50})
+                         steps="all", constraint={"name": "rel", "rel": 0.50})
         """,
     )
     record = _write_record(tmp_path, {"train/grad_norm": [[0, 0.9], [1, 1.1]]})
@@ -350,13 +350,13 @@ def test_per_step_fans_out_one_result_per_step(tmp_path, store):
     assert result.trusted is True
 
 
-def test_per_step_reads_per_step_baselines(tmp_path, store):
+def test_all_reads_per_step_baselines(tmp_path, store):
     # Step 0's history and step 1's history must never cross-contaminate.
     test_file = _write_test_file(
         tmp_path,
         """
         register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.5,
-                         extractor={"name": "per_step"}, constraint={"name": "rel", "rel": 0.90})
+                         steps="all", constraint={"name": "rel", "rel": 0.90})
         """,
     )
     kl_rule = _key({"name": "rel", "rel": 0.90})
@@ -364,7 +364,7 @@ def test_per_step_reads_per_step_baselines(tmp_path, store):
         store,
         test_file,
         metric_key="train/ppo_kl",
-        extractor_key=_key({"name": "per_step"}),
+        extractor_key=_key("all"),
         rule_key=kl_rule,
         step=0,
         values=[0.1, 0.1],
@@ -373,7 +373,7 @@ def test_per_step_reads_per_step_baselines(tmp_path, store):
         store,
         test_file,
         metric_key="train/ppo_kl",
-        extractor_key=_key({"name": "per_step"}),
+        extractor_key=_key("all"),
         rule_key=kl_rule,
         step=1,
         values=[0.9, 0.9],
@@ -389,12 +389,12 @@ def test_per_step_reads_per_step_baselines(tmp_path, store):
     assert result.trusted is True
 
 
-def test_per_step_one_bad_step_untrusts_run(tmp_path, store):
+def test_all_one_bad_step_untrusts_run(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
-                         extractor={"name": "per_step"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="all", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     # Step 0 within band; step 1 drifts past hard band 0.2.
@@ -407,21 +407,21 @@ def test_per_step_one_bad_step_untrusts_run(tmp_path, store):
     assert result.trusted is False
 
 
-def test_per_step_and_explicit_steps_have_separate_coordinates(tmp_path, store):
-    # The coordinate is the declaration's literal content: a per_step gate and
-    # a steps:[0] gate both judge step 0's value, but each owns its own series.
+def test_all_and_explicit_steps_have_separate_coordinates(tmp_path, store):
+    # The coordinate is the declaration's literal content: a steps="all" gate and
+    # a steps=[0] gate both judge step 0's value, but each owns its own series.
     gate_lines = """
         register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.1,
-                         extractor={"name": "per_step"}, constraint={"name": "rel", "rel": 0.50})
+                         steps="all", constraint={"name": "rel", "rel": 0.50})
         register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.1,
-                         extractor={"name": "steps", "steps": [0]}, constraint={"name": "rel", "rel": 0.50})
+                         steps=[0], constraint={"name": "rel", "rel": 0.50})
     """
     test_file = _write_test_file(tmp_path, gate_lines)
     _seed_baseline(
         store,
         test_file,
         metric_key="train/ppo_kl",
-        extractor_key=_key({"name": "per_step"}),
+        extractor_key=_key("all"),
         rule_key=_key({"name": "rel", "rel": 0.50}),
         step=0,
         values=[0.1, 0.1],
@@ -430,20 +430,20 @@ def test_per_step_and_explicit_steps_have_separate_coordinates(tmp_path, store):
 
     result = evaluate_gate(test_file, record, store)
     assert len(result.metrics) == 2  # one per spec, both at step 0
-    per_step_m, steps_m = result.metrics
-    assert per_step_m.baseline_n == 2
+    all_m, steps_m = result.metrics
+    assert all_m.baseline_n == 2
     assert steps_m.baseline_n == 0  # its own coordinate: cold start
     assert steps_m.historical_status == GateStatus.INACTIVE
 
 
 def test_rule_is_part_of_coordinate(tmp_path, store):
-    # Two gates, same extractor, different constraints: different rule_key,
+    # Two gates, same steps, different constraints: different rule_key,
     # so each judges against its own baseline series.
     gate_lines = """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=1.0,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.50})
+                         steps="last", constraint={"name": "rel", "rel": 0.50})
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=1.0,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.01})
+                         steps="last", constraint={"name": "rel", "rel": 0.01})
     """
     test_file = _write_test_file(tmp_path, gate_lines)
     _seed_baseline(
@@ -477,7 +477,7 @@ def test_near_zero_not_flagged_on_relative_pct(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.0,
-                         extractor={"name": "steps", "steps": [0]},
+                         steps=[0],
                          constraint={"name": "abs", "abs_floor": 1e-6, "rel": 0.20})
         """,
     )
@@ -486,7 +486,7 @@ def test_near_zero_not_flagged_on_relative_pct(tmp_path, store):
         store,
         test_file,
         metric_key="train/ppo_kl",
-        extractor_key=_key({"name": "steps", "steps": [0]}),
+        extractor_key=_key([0]),
         rule_key=_key({"name": "abs", "abs_floor": 1e-6, "rel": 0.20}),
         step=0,
         values=[1e-9, 2e-9, 1e-9],
@@ -509,7 +509,7 @@ def test_near_zero_real_jump_is_flagged(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.0,
-                         extractor={"name": "steps", "steps": [0]},
+                         steps=[0],
                          constraint={"name": "abs", "abs_floor": 1e-6, "rel": 0.20})
         """,
     )
@@ -527,7 +527,7 @@ def test_missing_required_series_verdict_not_crash(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     # Record carries a different metric only.
@@ -546,7 +546,7 @@ def test_empty_required_series_verdict(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     record = _write_record(tmp_path, {"rollout/raw_reward": []})
@@ -557,14 +557,14 @@ def test_empty_required_series_verdict(tmp_path, store):
     assert result.trusted is False
 
 
-def test_per_step_null_step_is_error_verdict(tmp_path, store):
-    # A per_step gate over a series with a step-less point yields one ERROR
+def test_all_null_step_is_error_verdict(tmp_path, store):
+    # A steps="all" gate over a series with a step-less point yields one ERROR
     # verdict for the spec, not a crash and not a silent skip.
     test_file = _write_test_file(
         tmp_path,
         """
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
-                         extractor={"name": "per_step"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="all", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     record = _write_record(tmp_path, {"train/grad_norm": [[0, 1.0], [None, 1.1]]})
@@ -583,7 +583,7 @@ def test_higher_is_worse_drop_passes_increase_fails(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="train/grad_norm", hard_ref=2.0,
-                         extractor={"name": "last"},
+                         steps="last",
                          constraint={"name": "rel", "rel": 0.10, "direction": "higher_is_worse"})
         """,
     )
@@ -602,7 +602,7 @@ def test_lower_is_worse_rise_passes_drop_fails(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                         extractor={"name": "last"},
+                         steps="last",
                          constraint={"name": "rel", "rel": 0.10, "direction": "lower_is_worse"})
         """,
     )
@@ -639,7 +639,7 @@ def test_gate_writes_no_rows(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
-                         extractor={"name": "per_step"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="all", constraint={"name": "rel", "rel": 0.20})
         """,
     )
     record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.31]]})

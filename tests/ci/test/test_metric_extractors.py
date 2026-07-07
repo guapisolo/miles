@@ -1,4 +1,4 @@
-"""Offline unit tests for extractors, constraints, and register_ci_gate
+"""Offline unit tests for step selection, constraints, and register_ci_gate
 parsing (including the canonical declaration keys)."""
 
 from __future__ import annotations
@@ -9,14 +9,14 @@ from pathlib import Path
 import pytest
 from tests.ci.ci_register import CIRegistry, HWBackend, ut_parse_one_file
 from tests.ci.metric_history.constraints import ConstraintError, evaluate_constraint
-from tests.ci.metric_history.extractors import ExtractorError, extract
+from tests.ci.metric_history.extractors import ExtractorError, select
 from tests.ci.metric_history.register import parse_ci_gate_specs
 
-# --- extractors ---------------------------------------------------------------
+# --- step selection -----------------------------------------------------------
 
 
 def test_last_picks_last_numeric_point():
-    got = extract([[0, 0.1], [1, 0.2], [2, 0.35]], {"name": "last"})
+    got = select([[0, 0.1], [1, 0.2], [2, 0.35]], "last")
     assert len(got) == 1
     # Identity step is the -1 reduction sentinel; the landing step is reporting.
     assert got[0].step == -1
@@ -24,46 +24,46 @@ def test_last_picks_last_numeric_point():
     assert got[0].value == pytest.approx(0.35)
 
 
-def test_extractors_skip_bool_and_none_values():
+def test_selection_skips_bool_and_none_values():
     # bool sneaks through isinstance(int); None is not a number. Non-numeric
     # points are ignored -- only numeric points count toward selection.
     series = [[0, True], [1, None], [2, 2.5]]
-    got = extract(series, {"name": "last"})
+    got = select(series, "last")
     assert got[0].value == pytest.approx(2.5)
 
 
 def test_last_non_finite_at_selected_point_errors():
     for bad in (float("nan"), float("inf")):
         with pytest.raises(ExtractorError, match="non-finite"):
-            extract([[0, 1.0], [1, bad]], {"name": "last"})
+            select([[0, 1.0], [1, bad]], "last")
 
 
 def test_last_ignores_non_selected_non_finite():
     # A mid-series NaN is not the selected coordinate: last gates the actual
     # last point, which is finite here.
-    got = extract([[0, float("nan")], [1, 2.5]], {"name": "last"})
+    got = select([[0, float("nan")], [1, 2.5]], "last")
     assert got[0].at_step == 1
     assert got[0].value == pytest.approx(2.5)
 
 
-def test_per_step_non_finite_errors():
-    with pytest.raises(ExtractorError, match="non-finite value nan at step 1"):
-        extract([[0, 1.0], [1, float("nan")]], {"name": "per_step"})
+def test_all_non_finite_errors():
+    with pytest.raises(ExtractorError, match="all: non-finite value nan at step 1"):
+        select([[0, 1.0], [1, float("nan")]], "all")
 
 
 def test_steps_non_finite_at_named_step_errors():
     with pytest.raises(ExtractorError, match="non-finite value -inf at required step 1"):
-        extract([[0, 1.0], [1, float("-inf")]], {"name": "steps", "steps": [1]})
+        select([[0, 1.0], [1, float("-inf")]], [1])
 
 
 def test_empty_series_errors_clearly():
-    for extractor in ({"name": "last"}, {"name": "per_step"}, {"name": "steps", "steps": [0]}):
+    for steps in ("last", "all", [0]):
         with pytest.raises(ExtractorError):
-            extract([], extractor)
+            select([], steps)
 
 
-def test_per_step_fans_out_one_extraction_per_step():
-    got = extract([[0, 1.0], [1, 2.0], [2, 3.0]], {"name": "per_step"})
+def test_all_fans_out_one_extraction_per_step():
+    got = select([[0, 1.0], [1, 2.0], [2, 3.0]], "all")
     assert [(e.step, e.at_step, e.value) for e in got] == [
         (0, 0, 1.0),
         (1, 1, 2.0),
@@ -71,24 +71,24 @@ def test_per_step_fans_out_one_extraction_per_step():
     ]
 
 
-def test_per_step_null_step_errors():
+def test_all_null_step_errors():
     with pytest.raises(ExtractorError, match="no step index"):
-        extract([[0, 1.0], [None, 2.0]], {"name": "per_step"})
+        select([[0, 1.0], [None, 2.0]], "all")
 
 
-def test_per_step_duplicate_step_errors():
+def test_all_duplicate_step_errors():
     with pytest.raises(ExtractorError, match="duplicate step"):
-        extract([[0, 1.0], [0, 2.0]], {"name": "per_step"})
+        select([[0, 1.0], [0, 2.0]], "all")
 
 
 def test_steps_picks_named_steps():
-    got = extract([[0, 0.001], [1, 0.5], [2, 0.9]], {"name": "steps", "steps": [0, 2]})
+    got = select([[0, 0.001], [1, 0.5], [2, 0.9]], [0, 2])
     assert [(e.step, e.value) for e in got] == [(0, 0.001), (2, 0.9)]
 
 
 def test_steps_missing_named_step_errors():
     with pytest.raises(ExtractorError, match="required step 3 missing"):
-        extract([[0, 0.001], [1, 0.5]], {"name": "steps", "steps": [3]})
+        select([[0, 0.001], [1, 0.5]], [3])
 
 
 # --- constraints --------------------------------------------------------------
@@ -150,7 +150,7 @@ def test_parse_single_spec_with_defaults(tmp_path):
         register_ci_gate(
             metric_key="train/grad_norm",
             hard_ref=1.5,
-            extractor={"name": "per_step"},
+            steps="all",
             constraint={"name": "rel", "rel": 0.20},
         )
         """,
@@ -161,7 +161,7 @@ def test_parse_single_spec_with_defaults(tmp_path):
     s = specs[0]
     assert s.metric_key == "train/grad_norm"
     assert s.hard_ref == pytest.approx(1.5)
-    assert s.extractor == {"name": "per_step"}
+    assert s.steps == "all"
     # direction defaults to two_sided.
     assert s.constraint == {"name": "rel", "rel": 0.20, "direction": "two_sided"}
     assert s.enforce is False
@@ -176,7 +176,7 @@ def test_parse_all_fields(tmp_path):
         register_ci_gate(
             metric_key="train/ppo_kl",
             hard_ref=0.0,
-            extractor={"name": "steps", "steps": [0, 1]},
+            steps=[0, 1],
             constraint={"name": "abs", "abs_floor": 1e-6, "rel": 0.5, "direction": "higher_is_worse"},
             enforce=True,
             allowlist_reason="known noisy",
@@ -185,27 +185,30 @@ def test_parse_all_fields(tmp_path):
         tmp_path,
     )
     s = parse_ci_gate_specs(path)[0]
-    assert s.extractor == {"name": "steps", "steps": [0, 1]}
+    assert s.steps == [0, 1]
     assert s.constraint == {"name": "abs", "abs_floor": 1e-6, "rel": 0.5, "direction": "higher_is_worse"}
     assert s.enforce is True
     assert s.allowlist_reason == "known noisy"
 
 
 def test_declaration_keys_are_canonical_json(tmp_path):
-    # Keys are sorted and whitespace-free regardless of how the author ordered
-    # the dict in the file; this pins the exact stored-identity format.
+    # Dict keys are sorted and every literal is whitespace-free regardless of
+    # how the author wrote it; this pins the exact stored-identity format.
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.05,
-                         extractor={"steps": [0, 1], "name": "steps"},
+                         steps=[0,  1],
                          constraint={"name": "abs", "abs_floor": 0.02})
+        register_ci_gate(metric_key="train/x", steps="last",
+                         constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
     )
-    s = parse_ci_gate_specs(path)[0]
-    assert s.extractor_key == '{"name":"steps","steps":[0,1]}'
-    assert s.rule_key == '{"abs_floor":0.02,"name":"abs"}'
+    fanned, reduced = parse_ci_gate_specs(path)
+    assert fanned.extractor_key == "[0,1]"
+    assert fanned.rule_key == '{"abs_floor":0.02,"name":"abs"}'
+    assert reduced.extractor_key == '"last"'
 
 
 def test_declaration_keys_use_raw_literal_not_normalized(tmp_path):
@@ -216,7 +219,7 @@ def test_declaration_keys_use_raw_literal_not_normalized(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x",
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2})
+                         steps="last", constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
     )
@@ -232,7 +235,7 @@ def test_abs_optional_rel_defaults_to_zero(tmp_path):
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(
             metric_key="train/ppo_kl", hard_ref=0.0,
-            extractor={"name": "last"},
+            steps="last",
             constraint={"name": "abs", "abs_floor": 1e-6},
         )
         """,
@@ -247,9 +250,9 @@ def test_parse_multiple_specs(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
-                         extractor={"name": "per_step"}, constraint={"name": "rel", "rel": 0.2})
+                         steps="all", constraint={"name": "rel", "rel": 0.2})
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.8,
-                         extractor={"name": "last"},
+                         steps="last",
                          constraint={"name": "rel", "rel": 0.2, "direction": "lower_is_worse"})
         """,
         tmp_path,
@@ -264,7 +267,7 @@ def test_negative_hard_ref_parses(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=-1.5,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2})
+                         steps="last", constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
     )
@@ -276,7 +279,7 @@ def test_unknown_kwarg_rejected(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2}, bogus=3)
+                         steps="last", constraint={"name": "rel", "rel": 0.2}, bogus=3)
         """,
         tmp_path,
     )
@@ -290,7 +293,7 @@ def test_non_literal_arg_rejected(tmp_path):
         from tests.ci.metric_history import register_ci_gate
         X = 1.0
         register_ci_gate(metric_key="train/x", hard_ref=X,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2})
+                         steps="last", constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
     )
@@ -302,9 +305,9 @@ def test_non_literal_inside_dict_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        NAME = "last"
+        NAME = "rel"
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": NAME}, constraint={"name": "rel", "rel": 0.2})
+                         steps="last", constraint={"name": NAME, "rel": 0.2})
         """,
         tmp_path,
     )
@@ -312,12 +315,12 @@ def test_non_literal_inside_dict_rejected(tmp_path):
         parse_ci_gate_specs(path)
 
 
-@pytest.mark.parametrize("missing", ["metric_key", "extractor", "constraint"])
+@pytest.mark.parametrize("missing", ["metric_key", "steps", "constraint"])
 def test_missing_required_field_rejected(tmp_path, missing):
     fields = {
         "metric_key": 'metric_key="train/x"',
         "hard_ref": "hard_ref=1.0",
-        "extractor": 'extractor={"name": "last"}',
+        "steps": 'steps="last"',
         "constraint": 'constraint={"name": "rel", "rel": 0.2}',
     }
     del fields[missing]
@@ -338,7 +341,7 @@ def test_hard_ref_optional_parses_to_none(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x",
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2})
+                         steps="last", constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
     )
@@ -351,7 +354,7 @@ def test_hard_ref_non_number_still_rejected(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref="0.5",
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2})
+                         steps="last", constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
     )
@@ -371,16 +374,16 @@ def test_positional_arg_rejected(tmp_path):
         parse_ci_gate_specs(path)
 
 
-def test_unknown_extractor_name_rejected(tmp_path):
+def test_unknown_steps_keyword_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": "mean_last_9000"}, constraint={"name": "rel", "rel": 0.2})
+                         steps="mean_last_9000", constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
     )
-    with pytest.raises(ValueError, match="unknown extractor name 'mean_last_9000'"):
+    with pytest.raises(ValueError, match='steps must be "last", "all"'):
         parse_ci_gate_specs(path)
 
 
@@ -389,7 +392,7 @@ def test_unknown_constraint_name_rejected(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": "last"}, constraint={"name": "bogus", "rel": 0.2})
+                         steps="last", constraint={"name": "bogus", "rel": 0.2})
         """,
         tmp_path,
     )
@@ -397,16 +400,16 @@ def test_unknown_constraint_name_rejected(tmp_path):
         parse_ci_gate_specs(path)
 
 
-def test_unknown_key_for_extractor_rejected(tmp_path):
+def test_non_string_non_list_steps_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": "last", "steps": [0]}, constraint={"name": "rel", "rel": 0.2})
+                         steps=0, constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
     )
-    with pytest.raises(ValueError, match="unknown key 'steps' for extractor 'last'"):
+    with pytest.raises(ValueError, match='steps must be "last", "all"'):
         parse_ci_gate_specs(path)
 
 
@@ -420,12 +423,12 @@ def test_bad_steps_list_rejected(tmp_path, steps_literal):
         f"""
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={{"name": "steps", "steps": {steps_literal}}},
+                         steps={steps_literal},
                          constraint={{"name": "rel", "rel": 0.2}})
         """,
         tmp_path,
     )
-    with pytest.raises(ValueError, match="param 'steps'"):
+    with pytest.raises(ValueError, match="steps: "):
         parse_ci_gate_specs(path)
 
 
@@ -434,7 +437,7 @@ def test_bad_direction_rejected(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": "last"},
+                         steps="last",
                          constraint={"name": "rel", "rel": 0.2, "direction": "up_only"})
         """,
         tmp_path,
@@ -448,7 +451,7 @@ def test_negative_rel_rejected(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": -0.2})
+                         steps="last", constraint={"name": "rel", "rel": -0.2})
         """,
         tmp_path,
     )
@@ -462,7 +465,7 @@ def test_duplicate_dict_key_rejected(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": "last"},
+                         steps="last",
                          constraint={"name": "rel", "rel": 0.2, "rel": 0.3})
         """,
         tmp_path,
@@ -478,7 +481,7 @@ def test_sub_label_argument_is_gone(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2},
+                         steps="last", constraint={"name": "rel", "rel": 0.2},
                          sub_label="shard-0")
         """,
         tmp_path,
@@ -492,7 +495,7 @@ def test_non_bool_enforce_rejected(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2}, enforce=1)
+                         steps="last", constraint={"name": "rel", "rel": 0.2}, enforce=1)
         """,
         tmp_path,
     )
@@ -509,7 +512,7 @@ def test_register_ci_gate_does_not_disturb_suite_parsing(tmp_path):
         from tests.ci.metric_history import register_ci_gate
         register_cuda_ci(est_time=600, suite="stage-c-8-gpu-h100", labels=["megatron"])
         register_ci_gate(metric_key="train/grad_norm", hard_ref=1.5,
-                         extractor={"name": "per_step"}, constraint={"name": "rel", "rel": 0.2})
+                         steps="all", constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
     )
@@ -527,7 +530,7 @@ def test_register_ci_gate_runtime_is_noop():
         register_ci_gate(
             metric_key="train/grad_norm",
             hard_ref=1.0,
-            extractor={"name": "per_step"},
+            steps="all",
             constraint={"name": "rel", "rel": 0.2},
         )
         is None

@@ -1,15 +1,16 @@
 # doc-dev: docs/ci/03-metric-history-gate.md
-"""Extractors for the CI regression gate.
+"""Step selection for the CI regression gate.
 
-* An extractor pulls the comparison value(s) out of one metric's per-run
-  series `[[step, value], ...]`; step may be None.
-* `register_ci_gate` declares one as a literal dict `{"name": ..., <params>}`;
-  the parser validates it against :data:`EXTRACTOR_SCHEMAS`.
-* Extractors are pure and return a list of :class:`Extraction` -- one entry per
+* `select(series, steps)` pulls the comparison value(s) out of one metric's
+  per-run series `[[step, value], ...]`; step may be None.
+* `steps` is the declaration's flat literal, validated by the parser:
+  `"last"` | `"all"` | a non-empty list of step indices. There is no
+  name-keyed registry -- the selection space is a closed enum.
+* Selection is pure and returns a list of :class:`Extraction` -- one entry per
   comparison coordinate.
-* `last` -- the last numeric point (1 coordinate, `step = -1`).
-* `per_step` -- every step present in the series, fanned out (N coordinates).
-* `steps` -- the named steps, fanned out (`len(steps)` coordinates); a named
+* `"last"` -- the last numeric point (1 coordinate, `step = -1`).
+* `"all"` -- every step present in the series, fanned out (N coordinates).
+* `[k, ...]` -- the named steps, fanned out (`len(steps)` coordinates); a named
   step missing from the series is an error, not a silent skip.
 * A fanned coordinate is identified by its step, so this run's step-0 value is
   compared only against past runs' step-0 values.
@@ -18,9 +19,9 @@
 
 Caveats:
 
-* A non-finite value (NaN/±Inf) at a coordinate the extractor selects is an
+* A non-finite value (NaN/±Inf) at a coordinate the selection picks is an
   ExtractorError -- judged, never silently dropped. Points whose value is not a
-  number at all (bool/None/...) are ignored, as are points no extractor selects.
+  number at all (bool/None/...) are ignored, as are points no selection picks.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ Point = Sequence  # [step, value]
 
 
 class ExtractorError(ValueError):
-    """A required series is absent, empty, or ill-formed for this extractor."""
+    """A required series is absent, empty, or ill-formed for this selection."""
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,7 @@ class Extraction:
     """One comparison value pulled from a series.
 
     `step` is the identity role: step `k` for a per-step value, `-1` for a
-    whole-series reduction (`last`), which must key on a constant or its
+    whole-series reduction (`"last"`), which must key on a constant or its
     history would fragment across runs of different lengths. `at_step` is the
     step the value actually came from, carried for reporting only (None when
     the series carries no step index).
@@ -69,8 +70,8 @@ def _numeric_points(series: Sequence[Point]) -> list[tuple[int | None, float]]:
     """(step, value) for each point whose value is a number.
 
     A non-int (or bool) step is normalized to None; the value is kept —
-    including non-finite floats, which the extractors reject if selected.
-    Points with a non-numeric value are dropped.
+    including non-finite floats, which selection rejects if picked. Points
+    with a non-numeric value are dropped.
     """
     out: list[tuple[int | None, float]] = []
     for point in series:
@@ -83,7 +84,7 @@ def _numeric_points(series: Sequence[Point]) -> list[tuple[int | None, float]]:
     return out
 
 
-def _extract_last(series: Sequence[Point]) -> list[Extraction]:
+def _select_last(series: Sequence[Point]) -> list[Extraction]:
     points = _numeric_points(series)
     if not points:
         raise ExtractorError("series has no numeric point")
@@ -93,7 +94,7 @@ def _extract_last(series: Sequence[Point]) -> list[Extraction]:
     return [Extraction(step=-1, at_step=step, value=value)]
 
 
-def _extract_per_step(series: Sequence[Point]) -> list[Extraction]:
+def _select_all(series: Sequence[Point]) -> list[Extraction]:
     points = _numeric_points(series)
     if not points:
         raise ExtractorError("series has no numeric point")
@@ -101,17 +102,17 @@ def _extract_per_step(series: Sequence[Point]) -> list[Extraction]:
     seen: set[int] = set()
     for step, value in points:
         if step is None:
-            raise ExtractorError("per_step: a numeric point carries no step index")
+            raise ExtractorError("all: a numeric point carries no step index")
         if step in seen:
-            raise ExtractorError(f"per_step: duplicate step {step} in series")
+            raise ExtractorError(f"all: duplicate step {step} in series")
         if not math.isfinite(value):
-            raise ExtractorError(f"per_step: non-finite value {value!r} at step {step}")
+            raise ExtractorError(f"all: non-finite value {value!r} at step {step}")
         seen.add(step)
         out.append(Extraction(step=step, at_step=step, value=value))
     return out
 
 
-def _extract_steps(series: Sequence[Point], steps: Sequence[int]) -> list[Extraction]:
+def _select_steps(series: Sequence[Point], steps: Sequence[int]) -> list[Extraction]:
     by_step: dict[int, float] = {}
     for step, value in _numeric_points(series):
         if step is None:
@@ -129,22 +130,12 @@ def _extract_steps(series: Sequence[Point], steps: Sequence[int]) -> list[Extrac
     return out
 
 
-# Parse-time param schema for each extractor name, consumed by register.py.
-# Each entry: param -> (validator_key, required, default). "name" is implicit.
-EXTRACTOR_SCHEMAS: dict[str, dict[str, tuple[str, bool, object]]] = {
-    "last": {},
-    "per_step": {},
-    "steps": {"steps": ("step_list", True, None)},
-}
-
-
-def extract(series: Sequence[Point], extractor: dict) -> list[Extraction]:
-    """Apply a normalized extractor dict to a series."""
-    name = extractor["name"]
-    if name == "last":
-        return _extract_last(series)
-    if name == "per_step":
-        return _extract_per_step(series)
-    if name == "steps":
-        return _extract_steps(series, extractor["steps"])
-    raise ExtractorError(f"unknown extractor {name!r}; known: {sorted(EXTRACTOR_SCHEMAS)}")
+def select(series: Sequence[Point], steps: str | Sequence[int]) -> list[Extraction]:
+    """Apply a validated `steps` literal to a series."""
+    if steps == "last":
+        return _select_last(series)
+    if steps == "all":
+        return _select_all(series)
+    if isinstance(steps, (list, tuple)):
+        return _select_steps(series, steps)
+    raise ExtractorError(f'invalid steps {steps!r}; valid: "last", "all", or a list of step indices')
