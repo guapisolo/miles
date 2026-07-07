@@ -40,7 +40,7 @@ def _merge_attempt_records(attempt_dir: str, merged_path: str) -> None:
     """Merge every per-process NDJSON file under `attempt_dir` into one record.
 
     Each per-process file holds lines of `{"metric": key, "series": [[step, value], ...]}`.
-    The same metric key may appear across processes (driver + actors); concatenate
+    The same metric key may appear in more than one file; concatenate
     their series and sort by step so the merged per-run record is coherent. Runs
     only for the PASSING attempt, right before the gate hook consumes the result.
     """
