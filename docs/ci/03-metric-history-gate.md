@@ -62,7 +62,7 @@ After a test passes, each comparison coordinate's value is judged by its spec's 
 
 A fanned-out spec (`per_step` / `steps`) contributes one verdict per step; the run is trusted iff **every** coordinate's active checks pass.
 
-The gate's data input is the run's **merged per-run NDJSON record**: the per-process capture snapshots (one file per training process) merged into a single file, one line per metric — `{"metric": <key>, "series": [[step, value], ...]}`. The gate never builds this file, it only reads it (`parse_merged_record`), decoding the capture-side non-finite string markers back to floats.
+The gate's data input is the run's **merged per-run NDJSON record**. *Merged, per-run*: a run's several training processes (driver + actors) each capture into their own file — concurrent writers never share one — and those snapshots are merged into the single file the gate consumes, one per run. *NDJSON* (newline-delimited JSON): one self-contained JSON line per metric — `{"metric": <key>, "series": [[step, value], ...]}` — so capture can atomically rewrite its snapshot and any reader parses line by line, no schema needed. The gate never builds this file, it only reads it (`parse_merged_record`), decoding the capture-side non-finite string markers back to floats.
 
 How one spec flows from declaration to verdict:
 
