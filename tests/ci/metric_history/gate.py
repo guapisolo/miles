@@ -37,7 +37,7 @@ from enum import Enum
 
 from tests.ci.ci_register import CIRegistry, HWBackend, ut_parse_one_file
 from tests.ci.metric_history.constraints import evaluate_constraint
-from tests.ci.metric_history.extractors import ExtractorError, encode_coordinate, extract
+from tests.ci.metric_history.extractors import ExtractorError, extract
 from tests.ci.metric_history.register import CiGateSpec, parse_ci_gate_specs
 from tests.ci.metric_history.storage import MetricHistoryStore
 
@@ -63,17 +63,20 @@ class GateStatus(Enum):
 class MetricGateResult:
     """Per-coordinate verdict.
 
-    `sub_label` is the encoded baseline coordinate (extractor identity + step +
-    author label); `step` is the step this coordinate came from (None for a
-    positional extractor like `last`, or for an extraction error). `current`
-    is the extracted scalar, or None when extraction errored. `baseline_mean`
-    is the mean of trusted history when the historical gate is active, else None.
+    `(metric_key, extractor_key, rule_key, step)` is the baseline coordinate;
+    `step` is None only when extraction errored (there is no coordinate to
+    name), `-1` for a whole-series reduction like `last`. `at_step` is the
+    step the value actually came from, for reporting. `current` is the
+    extracted scalar, or None when extraction errored. `baseline_mean` is the
+    mean of trusted history when the historical gate is active, else None.
     `trusted` is True iff every active check here passed.
     """
 
     metric_key: str
-    sub_label: str | None
+    extractor_key: str
+    rule_key: str
     step: int | None
+    at_step: int | None
     current: float | None
     hard_status: GateStatus
     historical_status: GateStatus
@@ -162,19 +165,14 @@ def _registry_for(filename: str) -> CIRegistry:
     return registries[0]
 
 
-def _error_result(
-    spec: CiGateSpec,
-    reason: str,
-    *,
-    sub_label: str | None = None,
-    step: int | None = None,
-    current: float | None = None,
-) -> MetricGateResult:
+def _error_result(spec: CiGateSpec, reason: str) -> MetricGateResult:
     return MetricGateResult(
         metric_key=spec.metric_key,
-        sub_label=sub_label if sub_label is not None else spec.sub_label,
-        step=step,
-        current=current,
+        extractor_key=spec.extractor_key,
+        rule_key=spec.rule_key,
+        step=None,
+        at_step=None,
+        current=None,
         hard_status=GateStatus.ERROR,
         historical_status=GateStatus.INACTIVE,
         baseline_n=0,
@@ -205,8 +203,6 @@ def _evaluate_spec(
 
     results: list[MetricGateResult] = []
     for ex in extractions:
-        coord_sub_label = encode_coordinate(ex.coord, spec.sub_label)
-
         reasons: list[str] = []
         if spec.hard_ref is None:
             hard_status = GateStatus.INACTIVE
@@ -222,7 +218,9 @@ def _evaluate_spec(
             backend,
             suite,
             spec.metric_key,
-            coord_sub_label,
+            spec.extractor_key,
+            spec.rule_key,
+            ex.step,
             test_file_hash,
             history_limit,
         )
@@ -247,8 +245,10 @@ def _evaluate_spec(
         results.append(
             MetricGateResult(
                 metric_key=spec.metric_key,
-                sub_label=coord_sub_label,
+                extractor_key=spec.extractor_key,
+                rule_key=spec.rule_key,
                 step=ex.step,
+                at_step=ex.at_step,
                 current=ex.value,
                 hard_status=hard_status,
                 historical_status=historical_status,

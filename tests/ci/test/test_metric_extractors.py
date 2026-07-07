@@ -1,5 +1,5 @@
-"""Offline unit tests for extractors, constraints, coordinate encoding, and
-register_ci_gate parsing."""
+"""Offline unit tests for extractors, constraints, and register_ci_gate
+parsing (including the canonical declaration keys)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from tests.ci.ci_register import CIRegistry, HWBackend, ut_parse_one_file
 from tests.ci.metric_history.constraints import ConstraintError, evaluate_constraint
-from tests.ci.metric_history.extractors import ExtractorError, encode_coordinate, extract
+from tests.ci.metric_history.extractors import ExtractorError, extract
 from tests.ci.metric_history.register import parse_ci_gate_specs
 
 # --- extractors ---------------------------------------------------------------
@@ -18,8 +18,9 @@ from tests.ci.metric_history.register import parse_ci_gate_specs
 def test_last_picks_last_numeric_point():
     got = extract([[0, 0.1], [1, 0.2], [2, 0.35]], {"name": "last"})
     assert len(got) == 1
-    assert got[0].coord == "last"
-    assert got[0].step == 2
+    # Identity step is the -1 reduction sentinel; the landing step is reporting.
+    assert got[0].step == -1
+    assert got[0].at_step == 2
     assert got[0].value == pytest.approx(0.35)
 
 
@@ -41,7 +42,7 @@ def test_last_ignores_non_selected_non_finite():
     # A mid-series NaN is not the selected coordinate: last gates the actual
     # last point, which is finite here.
     got = extract([[0, float("nan")], [1, 2.5]], {"name": "last"})
-    assert got[0].step == 1
+    assert got[0].at_step == 1
     assert got[0].value == pytest.approx(2.5)
 
 
@@ -63,10 +64,10 @@ def test_empty_series_errors_clearly():
 
 def test_per_step_fans_out_one_extraction_per_step():
     got = extract([[0, 1.0], [1, 2.0], [2, 3.0]], {"name": "per_step"})
-    assert [(e.coord, e.step, e.value) for e in got] == [
-        ("step=0", 0, 1.0),
-        ("step=1", 1, 2.0),
-        ("step=2", 2, 3.0),
+    assert [(e.step, e.at_step, e.value) for e in got] == [
+        (0, 0, 1.0),
+        (1, 1, 2.0),
+        (2, 2, 3.0),
     ]
 
 
@@ -82,7 +83,7 @@ def test_per_step_duplicate_step_errors():
 
 def test_steps_picks_named_steps():
     got = extract([[0, 0.001], [1, 0.5], [2, 0.9]], {"name": "steps", "steps": [0, 2]})
-    assert [(e.coord, e.value) for e in got] == [("step=0", 0.001), ("step=2", 0.9)]
+    assert [(e.step, e.value) for e in got] == [(0, 0.001), (2, 0.9)]
 
 
 def test_steps_missing_named_step_errors():
@@ -131,16 +132,6 @@ def test_unknown_constraint_errors():
         evaluate_constraint({"name": "bogus"}, 1.0, 1.0)
 
 
-# --- coordinate encoding ------------------------------------------------------
-
-
-def test_encode_coordinate_wire_format():
-    # Pins the exact wire format: any accidental change strands baselines.
-    assert encode_coordinate("last", None) == "v1|last"
-    assert encode_coordinate("step=0", None) == "v1|step=0"
-    assert encode_coordinate("step=3", "shard-0") == "v1|step=3|lbl=shard-0"
-
-
 # --- register_ci_gate parsing -----------------------------------------------
 
 
@@ -173,7 +164,6 @@ def test_parse_single_spec_with_defaults(tmp_path):
     assert s.extractor == {"name": "per_step"}
     # direction defaults to two_sided.
     assert s.constraint == {"name": "rel", "rel": 0.20, "direction": "two_sided"}
-    assert s.sub_label is None
     assert s.enforce is False
     assert s.allowlist_reason is None
     assert s.filename == path
@@ -188,7 +178,6 @@ def test_parse_all_fields(tmp_path):
             hard_ref=0.0,
             extractor={"name": "steps", "steps": [0, 1]},
             constraint={"name": "abs", "abs_floor": 1e-6, "rel": 0.5, "direction": "higher_is_worse"},
-            sub_label="shard-0",
             enforce=True,
             allowlist_reason="known noisy",
         )
@@ -198,9 +187,43 @@ def test_parse_all_fields(tmp_path):
     s = parse_ci_gate_specs(path)[0]
     assert s.extractor == {"name": "steps", "steps": [0, 1]}
     assert s.constraint == {"name": "abs", "abs_floor": 1e-6, "rel": 0.5, "direction": "higher_is_worse"}
-    assert s.sub_label == "shard-0"
     assert s.enforce is True
     assert s.allowlist_reason == "known noisy"
+
+
+def test_declaration_keys_are_canonical_json(tmp_path):
+    # Keys are sorted and whitespace-free regardless of how the author ordered
+    # the dict in the file; this pins the exact stored-identity format.
+    path = _make_fixture(
+        """
+        from tests.ci.metric_history import register_ci_gate
+        register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.05,
+                         extractor={"steps": [0, 1], "name": "steps"},
+                         constraint={"name": "abs", "abs_floor": 0.02})
+        """,
+        tmp_path,
+    )
+    s = parse_ci_gate_specs(path)[0]
+    assert s.extractor_key == '{"name":"steps","steps":[0,1]}'
+    assert s.rule_key == '{"abs_floor":0.02,"name":"abs"}'
+
+
+def test_declaration_keys_use_raw_literal_not_normalized(tmp_path):
+    # The normalized constraint fills defaults (rel, direction) from code; the
+    # key must come from the literal as written, so a code-side default change
+    # can never silently rewrite keys and reset every series.
+    path = _make_fixture(
+        """
+        from tests.ci.metric_history import register_ci_gate
+        register_ci_gate(metric_key="train/x",
+                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2})
+        """,
+        tmp_path,
+    )
+    s = parse_ci_gate_specs(path)[0]
+    assert s.constraint == {"name": "rel", "rel": 0.2, "direction": "two_sided"}
+    assert s.rule_key == '{"name":"rel","rel":0.2}'
+    assert "direction" not in s.rule_key
 
 
 def test_abs_optional_rel_defaults_to_zero(tmp_path):
@@ -448,18 +471,19 @@ def test_duplicate_dict_key_rejected(tmp_path):
         parse_ci_gate_specs(path)
 
 
-@pytest.mark.parametrize("label", ["shard|0", "a=b"])
-def test_sub_label_reserved_char_rejected(tmp_path, label):
+def test_sub_label_argument_is_gone(tmp_path):
+    # The old author-label argument was removed with the encoded-coordinate
+    # design; a declaration still passing it must fail loud, not silently drop.
     path = _make_fixture(
-        f"""
+        """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(metric_key="train/x", hard_ref=1.0,
-                         extractor={{"name": "last"}}, constraint={{"name": "rel", "rel": 0.2}},
-                         sub_label="{label}")
+                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.2},
+                         sub_label="shard-0")
         """,
         tmp_path,
     )
-    with pytest.raises(ValueError, match="reserved character"):
+    with pytest.raises(ValueError, match="unknown argument 'sub_label'"):
         parse_ci_gate_specs(path)
 
 

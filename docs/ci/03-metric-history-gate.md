@@ -62,7 +62,11 @@ After a test passes, each comparison coordinate's value is judged by its spec's 
 
 A fanned-out spec (`per_step` / `steps`) contributes one verdict per step; the run is trusted iff **every** coordinate's active checks pass.
 
-The gate's data input is the run's **merged per-run NDJSON record**. *Merged, per-run*: a run's several training processes (driver + actors) each capture into their own file — concurrent writers never share one — and those snapshots are merged into the single file the gate consumes, one per run. *NDJSON* (newline-delimited JSON): one self-contained JSON line per metric — `{"metric": <key>, "series": [[step, value], ...]}` — so capture can atomically rewrite its snapshot and any reader parses line by line, no schema needed. The gate never builds this file, it only reads it (`parse_merged_record`), decoding the capture-side non-finite string markers back to floats.
+The gate's data input is the run's **merged per-run NDJSON record**:
+
+- *Merged, per-run*: today a single process (the training actor's main rank) logs every whitelisted metric — there is no concurrent metric stream to reconcile. Per-process snapshot files are a cheap safety net, not coordination: nothing enforces which process logs a whitelisted key, and the driver's exit-time `finish()` still drops an empty snapshot that would clobber a shared file. The merge collapses whatever files a run leaves into the single file the gate consumes, one per run.
+- *NDJSON* (newline-delimited JSON): one self-contained JSON line per metric — `{"metric": <key>, "series": [[step, value], ...]}` — so capture can atomically rewrite its snapshot and any reader parses line by line, no schema needed.
+- The gate never builds this file, it only reads it (`parse_merged_record`), decoding the capture-side non-finite string markers back to floats.
 
 How one spec flows from declaration to verdict:
 
@@ -81,7 +85,7 @@ flowchart TD
     subgraph eval_sg["evaluate — _evaluate_spec, once per spec"]
         lookup["find the spec's metric in the record<br>series = by_metric.get(spec.metric_key)"]
         pick["pick the value(s) to judge — ×N, one per selected step<br>extract(series, extractor) → list of Extraction (value, step)"]
-        coord(["one comparison coordinate (data) — the key this value's history<br>is stored under; constraint / hard_ref deliberately NOT encoded<br>encode_coordinate → 'v1&#124;step=k&#124;lbl=…' (format: see Identity)"])
+        coord(["one comparison coordinate (data) — the key this value's history<br>is stored under: (metric_key, extractor_key, rule_key, step)<br>= the declaration's literal dicts as canonical JSON + the point (see Identity)"])
         err["outcome: ERROR — judged, never skipped<br>hard = ERROR, historical = INACTIVE, coordinate untrusted"]
         hard["HARD check — absolute safety limit, works with zero history;<br>on when the spec declares hard_ref<br>evaluate_constraint(constraint, value, ref = hard_ref) → PASS &#124; FAIL"]
         hardoff["outcome: HARD = INACTIVE — hard_ref omitted, not a failure"]
@@ -119,7 +123,7 @@ flowchart TD
     class minimal planned;
 ```
 
-Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises from a historical cold start or from a spec that declares no `hard_ref`. *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the coordinate encoding `v1|step=k|lbl=…` (`lbl` = the author's optional `sub_label`) are defined in the Identity section above.
+Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises from a historical cold start or from a spec that declares no `hard_ref`. *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the value coordinate `(metric_key, extractor_key, rule_key, step)` are defined in the Identity section above.
 
 ## Storage: two backends, two tables
 

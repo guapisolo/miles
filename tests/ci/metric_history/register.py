@@ -9,6 +9,9 @@
 * Extractor and constraint are each a literal dict `{"name": ..., <params>}`,
   validated against the per-name schemas in :mod:`extractors` /
   :mod:`constraints`.
+* A spec also carries `extractor_key` / `rule_key` -- canonical JSON of those
+  dicts exactly as written -- which, plus the extraction's `step`, form the
+  identity a stored value's history is keyed under.
 * `parse_ci_gate_specs` extracts every declaration as a :class:`CiGateSpec`.
 
 Caveats:
@@ -20,11 +23,12 @@ Caveats:
 from __future__ import annotations
 
 import ast
+import json
 import math
 from dataclasses import dataclass
 
 from tests.ci.metric_history.constraints import CONSTRAINT_SCHEMAS, DIRECTIONS
-from tests.ci.metric_history.extractors import COORD_RESERVED, EXTRACTOR_SCHEMAS
+from tests.ci.metric_history.extractors import EXTRACTOR_SCHEMAS
 
 
 def register_ci_gate(
@@ -33,7 +37,6 @@ def register_ci_gate(
     extractor: dict,
     constraint: dict,
     hard_ref: float | None = None,
-    sub_label: str | None = None,
     enforce: bool = False,
     allowlist_reason: str | None = None,
 ):
@@ -45,9 +48,9 @@ def register_ci_gate(
     omitted, the hard layer is INACTIVE for this spec. `extractor` and
     `constraint` are literal dicts `{"name": ..., <params>}` -- see
     :data:`extractors.EXTRACTOR_SCHEMAS` / :data:`constraints.CONSTRAINT_SCHEMAS`
-    for the valid names and params. `sub_label` labels a measurement (e.g. a
-    shard); `enforce` and `allowlist_reason` are policy metadata the gate
-    carries without acting on (the verdict is informational this round).
+    for the valid names and params. `enforce` and `allowlist_reason` are policy
+    metadata the gate carries without acting on (the verdict is informational
+    this round).
     """
     return None
 
@@ -61,7 +64,6 @@ _FIELDS: dict[str, tuple[bool, object]] = {
     "hard_ref": (False, None),
     "extractor": (True, _REQUIRED),
     "constraint": (True, _REQUIRED),
-    "sub_label": (False, None),
     "enforce": (False, False),
     "allowlist_reason": (False, None),
 }
@@ -72,9 +74,10 @@ class CiGateSpec:
     """One parsed `register_ci_gate` declaration.
 
     `extractor` / `constraint` are normalized dicts (name + validated params
-    + filled defaults). `filename` is the test file the spec governs; the gate
-    derives identity from its CIRegistry and value identity from the extractor
-    coordinate + `sub_label`.
+    + filled defaults) and drive execution. `extractor_key` / `rule_key` are
+    canonical JSON of the same dicts as literally written and, with the
+    extraction's `step`, form the stored value's identity. `filename` is the
+    test file the spec governs; run identity comes from its CIRegistry.
     """
 
     filename: str
@@ -82,7 +85,8 @@ class CiGateSpec:
     hard_ref: float | None
     extractor: dict
     constraint: dict
-    sub_label: str | None = None
+    extractor_key: str
+    rule_key: str
     enforce: bool = False
     allowlist_reason: str | None = None
 
@@ -217,15 +221,17 @@ def _require_opt_str(value: object, field: str) -> str | None:
     return value
 
 
-def _require_sub_label(value: object) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise _ParseError("sub_label must be a string or None")
-    for ch in COORD_RESERVED:
-        if ch in value:
-            raise _ParseError(f"sub_label must not contain reserved character {ch!r}")
-    return value
+def _canonical_key(raw: object) -> str:
+    """Canonical JSON (sorted keys, no whitespace) of a literal dict, as the
+    stored identity key.
+
+    Deliberately built from the dict as written in the test file, NOT the
+    normalized dict: filled-in defaults live in code, so a code-side default
+    change would silently rewrite normalized keys and reset every series. The
+    raw literal changes only with the file -- exactly when `test_file_hash`
+    resets the series anyway.
+    """
+    return json.dumps(raw, sort_keys=True, separators=(",", ":"))
 
 
 def _parse_ci_gate_call(call: ast.Call, filename: str) -> CiGateSpec:
@@ -259,7 +265,8 @@ def _parse_ci_gate_call(call: ast.Call, filename: str) -> CiGateSpec:
             hard_ref=_require_opt_number(raw["hard_ref"], "hard_ref"),
             extractor=_normalize_axis("extractor", raw["extractor"], EXTRACTOR_SCHEMAS),
             constraint=_normalize_axis("constraint", raw["constraint"], CONSTRAINT_SCHEMAS),
-            sub_label=_require_sub_label(raw["sub_label"]),
+            extractor_key=_canonical_key(raw["extractor"]),
+            rule_key=_canonical_key(raw["constraint"]),
             enforce=_require_bool(raw["enforce"], "enforce"),
             allowlist_reason=_require_opt_str(raw["allowlist_reason"], "allowlist_reason"),
         )
@@ -274,9 +281,9 @@ def parse_ci_gate_specs(filename: str) -> list[CiGateSpec]:
     callee is the bare name `register_ci_gate`. Non-literal / invalid args raise
     ValueError naming the file and field.
 
-    Note for the future writer: two specs may map to the same baseline coordinate
-    (same extractor + sub_label, different constraint) -- that is intentional
-    (shared baseline, different rule). The writer must dedupe metric_values by
+    Note for the future writer: two specs may still map to the same baseline
+    coordinate (identical extractor + constraint dicts, differing only in
+    `hard_ref` / policy metadata). The writer must dedupe metric_values by
     coordinate so one run contributes one row per coordinate.
     """
     with open(filename) as f:
