@@ -627,7 +627,7 @@ def test_dual_register_with_gate_uses_supplied_registry(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"rel": 0.20})
         """,
     )
     record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.31]]})
@@ -678,7 +678,7 @@ def test_single_register_gate_registry_none_still_reparses(tmp_path, store):
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"rel": 0.20})
         """,
     )
     record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.31]]})

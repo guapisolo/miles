@@ -229,4 +229,4 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
   - Gates stay explicit per test (greppable, uniformly strict ERROR semantics); blanket coverage is a one-time sweep PR of one-liners, where each test owner tunes or vetoes their band (partial-model tests have different variance profiles).
   - The capture set becomes `TARGET_METRIC_KEYS` ∪ declared keys: the harness parses specs pre-launch and injects the extras via env.
   - Later: a self-calibrating constraint (band = k·std of the coordinate's own history) for heteroskedastic tests, and a `mean` (step-average) reduction.
-  - Precondition for the defaults table and the sweep PR: the writer dedupe above. Seams already in place (per-field required flags, versioned coordinates — constraint/`hard_ref` never encoded, so adding or dropping a hard layer never resets a baseline); today's full declarations stay valid unchanged.
+  - Precondition for the defaults table and the sweep PR: the writer dedupe above. Seams already in place (per-field required flags in the schema; `hard_ref` is policy, not part of the value coordinate); today's full declarations stay valid unchanged.

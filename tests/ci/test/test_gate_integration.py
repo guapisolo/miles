@@ -26,12 +26,11 @@ import pytest
 from tests.ci.ci_register import HWBackend, ut_parse_one_file
 from tests.ci.ci_utils import build_store_from_env, gate_provenance_from_env, is_nightly, run_gate_hook
 from tests.ci.metric_history import MetricSample, RunIdentity, RunProvenance, SQLiteMetricHistoryStore
-import json
 from tests.ci.metric_history.gate import compute_test_file_hash
 
 # Canonical declaration keys for the `last` + rel-0.20 fixtures below.
-LAST_KEY = json.dumps({"name": "last"}, sort_keys=True, separators=(",", ":"))
-REL20_KEY = json.dumps({"name": "rel", "rel": 0.20}, sort_keys=True, separators=(",", ":"))
+LAST_KEY = json.dumps("last", sort_keys=True, separators=(",", ":"))
+REL20_KEY = json.dumps({"rel": 0.20}, sort_keys=True, separators=(",", ":"))
 
 _GITHUB_ENV_VARS = (
     "GITHUB_EVENT_NAME",
@@ -220,7 +219,7 @@ class TestPassingAttemptSelection:
             tmp_path,
             """
             register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                             extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                             steps="last", constraint={"rel": 0.20})
             """,
         )
         registry = _registry(test_file)
@@ -256,7 +255,7 @@ class TestNightlyWrite:
             tmp_path,
             """
             register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                             extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                             steps="last", constraint={"rel": 0.20})
             """,
         )
         registry = _registry(test_file)
@@ -312,7 +311,7 @@ class TestNightlyWrite:
             tmp_path,
             """
             register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
-                             extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                             steps="last", constraint={"rel": 0.20})
             """,
         )
         registry = _registry(test_file)
@@ -357,7 +356,7 @@ class TestPrShadow:
             tmp_path,
             """
             register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                             extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                             steps="last", constraint={"rel": 0.20})
             """,
         )
         registry = _registry(test_file)
@@ -397,7 +396,7 @@ class TestNeverBlocks:
             tmp_path,
             """
             register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
-                             extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                             steps="last", constraint={"rel": 0.20})
             """,
         )
         registry = _registry(test_file)
@@ -422,7 +421,7 @@ class TestNeverBlocks:
             tmp_path,
             """
             register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                             extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                             steps="last", constraint={"rel": 0.20})
             """,
         )
         registry = _registry(test_file)
@@ -450,7 +449,7 @@ class TestNeverBlocks:
             tmp_path,
             """
             register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                             extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                             steps="last", constraint={"rel": 0.20})
             """,
         )
         registry = _registry(test_file)
@@ -488,7 +487,7 @@ def test_hook_signature_matches_metric_sample_contract(tmp_path, store, monkeypa
         tmp_path,
         """
         register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
-                         extractor={"name": "last"}, constraint={"name": "rel", "rel": 0.20})
+                         steps="last", constraint={"rel": 0.20})
         """,
     )
     registry = _registry(test_file)
