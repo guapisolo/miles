@@ -9,6 +9,8 @@ CI keeps each test's per-metric numbers from every run in our own store and runs
 
 ## Identity: what shares a baseline
 
+**Goal:** pin down exactly which past values a new number may be compared against — same test, same metric, same rule, same point — so baselines never mix across meanings, and editing a test intentionally starts a fresh series.
+
 The gate compares a number only against earlier numbers of the same kind, from the same test. Two keys decide that:
 
 - **Run series** (the "same test"): `(test_path, backend, suite, test_file_hash)`. `test_file_hash` = sha256 of the test file's **contents**, so editing the test starts a fresh series. Runs differing on any field never share a baseline.
@@ -20,6 +22,8 @@ The gate compares a number only against earlier numbers of the same kind, from t
 The store's baseline query keys on exactly these (plus a `limit` for how many recent points to read): `recent_trusted_values(test_path, backend, suite, metric_key, steps_key, constraint_key, step, test_file_hash, limit)`.
 
 ## Steps & constraint: what is compared, and by which rule
+
+**Goal:** let a test declare, as literal data next to its CI registration, which values of a metric are judged and by what rule — validated at parse time, with missing or non-finite data always surfacing as ERROR rather than a silent skip.
 
 A gate declaration composes a step selection and a constraint, both validated at parse time:
 
@@ -53,6 +57,8 @@ register_ci_gate(metric_key="train/train_rollout_logprob_abs_diff")
 ```
 
 ## The gate: two layers
+
+**Goal:** judge every declared coordinate twice — a hard absolute limit that works with zero history, and a historical drift check against the coordinate's own trusted past — so a fresh baseline can seed itself while slow regressions still get caught.
 
 After a test passes, each comparison coordinate's value is judged by its spec's constraint, twice:
 
@@ -126,6 +132,8 @@ Chart key: rectangle = a step or check; rounded box = a data artifact; diamond =
 
 ## Storage: two backends, two tables
 
+**Goal:** persist runs and metric values behind one `MetricHistoryStore` contract so gate code stays backend-agnostic (SQLite offline, Neon in CI), with the write boundary guaranteeing only finite values ever enter a baseline.
+
 **Backends** — one `MetricHistoryStore` contract, two implementations; callers see only the contract, and for the same inputs both backends must persist the same run and metric fields, return the same trusted baseline rows in newest-first order, and revoke trust for the same runs:
 
 - `SQLiteMetricHistoryStore` — the local/offline backend, for unit tests and in-process development.
@@ -147,11 +155,15 @@ Chart key: rectangle = a step or check; rounded box = a data artifact; diamond =
 
 ## Trust, cleanup, who writes
 
+**Goal:** keep the baseline self-protecting — only nightly-marked runs (with recorded provenance) write at all, a nightly run whose metrics fail the gate is still persisted but flagged `trusted = false` so it never enters the baseline, and a point later found bad is revoked by one flag flip instead of deletion.
+
 - A run is `trusted` iff it passed **all** active gates. A drifting run is still recorded, with `trusted = false`, so it can't drag the baseline. A test that fails then passes on **retry** is gated on its passing attempt's metrics and trusted normally — needing a retry is not itself a trust penalty.
 - **Clean a bad point**: `mark_untrusted` = `UPDATE runs SET trusted = false` on the run. The next gate read excludes it immediately — no rebaseline, no row deletion.
 - **Nightly-marked runs write baselines** — either the `schedule` cron (on `main`, post-merge) **or** a PR carrying the `nightly` label (the PR's own pre-merge code). Provenance (`event_name`, `pr_number`) records which, so a label-PR baseline is distinguishable from a post-merge one and can be `mark_untrusted`'d if it turns out bad. Ordinary (unlabeled) PR runs are read-only and only shadow.
 
 ## Roles & data flow
+
+**Goal:** split the pipeline into three decoupled roles — collector, harness, gate library — connected only by JSONL files and one store, so the training process never blocks on gating and the gate stays a pure, read-only library.
 
 Three roles, connected only by JSONL files and one DB — there is no long-lived "metrics manager"; the pipeline is per-test, driven by the harness:
 
@@ -189,9 +201,13 @@ Capture is runtime behavior inside the training process, so it never blocks the 
 
 ## Rollout
 
+**Goal:** land the gate observe-only first, so it accumulates history and proves its verdicts on real runs before any PR can be blocked; enforcement is a later, reversible switch.
+
 Shadow-first: collect, store, and evaluate, but **never block a PR** initially — a historical-gate failure lands as an untrusted row and is surfaced, not enforced. Enforcement arrives later behind a per-test **allowlist** + a global **kill-switch**.
 
 ## Notes
+
+**Goal:** record accepted caveats and explicitly-planned follow-ups, so a reader (or a doc-first pass) can tell current behavior from future direction.
 
 - Any test-file edit is an intentional baseline reset for that series (the hash changes).
 - The nightly trigger (`schedule` cron + `nightly` label) already shipped (#1491); detection here is harness-side via `GITHUB_EVENT_NAME`, so this feature needs **no** `pr-test.yml` **edit**.
