@@ -65,7 +65,7 @@ A fanned-out spec (`steps="all"` or a step list) contributes one verdict per ste
 The gate's data input is the run's **merged per-run NDJSON record**:
 
 - *Merged, per-run*: today a single process (the training actor's main rank) logs every whitelisted metric — there is no concurrent metric stream to reconcile. Per-process snapshot files are a cheap safety net, not coordination: nothing enforces which process logs a whitelisted key, and the driver's exit-time `finish()` still drops an empty snapshot that would clobber a shared file. The merge collapses whatever files a run leaves into the single file the gate consumes, one per run.
-- *NDJSON* (newline-delimited JSON): one self-contained JSON line per metric — `{"metric": <key>, "series": [[step, value], ...]}` — so capture can atomically rewrite its snapshot and any reader parses line by line, no schema needed.
+- *NDJSON* (newline-delimited JSON): one self-contained JSON line per metric — `{"metric": <key>, "series": [[step, value], ...]}`. The format is chosen for the handoff's dumbness — collector and gate are separate processes at separate times, so the medium must survive either end dying: each line stands alone, so capture's atomic snapshot rewrite (temp file + rename) has no finalize step and a process killed mid-run still leaves a complete parseable record; the harness merge just reads and emits lines; and any reader — the gate, or a human with `grep` — parses line by line with a stock JSON parser, no schema, no framing.
 - The gate never builds this file, it only reads it (`parse_merged_record`), decoding the capture-side non-finite string markers back to floats.
 
 How one spec flows from declaration to verdict:
