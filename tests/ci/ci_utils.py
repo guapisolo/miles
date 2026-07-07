@@ -321,7 +321,7 @@ def run_gate_hook(
             )
             created_at = now_iso or datetime.datetime.now(datetime.timezone.utc).isoformat()
             values = [
-                MetricSample(m.metric_key, m.extractor_key, m.rule_key, m.step, m.current)
+                MetricSample(m.metric_key, m.steps_key, m.constraint_key, m.step, m.current)
                 for m in result.metrics
                 if m.current is not None
             ]

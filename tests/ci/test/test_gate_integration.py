@@ -479,7 +479,7 @@ class TestNeverBlocks:
 
 def test_hook_signature_matches_metric_sample_contract(tmp_path, store, monkeypatch):
     # Regression guard: nightly values must be built as
-    # MetricSample(metric_key, extractor_key, rule_key, step, current) and only
+    # MetricSample(metric_key, steps_key, constraint_key, step, current) and only
     # for metrics whose current is not None. A spec on a missing metric
     # (current None) yields a written run with zero values.
     monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")

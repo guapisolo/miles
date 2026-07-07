@@ -45,12 +45,12 @@ PROVENANCE = RunProvenance(
 )
 
 # Canonical-JSON declaration keys, as the parser derives them.
-LAST_EXTRACTOR = '{"name":"last"}'
+LAST_STEPS = '{"name":"last"}'
 REL_RULE = '{"name":"rel","rel":0.2}'
 
 
-def _sample(metric_key, value, *, extractor_key=LAST_EXTRACTOR, rule_key=REL_RULE, step=-1):
-    return MetricSample(metric_key, extractor_key, rule_key, step, value)
+def _sample(metric_key, value, *, steps_key=LAST_STEPS, constraint_key=REL_RULE, step=-1):
+    return MetricSample(metric_key, steps_key, constraint_key, step, value)
 
 
 # --------------------------------------------------------------------------- #
@@ -199,9 +199,9 @@ def test_write_run_single_transaction_one_commit(store, fake_conn):
     mv_kind, mv_sql, mv_seq = fake_conn.events[1]
     assert "insert into metric_values" in mv_sql
     assert mv_seq == [
-        (run_id, "reward_mean", LAST_EXTRACTOR, REL_RULE, -1, 0.83),
-        (run_id, "pass_rate", LAST_EXTRACTOR, REL_RULE, 0, 0.6),
-        (run_id, "pass_rate", LAST_EXTRACTOR, REL_RULE, 1, 0.8),
+        (run_id, "reward_mean", LAST_STEPS, REL_RULE, -1, 0.83),
+        (run_id, "pass_rate", LAST_STEPS, REL_RULE, 0, 0.6),
+        (run_id, "pass_rate", LAST_STEPS, REL_RULE, 1, 0.8),
     ]
 
 
@@ -226,7 +226,7 @@ def test_recent_trusted_values_issues_baseline_join(store, fake_conn):
         IDENTITY.backend,
         IDENTITY.suite,
         "reward_mean",
-        LAST_EXTRACTOR,
+        LAST_STEPS,
         REL_RULE,
         -1,
         IDENTITY.test_file_hash,
@@ -245,8 +245,8 @@ def test_recent_trusted_values_issues_baseline_join(store, fake_conn):
         "r.backend = %s",
         "r.suite = %s",
         "mv.metric_key = %s",
-        "mv.extractor_key = %s",
-        "mv.rule_key = %s",
+        "mv.steps_key = %s",
+        "mv.constraint_key = %s",
         "mv.step = %s",
         "r.test_file_hash = %s",
         "r.trusted = true",
@@ -260,7 +260,7 @@ def test_recent_trusted_values_issues_baseline_join(store, fake_conn):
         IDENTITY.backend,
         IDENTITY.suite,
         "reward_mean",
-        LAST_EXTRACTOR,
+        LAST_STEPS,
         REL_RULE,
         -1,
         IDENTITY.test_file_hash,
@@ -345,8 +345,8 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE TABLE IF NOT EXISTS metric_values (
     run_id         TEXT NOT NULL REFERENCES runs(run_id),
     metric_key     TEXT NOT NULL,
-    extractor_key  TEXT NOT NULL,
-    rule_key       TEXT NOT NULL,
+    steps_key  TEXT NOT NULL,
+    constraint_key       TEXT NOT NULL,
     step           INTEGER NOT NULL,
     value          DOUBLE PRECISION NOT NULL
 );
@@ -394,7 +394,7 @@ def test_live_postgres_round_trip():
             identity.backend,
             identity.suite,
             "m",
-            LAST_EXTRACTOR,
+            LAST_STEPS,
             REL_RULE,
             -1,
             identity.test_file_hash,
@@ -409,7 +409,7 @@ def test_live_postgres_round_trip():
             identity.backend,
             identity.suite,
             "m",
-            LAST_EXTRACTOR,
+            LAST_STEPS,
             REL_RULE,
             -1,
             identity.test_file_hash,
