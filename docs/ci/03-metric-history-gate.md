@@ -24,9 +24,9 @@ The store's baseline query keys on exactly these (plus a `limit` for how many re
 A gate declaration composes a step selection and a constraint, both validated at parse time:
 
 - **`steps`** — which value(s) of the metric's series to compare: `"last"` (the series' last point, a whole-series reduction), `"all"` (every step present), or a list of step indices. `"all"` and a step list fan out to one comparison per step, judged against that step's own history.
-- **Constraint** — whether one value passes against a reference: a tolerance band plus a direction; a literal dict `{"name": ..., <params>}`.
+- **Constraint** — whether one value passes against a reference: one band family, `band = max(rel·|ref|, abs_floor)`, plus a `direction` (`two_sided` / `higher_is_worse` / `lower_is_worse`); a literal dict of those params, at least one of `rel` / `abs_floor` written.
 
-The authoritative constraint names and params are the schema tables beside the functions (paths in the Map below); the doc does not duplicate them. A missing/empty series, a missing required step, or a non-finite value (`NaN` / `±Inf`) at a selected coordinate is an ERROR verdict, never a skip — non-finite is judged here, not silently dropped (capture records it faithfully as a strict-JSON string marker the gate-side reader decodes; `write_run` refuses it at the DB boundary).
+The authoritative constraint params are the schema table beside the function (paths in the Map below); the doc does not duplicate them. A missing/empty series, a missing required step, or a non-finite value (`NaN` / `±Inf`) at a selected coordinate is an ERROR verdict, never a skip — non-finite is judged here, not silently dropped (capture records it faithfully as a strict-JSON string marker the gate-side reader decodes; `write_run` refuses it at the DB boundary).
 
 A declaration sits at top level of the test file, next to its CI registration — `register_*_ci` decides where the test runs, `register_ci_gate` what is judged after it passes. A gate declaration alone does nothing: an unregistered file is never collected.
 
@@ -40,7 +40,7 @@ register_ci_gate(
     metric_key="train/ppo_kl",                     # must be a captured key (whitelist)
     hard_ref=0.05,                                 # hard gate: absolute limit (optional — omit ⇒ hard layer INACTIVE)
     steps=[0, 1],                                  # judge steps 0 and 1, each against its own history
-    constraint={"name": "abs", "abs_floor": 0.02, "direction": "higher_is_worse"},
+    constraint={"abs_floor": 0.02, "direction": "higher_is_worse"},
 )
 ```
 

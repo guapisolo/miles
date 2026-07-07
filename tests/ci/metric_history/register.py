@@ -7,8 +7,8 @@
 * A gate composes `steps` (which value(s) to pull from a metric's series:
   `"last"` | `"all"` | a non-empty list of step indices) and a `constraint`
   (the pass/fail rule).
-* `constraint` is a literal dict `{"name": ..., <params>}`, validated against
-  the per-name schemas in :mod:`constraints`.
+* `constraint` is a literal dict of band params (`rel` / `abs_floor` /
+  `direction`), validated against the schema in :mod:`constraints`.
 * A spec also carries `extractor_key` / `rule_key` -- canonical JSON of the
   `steps` / `constraint` literals exactly as written -- which, plus the
   extraction's `step`, form the identity a stored value's history is keyed
@@ -28,7 +28,7 @@ import json
 import math
 from dataclasses import dataclass
 
-from tests.ci.metric_history.constraints import CONSTRAINT_SCHEMAS, DIRECTIONS
+from tests.ci.metric_history.constraints import CONSTRAINT_SCHEMA, DIRECTIONS
 
 
 def register_ci_gate(
@@ -48,10 +48,10 @@ def register_ci_gate(
     omitted, the hard layer is INACTIVE for this spec. `steps` picks the
     comparison value(s): `"last"` (the series' last point), `"all"` (every
     step present, fanned out), or a non-empty list of step indices.
-    `constraint` is a literal dict `{"name": ..., <params>}` -- see
-    :data:`constraints.CONSTRAINT_SCHEMAS` for the valid names and params.
-    `enforce` and `allowlist_reason` are policy metadata the gate carries
-    without acting on (the verdict is informational this round).
+    `constraint` is a literal dict of band params -- see
+    :data:`constraints.CONSTRAINT_SCHEMA`; at least one of `rel` / `abs_floor`
+    must be written. `enforce` and `allowlist_reason` are policy metadata the
+    gate carries without acting on (the verdict is informational this round).
     """
     return None
 
@@ -162,31 +162,27 @@ def _validate_param(validator: str, value: object) -> object:
     raise _ParseError(f"internal: unknown validator {validator!r}")
 
 
-def _normalize_axis(axis: str, raw: object, schemas: dict) -> dict:
-    """Validate a `{"name": ..., <params>}` dict against its per-name schema
-    and return a normalized dict (name + validated params + filled defaults)."""
+def _normalize_constraint(raw: object) -> dict:
+    """Validate the constraint literal against `CONSTRAINT_SCHEMA` and return
+    a normalized dict (validated params + filled defaults). At least one band
+    param (`rel` / `abs_floor`) must be written -- an all-default band is 0
+    and would fail on any deviation."""
     if not isinstance(raw, dict):
-        raise _ParseError(f"{axis} must be a dict")
-    if "name" not in raw:
-        raise _ParseError(f"{axis} dict must have a 'name'")
-    name = raw["name"]
-    if not isinstance(name, str):
-        raise _ParseError(f"{axis} 'name' must be a string")
-    schema = schemas.get(name)
-    if schema is None:
-        raise _ParseError(f"unknown {axis} name {name!r}; known: {sorted(schemas)}")
+        raise _ParseError("constraint must be a dict")
     for key in raw:
-        if key != "name" and key not in schema:
-            raise _ParseError(f"unknown key {key!r} for {axis} {name!r}; valid: {sorted(schema)}")
-    normalized: dict = {"name": name}
-    for param, (validator, required, default) in schema.items():
+        if key not in CONSTRAINT_SCHEMA:
+            raise _ParseError(f"unknown key {key!r} for constraint; valid: {sorted(CONSTRAINT_SCHEMA)}")
+    if "rel" not in raw and "abs_floor" not in raw:
+        raise _ParseError("constraint requires at least one band param ('rel' or 'abs_floor')")
+    normalized: dict = {}
+    for param, (validator, required, default) in CONSTRAINT_SCHEMA.items():
         if param in raw:
             try:
                 normalized[param] = _validate_param(validator, raw[param])
             except _ParseError as e:
-                raise _ParseError(f"{axis} {name!r} param {param!r}: {e}") from None
+                raise _ParseError(f"constraint param {param!r}: {e}") from None
         elif required:
-            raise _ParseError(f"{axis} {name!r} requires {param!r}")
+            raise _ParseError(f"constraint requires {param!r}")
         else:
             normalized[param] = default
     return normalized
@@ -280,7 +276,7 @@ def _parse_ci_gate_call(call: ast.Call, filename: str) -> CiGateSpec:
             metric_key=_require_str(raw["metric_key"], "metric_key"),
             hard_ref=_require_opt_number(raw["hard_ref"], "hard_ref"),
             steps=_validate_steps(raw["steps"]),
-            constraint=_normalize_axis("constraint", raw["constraint"], CONSTRAINT_SCHEMAS),
+            constraint=_normalize_constraint(raw["constraint"]),
             extractor_key=_canonical_key(raw["steps"]),
             rule_key=_canonical_key(raw["constraint"]),
             enforce=_require_bool(raw["enforce"], "enforce"),
