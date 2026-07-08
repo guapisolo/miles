@@ -10,17 +10,17 @@ CI keeps each test's per-metric numbers from every run in our own store and runs
 
 ## Identity: what shares a baseline
 
-**Goal:** pin down exactly which past values a new number may be compared against — same test, same metric, same rule, same point — so baselines never mix across meanings, and editing a test intentionally starts a fresh series.
+**Goal:** pin down exactly which past values a new number may be compared against — same test, same metric, same rule, same point — so baselines never mix across meanings.
 
 The gate compares a number only against earlier numbers of the same kind, from the same test. Two keys decide that:
 
-- **Run series** (the "same test"): `(test_path, backend, suite, test_file_hash)`. `test_file_hash` = sha256 of the test file's **contents**, so editing the test starts a fresh series. Runs differing on any field never share a baseline.
+- **Run series** (the "same test"): `(test_path, backend, suite)`. Runs differing on any field never share a baseline. A test-file edit does not reset the series (see Notes).
 - **Value within a run**: `(metric_key, steps_key, constraint_key, step)` — the declaring gate's literal content plus which point. `steps_key` and `step` are not redundant: a fanned-out declaration (`steps=[0, 1]` / `steps="all"`) produces several values in one run — one per selected step — and each must be judged only against its own step's history, so the literals identify the spec while `step` identifies the point:
-  - `steps_key` / `constraint_key` are canonical JSON of the declaration's raw `steps` / `constraint` literals: no whitespace, dict keys sorted, list order kept as written, a string keyword stored with its JSON quotes — `steps=[0, 1]` → `[0,1]`, `steps="last"` → `"last"` (quotes included). Built from the raw literal, never the normalized form, so a code-side default change can never silently re-key a series; any edit to the declaration already resets the series via `test_file_hash`.
+  - `steps_key` / `constraint_key` are canonical JSON of the declaration's raw `steps` / `constraint` literals: no whitespace, dict keys sorted, list order kept as written, a string keyword stored with its JSON quotes — `steps=[0, 1]` → `[0,1]`, `steps="last"` → `"last"` (quotes included). Built from the raw literal, never the normalized form, so a code-side default change can never silently re-key a series; editing the declaration's literals changes these keys, so a declaration edit starts a fresh coordinate history by construction.
   - `step` is the point the value came from: step `k` for a per-step value, `-1` for a whole-series reduction (e.g. `steps="last"`) — a reduced value keys on a constant, never the step it happened to land on, or its history would fragment across runs of different lengths.
   - Step-0 `ppo_kl` is compared only against past step-0 `ppo_kl` — never against step 1 or `grad_norm`.
 
-The store's baseline query keys on exactly these (plus a `limit` for how many recent points to read): `recent_trusted_values(test_path, backend, suite, metric_key, steps_key, constraint_key, step, test_file_hash, limit)`.
+The store's baseline query keys on exactly these (plus a `limit` for how many recent points to read): `recent_trusted_values(test_path, backend, suite, metric_key, steps_key, constraint_key, step, limit)`.
 
 ## Steps & constraint: what is compared, and by which rule
 
@@ -163,7 +163,7 @@ flowchart TD
 
 
 
-Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises from a historical cold start. *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the value coordinate `(metric_key, steps_key, constraint_key, step)` are defined in the Identity section above.
+Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises from a historical cold start. *run-series identity* = `(test_path, backend, suite)`; it and the value coordinate `(metric_key, steps_key, constraint_key, step)` are defined in the Identity section above.
 
 ## Storage: two backends, two tables
 
@@ -184,7 +184,7 @@ Chart key: rectangle = a step or check; rounded box = a data artifact; diamond =
 
 - `runs` — one row per CI run of one series: the identity above + provenance (`commit_sha`, `pr_number`, `github_run_id`, `github_run_attempt`, `event_name`, `ref`) + `created_at` + `trusted` (run-level).
 - `metric_values` — one row per value: `run_id` FK + `(metric_key, steps_key, constraint_key, step)` + `value`.
-- The baseline read is served by the composite index `runs(test_path, backend, suite, test_file_hash, trusted, created_at DESC)`.
+- The baseline read is served by the composite index `runs(test_path, backend, suite, trusted, created_at DESC)`.
 
 **Operations** — hosted Postgres setup is out-of-band: the two tables and application role are provisioned outside this repo, and runtime gate code stays DML-only (`NeonMetricHistoryStore` never issues DDL). Old-row cleanup policy is a later operational concern, not part of the M0/M1 substrate.
 
@@ -208,7 +208,7 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 
 **Goal:** record accepted caveats and open questions beside the behavior they qualify; planned-but-unimplemented work lives in TODO below.
 
-- Any test-file edit is an intentional baseline reset for that series (the hash changes).
+- A test-file edit does not reset the series: `test_file_hash` was dropped from the run-series identity because a tiny edit to a test kept wiping its whole history. A test change that genuinely shifts a metric's expected level surfaces as gate failures instead; the reset levers are manual — `mark_untrusted` the stale runs, or edit the declaration literals (new `steps_key` / `constraint_key` ⇒ fresh coordinate).
 - The nightly trigger (`schedule` cron + `nightly` label) already shipped (#1491); detection here is harness-side via `GITHUB_EVENT_NAME`, so this feature needs **no** `pr-test.yml` **edit**.
 - Open: should a brand-new test's first baselines need human confirmation before counting as trusted? (v1: no.)
 - The harness writer does not dedupe `metric_values` by coordinate: two specs sharing a coordinate (identical `steps` + `constraint` literals) write two rows in one nightly run, double-weighting that baseline mean (dedupe: see TODO).
