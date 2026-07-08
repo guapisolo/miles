@@ -245,8 +245,7 @@ def evaluate_gate(
 ) -> GateResult:
     """Evaluate every `register_ci_gate` spec in `test_filename` against a record.
 
-    `test_filename` is the repo-relative test path; it supplies the
-    `test_file_hash` (sha256 of its contents). Gate identity
+    `test_filename` is the repo-relative test path. Gate identity
     (test_path/backend/suite) comes from `registry` when the real harness
     passes one -- it has already chosen which `register_*_ci()` call applies,
     so a file with several (e.g. `register_cuda_ci` + `register_rocm_ci`)
@@ -265,8 +264,6 @@ def evaluate_gate(
     fanned-out spec contributes one MetricGateResult per step.
     """
     specs = parse_ci_gate_specs(test_filename)
-    test_file_hash = compute_test_file_hash(test_filename)
-
     if not specs:
         # No gate spec can regress, so identity is informational here and must
         # never raise on a dual-register / no-register file. Use the harness's
@@ -276,14 +273,12 @@ def evaluate_gate(
                 test_path=registry.filename,
                 backend=_BACKEND_STR[registry.backend],
                 suite=registry.suite,
-                test_file_hash=test_file_hash,
                 metrics=[],
             )
         return GateResult(
             test_path=test_filename,
             backend="",
             suite="",
-            test_file_hash=test_file_hash,
             metrics=[],
         )
 

@@ -317,7 +317,6 @@ def run_gate_hook(
                 test_path=result.test_path,
                 backend=result.backend,
                 suite=result.suite,
-                test_file_hash=result.test_file_hash,
             )
             created_at = now_iso or datetime.datetime.now(datetime.timezone.utc).isoformat()
             values = [

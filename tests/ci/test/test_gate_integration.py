@@ -26,7 +26,6 @@ import pytest
 from tests.ci.ci_register import HWBackend, ut_parse_one_file
 from tests.ci.ci_utils import build_store_from_env, gate_provenance_from_env, is_nightly, run_gate_hook
 from tests.ci.metric_history import MetricSample, RunIdentity, RunProvenance, SQLiteMetricHistoryStore
-from tests.ci.metric_history.gate import compute_test_file_hash
 
 # Canonical declaration keys for the `last` + rel-0.20 fixtures below.
 LAST_KEY = json.dumps("last", sort_keys=True, separators=(",", ":"))
@@ -218,7 +217,7 @@ class TestPassingAttemptSelection:
         test_file = _write_test_file(
             tmp_path,
             """
-            register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+            register_ci_gate(metric_key="rollout/raw_reward",
                              steps="last", constraint={"rel": 0.20})
             """,
         )
@@ -254,7 +253,7 @@ class TestNightlyWrite:
         test_file = _write_test_file(
             tmp_path,
             """
-            register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+            register_ci_gate(metric_key="rollout/raw_reward",
                              steps="last", constraint={"rel": 0.20})
             """,
         )
@@ -273,21 +272,20 @@ class TestNightlyWrite:
         )
 
         row = store._conn.execute(
-            "SELECT test_path, backend, suite, test_file_hash, commit_sha, pr_number, "
+            "SELECT test_path, backend, suite, commit_sha, pr_number, "
             "github_run_id, event_name, created_at, trusted FROM runs"
         ).fetchone()
         assert row is not None
         assert row[0] == registry.filename
         assert row[1] == "cuda"
         assert row[2] == "stage-c-8-gpu-h100"
-        assert row[3] == compute_test_file_hash(test_file)
-        assert row[4] == "deadbeef"
-        assert row[5] == 7
-        assert row[6] == 100
-        assert row[7] == "schedule"
-        assert row[8] == "2026-06-29T00:00:00+00:00"
-        # Cold-start (no prior baseline) + hard pass -> trusted verdict.
-        assert row[9] == 1
+        assert row[3] == "deadbeef"
+        assert row[4] == 7
+        assert row[5] == 100
+        assert row[6] == "schedule"
+        assert row[7] == "2026-06-29T00:00:00+00:00"
+        # Cold-start (no prior baseline) -> historical inactive -> trusted verdict.
+        assert row[8] == 1
 
         # The persisted value feeds future baselines.
         vals = store.recent_trusted_values(
@@ -298,24 +296,31 @@ class TestNightlyWrite:
             LAST_KEY,
             REL20_KEY,
             -1,
-            compute_test_file_hash(test_file),
             20,
         )
         assert vals == [0.81]
 
     def test_nightly_writes_untrusted_when_verdict_not_trusted(self, tmp_path, store):
-        # A hard failure makes the verdict not-trusted; the row is still written
-        # (nightly always writes) but flagged untrusted, so it never pollutes a
-        # future baseline.
+        # A historical failure makes the verdict not-trusted; the row is still
+        # written (nightly always writes) but flagged untrusted, so it never
+        # pollutes a future baseline.
         test_file = _write_test_file(
             tmp_path,
             """
-            register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
+            register_ci_gate(metric_key="rollout/raw_reward",
                              steps="last", constraint={"rel": 0.20})
             """,
         )
         registry = _registry(test_file)
-        # 0.90 vs ref 0.30, band 0.06 -> hard fails -> not trusted.
+        # Seed a trusted baseline at 0.30 under the gated coordinate.
+        store.write_run(
+            RunIdentity(test_path=registry.filename, backend="cuda", suite="stage-c-8-gpu-h100"),
+            PROVENANCE,
+            created_at="2026-06-01T00:00:00+00:00",
+            trusted=True,
+            values=[MetricSample("rollout/raw_reward", LAST_KEY, REL20_KEY, -1, 0.30)],
+        )
+        # 0.90 vs baseline mean 0.30, band 0.06 -> historical fails -> not trusted.
         record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.90]]}, name="m.jsonl")
 
         run_gate_hook(
@@ -325,10 +330,12 @@ class TestNightlyWrite:
             registry=registry,
             nightly=True,
             provenance=PROVENANCE,
+            now_iso="2026-06-29T00:00:00+00:00",
         )
-        trusted = store._conn.execute("SELECT trusted FROM runs").fetchone()[0]
+        trusted = store._conn.execute("SELECT trusted FROM runs ORDER BY created_at DESC").fetchone()[0]
         assert trusted == 0
-        # Untrusted rows are invisible to the baseline query.
+        # Untrusted rows are invisible to the baseline query: only the seeded
+        # trusted baseline comes back, never the hook's 0.90 row.
         vals = store.recent_trusted_values(
             registry.filename,
             "cuda",
@@ -337,10 +344,9 @@ class TestNightlyWrite:
             LAST_KEY,
             REL20_KEY,
             -1,
-            compute_test_file_hash(test_file),
             20,
         )
-        assert vals == []
+        assert vals == [0.30]
 
 
 # --- PR no-write + shadow verdict -------------------------------------------
@@ -355,7 +361,7 @@ class TestPrShadow:
         test_file = _write_test_file(
             tmp_path,
             """
-            register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+            register_ci_gate(metric_key="rollout/raw_reward",
                              steps="last", constraint={"rel": 0.20})
             """,
         )
@@ -389,17 +395,25 @@ class TestPrShadow:
 class TestNeverBlocks:
     def test_not_trusted_verdict_does_not_raise_in_pr(self, tmp_path, store, monkeypatch):
         # A clearly-not-trusted PR run still completes the hook normally (no
-        # exception, no row). The caller's file_passed is computed independently
-        # of run_gate_hook, which returns None either way.
+        # exception, no new row). The caller's file_passed is computed
+        # independently of run_gate_hook, which returns None either way.
         monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
         test_file = _write_test_file(
             tmp_path,
             """
-            register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
+            register_ci_gate(metric_key="rollout/raw_reward",
                              steps="last", constraint={"rel": 0.20})
             """,
         )
         registry = _registry(test_file)
+        # Seed a trusted baseline at 0.30 so 0.95 fails the historical check.
+        store.write_run(
+            RunIdentity(test_path=registry.filename, backend="cuda", suite="stage-c-8-gpu-h100"),
+            PROVENANCE,
+            created_at="2026-06-01T00:00:00+00:00",
+            trusted=True,
+            values=[MetricSample("rollout/raw_reward", LAST_KEY, REL20_KEY, -1, 0.30)],
+        )
         record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.95]]}, name="m.jsonl")
 
         result = run_gate_hook(
@@ -411,7 +425,8 @@ class TestNeverBlocks:
             provenance=PROVENANCE,
         )
         assert result is None
-        assert _count_runs(store) == 0
+        # Only the seeded baseline row: the PR run wrote nothing.
+        assert _count_runs(store) == 1
 
     def test_gate_error_is_swallowed(self, tmp_path, store, monkeypatch, caplog):
         # A missing record path makes evaluate_gate raise; the hook must catch,
@@ -420,7 +435,7 @@ class TestNeverBlocks:
         test_file = _write_test_file(
             tmp_path,
             """
-            register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+            register_ci_gate(metric_key="rollout/raw_reward",
                              steps="last", constraint={"rel": 0.20})
             """,
         )
@@ -448,7 +463,7 @@ class TestNeverBlocks:
         test_file = _write_test_file(
             tmp_path,
             """
-            register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+            register_ci_gate(metric_key="rollout/raw_reward",
                              steps="last", constraint={"rel": 0.20})
             """,
         )
@@ -486,7 +501,7 @@ def test_hook_signature_matches_metric_sample_contract(tmp_path, store, monkeypa
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="last", constraint={"rel": 0.20})
         """,
     )
@@ -508,4 +523,4 @@ def test_hook_signature_matches_metric_sample_contract(tmp_path, store, monkeypa
     # The MetricSample type is the contract the hook builds from; assert it imports.
     assert MetricSample("k", LAST_KEY, REL20_KEY, -1, 1.0).value == 1.0
     assert HWBackend.CUDA is not None
-    assert RunIdentity("p", "cuda", "s", "h").backend == "cuda"
+    assert RunIdentity("p", "cuda", "s").backend == "cuda"

@@ -52,7 +52,6 @@ WHERE r.test_path = %s
   AND mv.steps_key = %s
   AND mv.constraint_key = %s
   AND mv.step = %s
-  AND r.test_file_hash = %s
   AND r.trusted = true
 ORDER BY r.created_at DESC
 LIMIT %s
@@ -60,10 +59,10 @@ LIMIT %s
 
 _INSERT_RUN_SQL = """
 INSERT INTO runs (
-    run_id, test_path, backend, suite, test_file_hash,
+    run_id, test_path, backend, suite,
     commit_sha, pr_number, github_run_id, github_run_attempt,
     event_name, ref, created_at, trusted
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 _INSERT_METRIC_SQL = (
@@ -110,7 +109,6 @@ class NeonMetricHistoryStore(MetricHistoryStore):
                         identity.test_path,
                         identity.backend,
                         identity.suite,
-                        identity.test_file_hash,
                         provenance.commit_sha,
                         provenance.pr_number,
                         provenance.github_run_id,
@@ -145,7 +143,7 @@ class NeonMetricHistoryStore(MetricHistoryStore):
         with self._conn.cursor() as cur:
             cur.execute(
                 _BASELINE_SQL,
-                (test_path, backend, suite, metric_key, steps_key, constraint_key, step, test_file_hash, limit),
+                (test_path, backend, suite, metric_key, steps_key, constraint_key, step, limit),
             )
             rows = cur.fetchall()
         return [row[0] for row in rows]
