@@ -49,13 +49,7 @@ register_ci_gate(
 )
 ```
 
-**PLANNED, not implemented** — for the standard metrics the declaration shrinks to one line; today this is a parse error (steps and constraint are still required):
 
-```python
-register_ci_gate(metric_key="train/train_rollout_logprob_abs_diff")
-# ≡ the full form above: steps + constraint filled from the per-metric_key
-#   defaults table beside the parser (register.py); hard_ref already optional
-```
 
 ## Roles & data flow
 
@@ -120,10 +114,8 @@ How one spec flows from declaration to verdict:
 flowchart TD
     subgraph parse_sg["declare & parse — static, per test file"]
         decl["the gate declaration — a marker in the test file, runtime no-op<br>register_ci_gate(metric_key, steps, constraint[, hard_ref])"]
-        minimal["PLANNED, not implemented: one-line form<br>register_ci_gate(metric_key=...)"]
         spec(["the parsed spec — what to judge, by which rule<br>CiGateSpec: steps literal + normalized constraint dict"])
         decl -- "read the file's AST, never execute it<br>(hence literal-only args); per-name schema validation<br>parse_ci_gate_specs" --> spec
-        minimal -. "same parse; missing fields filled from a<br>per-metric_key defaults table (PLANNED)" .-> spec
     end
 
     subgraph capture_sg["capture & merge — per attempt, harness-side"]
@@ -175,9 +167,6 @@ flowchart TD
     result --> trust
     store -- "baseline read" --> histq
     trust -- "a trusted run's values are persisted (write_run) and become<br>future baselines — writer: the harness, on nightly-marked runs only" --> store
-
-    classDef planned stroke-dasharray: 6 4,opacity:0.75;
-    class minimal planned;
 ```
 
 
@@ -225,16 +214,24 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 
 ## Notes
 
-**Goal:** record accepted caveats and explicitly-planned follow-ups, so a reader (or a doc-first pass) can tell current behavior from future direction.
+**Goal:** record accepted caveats and open questions beside the behavior they qualify; planned-but-unimplemented work lives in TODO below.
 
 - Any test-file edit is an intentional baseline reset for that series (the hash changes).
 - The nightly trigger (`schedule` cron + `nightly` label) already shipped (#1491); detection here is harness-side via `GITHUB_EVENT_NAME`, so this feature needs **no** `pr-test.yml` **edit**.
 - Open: should a brand-new test's first baselines need human confirmation before counting as trusted? (v1: no.)
-- The harness writer does not dedupe `metric_values` by coordinate: two specs sharing a coordinate (identical `steps` + `constraint`, differing only in `hard_ref` / policy metadata) write two rows in one nightly run, double-weighting that baseline mean. **PLANNED, not implemented**: dedupe so one run writes one row per coordinate.
-- **Planned, NOT implemented** — a doc-first pass must not conform code to these sub-bullets. Direction: explicit one-line declarations, no automatic tier. (`hard_ref` optional already landed; it is current behavior above, not part of this list.)
-  - Defaults are classified by `metric_key`: a per-metric table beside the parser (`register.py`) supplies steps + constraint for the standard metrics (`grad_norm`, `ppo_kl`, logp-diff, …), filled at parse time through the same schema validation — `register_ci_gate(metric_key=...)` is a complete minimal declaration. `hard_ref` is never defaulted; every defaulted key must stay within the capture whitelist.
+- The harness writer does not dedupe `metric_values` by coordinate: two specs sharing a coordinate (identical `steps` + `constraint`, differing only in `hard_ref` / policy metadata) write two rows in one nightly run, double-weighting that baseline mean (dedupe: see TODO).
+
+
+
+## TODO
+
+**Goal:** collect everything planned but not implemented in one place — a doc-first pass must not conform code to this section; current behavior is everything above it.
+
+- **Writer dedupe** — one nightly run writes one `metric_values` row per coordinate (today two specs sharing a coordinate double-weight the baseline mean; see Notes). Precondition for the defaults table and the sweep PR below.
+- **One-line declaration for standard metrics** — today `register_ci_gate(metric_key="train/train_rollout_logprob_abs_diff")` alone is a parse error (steps and constraint are required); target: a per-`metric_key` defaults table beside the parser (`register.py`) supplies steps + constraint for the standard metrics (`grad_norm`, `ppo_kl`, logp-diff, …), filled at parse time through the same schema validation, so the one-liner is a complete minimal declaration.
+  - Every defaulted key must stay within the capture whitelist; `hard_ref` is never defaulted.
   - Gates stay explicit per test (greppable, uniformly strict ERROR semantics); blanket coverage is a one-time sweep PR of one-liners, where each test owner tunes or vetoes their band (partial-model tests have different variance profiles).
-  - The capture set becomes `TARGET_METRIC_KEYS` ∪ declared keys: the harness parses specs pre-launch and injects the extras via env.
-  - Later: a self-calibrating constraint (band = k·std of the coordinate's own history) for heteroskedastic tests, and a `mean` (step-average) reduction.
-  - Precondition for the defaults table and the sweep PR: the writer dedupe above. Seams already in place (per-field required flags in the schema; `hard_ref` is policy, not part of the value coordinate); today's full declarations stay valid unchanged.
+- **Capture set becomes** `TARGET_METRIC_KEYS` **∪ declared keys** — the harness parses specs pre-launch and injects the extras via env.
+- **Self-calibrating constraint** — band = k·std of the coordinate's own history, for heteroskedastic tests; and a `mean` (step-average) reduction.
+- **Enforcement** — the per-test allowlist + global kill-switch from Rollout; shadow mode is current behavior.
 
