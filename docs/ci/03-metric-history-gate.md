@@ -1,8 +1,7 @@
 ---
-
-## title: Metric history & regression gate
-
+title: Metric history & regression gate
 description: How CI keeps per-test training metrics across runs, runs a historical gate against that history, and how to add a gate spec or clean a bad data point.
+---
 
 # Metric history & regression gate
 
