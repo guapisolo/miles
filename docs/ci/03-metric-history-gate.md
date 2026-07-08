@@ -2,11 +2,11 @@
 
 ## title: Metric history & regression gate
 
-description: How CI keeps per-test training metrics across runs, runs a two-layer gate against that history, and how to add a gate spec or clean a bad data point.
+description: How CI keeps per-test training metrics across runs, runs a historical gate against that history, and how to add a gate spec or clean a bad data point.
 
 # Metric history & regression gate
 
-CI keeps each test's per-metric numbers from every run in our own store and runs a two-layer gate against that history — catching the slow drift that fixed `--ci-<metric>` thresholds miss. wandb stays a write-only sink; the gate never reads from it. The baseline lives in our DB.
+CI keeps each test's per-metric numbers from every run in our own store and runs a historical gate against that history — catching the slow drift a single run cannot see. wandb stays a write-only sink; the gate never reads from it. The baseline lives in our DB.
 
 ## Identity: what shares a baseline
 
@@ -43,7 +43,6 @@ register_cuda_ci(est_time=300, suite="stage-c-8-gpu-h100")
 
 register_ci_gate(
     metric_key="train/ppo_kl",                     # must be a captured key (whitelist)
-    hard_ref=0.05,                                 # hard gate: absolute limit (optional — omit ⇒ hard layer INACTIVE)
     steps=[0, 1],                                  # judge steps 0 and 1, each against its own history
     constraint={"abs_floor": 0.02, "direction": "higher_is_worse"},
 )
@@ -91,15 +90,14 @@ flowchart TD
 
 Capture is runtime behavior inside the training process, so it never blocks the run on metric *content*: a non-finite value (`NaN` / `±Inf`) is real evidence of the run and is recorded faithfully, encoded in the JSONL as the string marker `"NaN"` / `"Infinity"` / `"-Infinity"` so every line stays strict JSON (the gate-side reader decodes markers back to floats). Judging non-finite values is the gate's job, not the recorder's. A wrong *type* (non-int/float) is an authoring bug, not run evidence, and still fails loud at capture.
 
-## The gate: two layers
+## The gate: drift against trusted history
 
-**Goal:** judge every declared coordinate twice — a hard absolute limit that works with zero history, and a historical drift check against the coordinate's own trusted past — so a fresh baseline can seed itself while slow regressions still get caught.
+**Goal:** judge every declared coordinate against its own trusted past, so slow drift gets caught while a fresh baseline can seed itself.
 
-After a test passes, each comparison coordinate's value is judged by its spec's constraint, twice:
+After a test passes, each comparison coordinate's value is judged by its spec's constraint against the coordinate's own history:
 
-- **Hard gate** — on for every spec that declares `hard_ref` (a hardcoded safety limit). Runs even with zero history; generalizes today's `--ci-<metric>` thresholds. `hard_ref` omitted ⇒ this layer is INACTIVE for that spec — not a failure.
 - **Historical gate** — activates with ≥1 trusted point at the coordinate. `ref` = mean of the coordinate's trusted values. Catches drift.
-- **Cold start** (0 trusted): historical gate is inactive — not an error. With `hard_ref` also omitted, zero checks are active and the run is vacuously trusted: that is how a fresh baseline gets seeded (recover a poisoned seed via `mark_untrusted`).
+- **Cold start** (0 trusted): the gate is inactive — not an error. Zero active checks means the run is vacuously trusted: that is how a fresh baseline gets seeded (recover a poisoned seed via `mark_untrusted`).
 
 A fanned-out spec (`steps="all"` or a step list) contributes one verdict per step; the run is trusted iff **every** coordinate's active checks pass.
 
@@ -113,7 +111,7 @@ How one spec flows from declaration to verdict:
 ```mermaid
 flowchart TD
     subgraph parse_sg["declare & parse — static, per test file"]
-        decl["the gate declaration — a marker in the test file, runtime no-op<br>register_ci_gate(metric_key, steps, constraint[, hard_ref])"]
+        decl["the gate declaration — a marker in the test file, runtime no-op<br>register_ci_gate(metric_key, steps, constraint)"]
         spec(["the parsed spec — what to judge, by which rule<br>CiGateSpec: steps literal + normalized constraint dict"])
         decl -- "read the file's AST, never execute it<br>(hence literal-only args); per-name schema validation<br>parse_ci_gate_specs" --> spec
     end
@@ -134,24 +132,18 @@ flowchart TD
         lookup["find the spec's metric in the record<br>series = by_metric.get(spec.metric_key)"]
         pick["pick the value(s) to judge — ×N, one per selected step<br>select(series, steps) → list of Selection (value, step)"]
         coord(["one comparison coordinate — the key this value's history<br>is stored under: (metric_key, steps_key, constraint_key, step) (see Identity)"])
-        err["outcome: ERROR — judged, never skipped<br>hard = ERROR, historical = INACTIVE, coordinate untrusted"]
-        hard["HARD check — absolute safety limit, works with zero history;<br>on when the spec declares hard_ref<br>evaluate_constraint(constraint, value, ref = hard_ref) → PASS &#124; FAIL"]
-        hardoff["outcome: HARD = INACTIVE — hard_ref omitted, not a failure"]
+        err["outcome: ERROR — judged, never skipped<br>coordinate untrusted"]
         histq{"does this coordinate have<br>any trusted history?<br>recent_trusted_values(run-series identity,<br>coordinate, limit = 20)"}
         inactive["outcome: HISTORICAL = INACTIVE — cold start, not a failure"]
         hist["HISTORICAL check — drift against this coordinate's own past<br>evaluate_constraint(constraint, value, ref = mean of n values) → PASS | FAIL"]
-        result(["one verdict per coordinate<br>MetricGateResult: hard status + historical status + reason"])
+        result(["one verdict per coordinate<br>MetricGateResult: historical status + reason"])
         lookup -- "metric missing from the record" --> err
         lookup --> pick
         pick -- "SelectionError: empty series ·<br>required step missing · non-finite value" --> err
         pick --> coord
-        coord --> hard
         coord --> histq
-        hard -- "hard_ref omitted" --> hardoff
         histq -- "0 rows" --> inactive
         histq -- "n ≥ 1 rows" --> hist
-        hard --> result
-        hardoff --> result
         hist --> result
         inactive --> result
         err --> result
@@ -161,7 +153,7 @@ flowchart TD
     merge --> record
     record --> lookup
 
-    trust["run-level verdict — after all specs, once per run<br>run trusted ⇔ every coordinate: hard ∈ {PASS, INACTIVE}<br>and historical ∈ {PASS, INACTIVE}<br>(what the verdict triggers: see 'Trust, cleanup, who writes')"]
+    trust["run-level verdict — after all specs, once per run<br>run trusted ⇔ every coordinate: historical ∈ {PASS, INACTIVE}<br>(what the verdict triggers: see 'Trust, cleanup, who writes')"]
     store[("this test's own metric history<br>MetricHistoryStore — SQLite offline · Neon hosted backend")]
 
     result --> trust
@@ -171,7 +163,7 @@ flowchart TD
 
 
 
-Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises from a historical cold start or from a spec that declares no `hard_ref`. *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the value coordinate `(metric_key, steps_key, constraint_key, step)` are defined in the Identity section above.
+Chart key: rectangle = a step or check; rounded box = a data artifact; diamond = a branch; cylinder = the store. Each check yields one status per coordinate — PASS / FAIL / ERROR / INACTIVE — where INACTIVE arises from a historical cold start. *run-series identity* = `(test_path, backend, suite, test_file_hash)`; it and the value coordinate `(metric_key, steps_key, constraint_key, step)` are defined in the Identity section above.
 
 ## Storage: two backends, two tables
 
@@ -219,7 +211,7 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 - Any test-file edit is an intentional baseline reset for that series (the hash changes).
 - The nightly trigger (`schedule` cron + `nightly` label) already shipped (#1491); detection here is harness-side via `GITHUB_EVENT_NAME`, so this feature needs **no** `pr-test.yml` **edit**.
 - Open: should a brand-new test's first baselines need human confirmation before counting as trusted? (v1: no.)
-- The harness writer does not dedupe `metric_values` by coordinate: two specs sharing a coordinate (identical `steps` + `constraint`, differing only in `hard_ref` / policy metadata) write two rows in one nightly run, double-weighting that baseline mean (dedupe: see TODO).
+- The harness writer does not dedupe `metric_values` by coordinate: two specs sharing a coordinate (identical `steps` + `constraint` literals) write two rows in one nightly run, double-weighting that baseline mean (dedupe: see TODO).
 
 
 
@@ -227,9 +219,13 @@ Shadow-first: collect, store, and evaluate, but **never block a PR** initially �
 
 **Goal:** collect everything planned but not implemented in one place — a doc-first pass must not conform code to this section; current behavior is everything above it.
 
+- **Hard gate returns as a pure absolute bound.** The removed hard layer mixed two motivations that want different judging logic: a sanity check ("from experience this metric must stay below X" — a plain one-sided limit, no tolerance) and a backstop against implicit drift that the historical gate absorbs (e.g. a logp diff growing a little per PR: each run sits within band of a baseline that itself follows the drift). The old implementation fed `hard_ref` through the same band constraint as a reference value (`evaluate_constraint(constraint, value, ref=hard_ref)`), giving a sanity limit tolerance semantics it should not have. Target — two unmixed declaration flavors:
+  - `register_ci_gate(...)` without `hard_ref` — the relative check against trusted history, exactly as documented above.
+  - `register_ci_gate(..., hard_ref=X)` — a plain absolute bound: the selected value must stay below `X` (direction-aware), no band, no history involved. `hard_ref` is a limit, never a pinned pseudo-history reference value — synthesizing a baseline from it was considered and rejected as hard to implement. **It will not read any historical data.**
+  - Baselines survive both the removal and the return: `hard_ref` was policy, never part of the value coordinate, so adding or dropping the absolute flavor never resets a series.
 - **Writer dedupe** — one nightly run writes one `metric_values` row per coordinate (today two specs sharing a coordinate double-weight the baseline mean; see Notes). Precondition for the defaults table and the sweep PR below.
 - **One-line declaration for standard metrics** — today `register_ci_gate(metric_key="train/train_rollout_logprob_abs_diff")` alone is a parse error (steps and constraint are required); target: a per-`metric_key` defaults table beside the parser (`register.py`) supplies steps + constraint for the standard metrics (`grad_norm`, `ppo_kl`, logp-diff, …), filled at parse time through the same schema validation, so the one-liner is a complete minimal declaration.
-  - Every defaulted key must stay within the capture whitelist; `hard_ref` is never defaulted.
+  - Every defaulted key must stay within the capture whitelist; the absolute flavor's `hard_ref` is never defaulted.
   - Gates stay explicit per test (greppable, uniformly strict ERROR semantics); blanket coverage is a one-time sweep PR of one-liners, where each test owner tunes or vetoes their band (partial-model tests have different variance profiles).
 - **Capture set becomes** `TARGET_METRIC_KEYS` **∪ declared keys** — the harness parses specs pre-launch and injects the extras via env.
 - **Self-calibrating constraint** — band = k·std of the coordinate's own history, for heteroskedastic tests; and a `mean` (step-average) reduction.
