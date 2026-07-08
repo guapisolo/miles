@@ -2,9 +2,8 @@
 """The band constraint for the CI regression gate.
 
 * A constraint decides whether one extracted scalar `cur` passes against a
-  reference `ref`. The *same* constraint is applied twice -- `ref` is the
-  spec's static `hard_ref` for the hard gate, or the mean of the trusted
-  baseline for the historical gate.
+  reference `ref` -- the mean of the trusted baseline for the historical
+  gate.
 * One band family, no name dispatch: `band = max(rel * |ref|, abs_floor)`.
   `rel` is a relative percentage; `abs_floor` keeps a metric riding near zero
   (where `rel * |ref|` vanishes) from flagging on a meaningless relative

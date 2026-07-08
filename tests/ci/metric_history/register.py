@@ -36,7 +36,6 @@ def register_ci_gate(
     metric_key: str,
     steps: str | list[int],
     constraint: dict,
-    hard_ref: float | None = None,
     enforce: bool = False,
     allowlist_reason: str | None = None,
 ):
@@ -44,8 +43,7 @@ def register_ci_gate(
 
     Parsed via AST (like `register_cuda_ci`); a runtime no-op. Every argument
     is keyword-only and must be a literal. `metric_key` names the target
-    metric; `hard_ref`, when given, is the hard gate's absolute reference --
-    omitted, the hard layer is INACTIVE for this spec. `steps` picks the
+    metric. `steps` picks the
     comparison value(s): `"last"` (the series' last point), `"all"` (every
     step present, fanned out), or a non-empty list of step indices.
     `constraint` is a literal dict of band params -- see
@@ -62,7 +60,6 @@ _REQUIRED = object()
 # Top-level register_ci_gate fields: name -> (required, default).
 _FIELDS: dict[str, tuple[bool, object]] = {
     "metric_key": (True, _REQUIRED),
-    "hard_ref": (False, None),
     "steps": (True, _REQUIRED),
     "constraint": (True, _REQUIRED),
     "enforce": (False, False),
@@ -84,7 +81,6 @@ class CiGateSpec:
 
     filename: str
     metric_key: str
-    hard_ref: float | None
     steps: str | list[int]
     constraint: dict
     steps_key: str
@@ -206,20 +202,6 @@ def _require_str(value: object, field: str) -> str:
     return value
 
 
-def _require_number(value: object, field: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise _ParseError(f"{field} must be a number")
-    if not math.isfinite(value):
-        raise _ParseError(f"{field} must be finite")
-    return float(value)
-
-
-def _require_opt_number(value: object, field: str) -> float | None:
-    if value is None:
-        return None
-    return _require_number(value, field)
-
-
 def _require_bool(value: object, field: str) -> bool:
     if not isinstance(value, bool):
         raise _ParseError(f"{field} must be a boolean")
@@ -241,8 +223,8 @@ def _canonical_key(raw: object) -> str:
     Deliberately built from the literal as written in the test file, NOT the
     normalized form: filled-in defaults live in code, so a code-side default
     change would silently rewrite normalized keys and reset every series. The
-    raw literal changes only with the file -- exactly when `test_file_hash`
-    resets the series anyway.
+    raw literal changes only with an edit to the declaration itself -- the
+    intended reset lever for that coordinate's history.
     """
     return json.dumps(raw, sort_keys=True, separators=(",", ":"))
 
@@ -275,7 +257,6 @@ def _parse_ci_gate_call(call: ast.Call, filename: str) -> CiGateSpec:
         return CiGateSpec(
             filename=filename,
             metric_key=_require_str(raw["metric_key"], "metric_key"),
-            hard_ref=_require_opt_number(raw["hard_ref"], "hard_ref"),
             steps=_validate_steps(raw["steps"]),
             constraint=_normalize_constraint(raw["constraint"]),
             steps_key=_canonical_key(raw["steps"]),
@@ -296,8 +277,8 @@ def parse_ci_gate_specs(filename: str) -> list[CiGateSpec]:
 
     Note for the future writer: two specs may still map to the same baseline
     coordinate (identical steps + constraint literals, differing only in
-    `hard_ref` / policy metadata). The writer must dedupe metric_values by
-    coordinate so one run contributes one row per coordinate.
+    policy metadata). The writer must dedupe metric_values by coordinate so
+    one run contributes one row per coordinate.
     """
     with open(filename) as f:
         tree = ast.parse(f.read(), filename=filename)

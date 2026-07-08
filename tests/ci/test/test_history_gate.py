@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 from tests.ci.metric_history import MetricSample, RunIdentity, RunProvenance, SQLiteMetricHistoryStore
-from tests.ci.metric_history.gate import GateStatus, compute_test_file_hash, evaluate_gate, parse_merged_record
+from tests.ci.metric_history.gate import GateStatus, evaluate_gate, parse_merged_record
 
 PROVENANCE = RunProvenance(
     commit_sha="deadbeef",
@@ -70,7 +70,6 @@ def _seed_baseline(
         test_path=test_filename,
         backend="cuda",
         suite=suite,
-        test_file_hash=compute_test_file_hash(test_filename),
     )
     for i, v in enumerate(values):
         store.write_run(
@@ -104,7 +103,7 @@ def test_non_finite_at_gated_coordinate_errors_and_untrusts(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
+        register_ci_gate(metric_key="train/grad_norm",
                          steps="last", constraint={"rel": 0.20})
         """,
     )
@@ -115,7 +114,7 @@ def test_non_finite_at_gated_coordinate_errors_and_untrusts(tmp_path, store):
     result = evaluate_gate(test_file, record, store)
 
     m = result.metrics[0]
-    assert m.hard_status == GateStatus.ERROR
+    assert m.historical_status == GateStatus.ERROR
     assert "non-finite" in m.reason
     assert result.trusted is False
 
@@ -123,51 +122,7 @@ def test_non_finite_at_gated_coordinate_errors_and_untrusts(tmp_path, store):
 # --- cold start (no trusted history) ----------------------------------------
 
 
-def test_cold_start_hard_only_no_error(tmp_path, store):
-    test_file = _write_test_file(
-        tmp_path,
-        """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
-                         steps="last", constraint={"rel": 0.20})
-        """,
-    )
-    record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.31]]})
-
-    result = evaluate_gate(test_file, record, store)
-
-    assert len(result.metrics) == 1
-    m = result.metrics[0]
-    assert m.hard_status == GateStatus.PASS
-    # No baselines yet: historical gate inactive, NOT an error, NOT a failure.
-    assert m.historical_status == GateStatus.INACTIVE
-    assert m.baseline_n == 0
-    assert m.steps_key == LAST_KEY
-    assert m.step == -1
-    assert result.trusted is True
-
-
-def test_cold_start_hard_failure(tmp_path, store):
-    test_file = _write_test_file(
-        tmp_path,
-        """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
-                         steps="last", constraint={"rel": 0.20})
-        """,
-    )
-    # 0.50 vs ref 0.30, band = 0.06 -> hard fails even with no history.
-    record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.50]]})
-
-    result = evaluate_gate(test_file, record, store)
-    m = result.metrics[0]
-    assert m.hard_status == GateStatus.FAIL
-    assert m.historical_status == GateStatus.INACTIVE
-    assert result.trusted is False
-
-
-# --- optional hard_ref (hard layer inactive) ---------------------------------
-
-
-def test_no_hard_ref_cold_start_vacuously_trusted(tmp_path, store):
+def test_cold_start_vacuously_trusted(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
@@ -179,66 +134,15 @@ def test_no_hard_ref_cold_start_vacuously_trusted(tmp_path, store):
 
     result = evaluate_gate(test_file, record, store)
 
+    assert len(result.metrics) == 1
     m = result.metrics[0]
-    assert m.hard_status == GateStatus.INACTIVE
+    # No baselines yet: historical gate inactive, NOT an error, NOT a failure.
     assert m.historical_status == GateStatus.INACTIVE
-    assert "hard: inactive" in m.reason
+    assert "historical: cold start (0 trusted baselines)" in m.reason
+    assert m.baseline_n == 0
+    assert m.steps_key == LAST_KEY
+    assert m.step == -1
     # Zero active checks: vacuously trusted -- this run seeds the baseline.
-    assert result.trusted is True
-
-
-def test_no_hard_ref_historical_still_gates(tmp_path, store):
-    test_file = _write_test_file(
-        tmp_path,
-        """
-        register_ci_gate(metric_key="train/grad_norm",
-                         steps="last", constraint={"rel": 0.20})
-        """,
-    )
-    _seed_baseline(
-        store,
-        test_file,
-        metric_key="train/grad_norm",
-        steps_key=LAST_KEY,
-        constraint_key=_key({"rel": 0.20}),
-        step=-1,
-        values=[1.0, 1.0],
-    )
-    # 2.0 vs mean 1.0, band = 0.20 -> historical fails; hard stays INACTIVE.
-    record = _write_record(tmp_path, {"train/grad_norm": [[0, 2.0]]})
-
-    result = evaluate_gate(test_file, record, store)
-
-    m = result.metrics[0]
-    assert m.hard_status == GateStatus.INACTIVE
-    assert m.historical_status == GateStatus.FAIL
-    assert result.trusted is False
-
-
-def test_no_hard_ref_historical_pass_trusted(tmp_path, store):
-    test_file = _write_test_file(
-        tmp_path,
-        """
-        register_ci_gate(metric_key="train/grad_norm",
-                         steps="last", constraint={"rel": 0.20})
-        """,
-    )
-    _seed_baseline(
-        store,
-        test_file,
-        metric_key="train/grad_norm",
-        steps_key=LAST_KEY,
-        constraint_key=_key({"rel": 0.20}),
-        step=-1,
-        values=[1.0, 1.0],
-    )
-    record = _write_record(tmp_path, {"train/grad_norm": [[0, 1.1]]})
-
-    result = evaluate_gate(test_file, record, store)
-
-    m = result.metrics[0]
-    assert m.hard_status == GateStatus.INACTIVE
-    assert m.historical_status == GateStatus.PASS
     assert result.trusted is True
 
 
@@ -249,7 +153,7 @@ def test_historical_failure(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="last", constraint={"rel": 0.20})
         """,
     )
@@ -263,7 +167,7 @@ def test_historical_failure(tmp_path, store):
         step=-1,
         values=[0.80, 0.82, 0.78],
     )
-    # Current 0.55: hard band = 0.16 -> |0.55-0.80|=0.25 fails hard AND historical.
+    # Current 0.55 vs mean 0.80, band = 0.16 -> |0.55-0.80|=0.25 fails historical.
     record = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.55]]})
 
     result = evaluate_gate(test_file, record, store)
@@ -278,7 +182,7 @@ def test_historical_pass_within_tolerance(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="last", constraint={"rel": 0.20})
         """,
     )
@@ -295,7 +199,6 @@ def test_historical_pass_within_tolerance(tmp_path, store):
 
     result = evaluate_gate(test_file, record, store)
     m = result.metrics[0]
-    assert m.hard_status == GateStatus.PASS
     assert m.historical_status == GateStatus.PASS
     assert result.trusted is True
 
@@ -304,7 +207,7 @@ def test_drift_beyond_historical_band_not_trusted(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="train/grad_norm", hard_ref=2.0,
+        register_ci_gate(metric_key="train/grad_norm",
                          steps="last", constraint={"rel": 0.50})
         """,
     )
@@ -317,12 +220,11 @@ def test_drift_beyond_historical_band_not_trusted(tmp_path, store):
         step=-1,
         values=[1.0, 1.0, 1.0],
     )
-    # current 1.8: hard |1.8-2.0|=0.2 <= 1.0 pass; historical |1.8-1.0|=0.8 > 0.5 fail.
+    # current 1.8: historical |1.8-1.0|=0.8 > 0.5 fail.
     record = _write_record(tmp_path, {"train/grad_norm": [[0, 1.8]]})
 
     result = evaluate_gate(test_file, record, store)
     m = result.metrics[0]
-    assert m.hard_status == GateStatus.PASS
     assert m.historical_status == GateStatus.FAIL
     assert m.baseline_mean == pytest.approx(1.0)
     assert result.trusted is False
@@ -335,7 +237,7 @@ def test_all_fans_out_one_result_per_step(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
+        register_ci_gate(metric_key="train/grad_norm",
                          steps="all", constraint={"rel": 0.50})
         """,
     )
@@ -355,7 +257,7 @@ def test_all_reads_per_step_baselines(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.5,
+        register_ci_gate(metric_key="train/ppo_kl",
                          steps="all", constraint={"rel": 0.90})
         """,
     )
@@ -393,17 +295,35 @@ def test_all_one_bad_step_untrusts_run(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
+        register_ci_gate(metric_key="train/grad_norm",
                          steps="all", constraint={"rel": 0.20})
         """,
     )
-    # Step 0 within band; step 1 drifts past hard band 0.2.
+    _seed_baseline(
+        store,
+        test_file,
+        metric_key="train/grad_norm",
+        steps_key=_key("all"),
+        constraint_key=_key({"rel": 0.20}),
+        step=0,
+        values=[1.0, 1.0],
+    )
+    _seed_baseline(
+        store,
+        test_file,
+        metric_key="train/grad_norm",
+        steps_key=_key("all"),
+        constraint_key=_key({"rel": 0.20}),
+        step=1,
+        values=[1.0, 1.0],
+    )
+    # Step 0 within band 0.2; step 1 drifts past it.
     record = _write_record(tmp_path, {"train/grad_norm": [[0, 1.1], [1, 1.5]]})
 
     result = evaluate_gate(test_file, record, store)
     by_step = {m.step: m for m in result.metrics}
-    assert by_step[0].hard_status == GateStatus.PASS
-    assert by_step[1].hard_status == GateStatus.FAIL
+    assert by_step[0].historical_status == GateStatus.PASS
+    assert by_step[1].historical_status == GateStatus.FAIL
     assert result.trusted is False
 
 
@@ -411,9 +331,9 @@ def test_all_and_explicit_steps_have_separate_coordinates(tmp_path, store):
     # The coordinate is the declaration's literal content: a steps="all" gate and
     # a steps=[0] gate both judge step 0's value, but each owns its own series.
     gate_lines = """
-        register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.1,
+        register_ci_gate(metric_key="train/ppo_kl",
                          steps="all", constraint={"rel": 0.50})
-        register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.1,
+        register_ci_gate(metric_key="train/ppo_kl",
                          steps=[0], constraint={"rel": 0.50})
     """
     test_file = _write_test_file(tmp_path, gate_lines)
@@ -440,9 +360,9 @@ def test_rule_is_part_of_coordinate(tmp_path, store):
     # Two gates, same steps, different constraints: different constraint_key,
     # so each judges against its own baseline series.
     gate_lines = """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=1.0,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="last", constraint={"rel": 0.50})
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=1.0,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="last", constraint={"rel": 0.01})
     """
     test_file = _write_test_file(tmp_path, gate_lines)
@@ -471,12 +391,12 @@ def test_rule_is_part_of_coordinate(tmp_path, store):
 
 
 def test_near_zero_not_flagged_on_relative_pct(tmp_path, store):
-    # ppo_kl rides at ~1e-9. With hard_ref ~0 and a positive abs_floor, a tiny
-    # absolute deviation must NOT trip even though the *relative* change is huge.
+    # ppo_kl rides at ~1e-9. With a positive abs_floor, a tiny absolute
+    # deviation must NOT trip even though the *relative* change is huge.
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.0,
+        register_ci_gate(metric_key="train/ppo_kl",
                          steps=[0],
                          constraint={"abs_floor": 1e-6, "rel": 0.20})
         """,
@@ -495,9 +415,8 @@ def test_near_zero_not_flagged_on_relative_pct(tmp_path, store):
 
     result = evaluate_gate(test_file, record, store)
     m = result.metrics[0]
-    # steps:[0] picks the step-0 value 1e-7. |1e-7 - 0| = 1e-7 <= abs_floor 1e-6.
+    # steps:[0] picks the step-0 value 1e-7.
     assert m.current == pytest.approx(1e-7)
-    assert m.hard_status == GateStatus.PASS
     # historical mean ~1.33e-9; |1e-7 - 1.33e-9| ~ 9.9e-8 <= abs_floor 1e-6.
     assert m.historical_status == GateStatus.PASS
     assert result.trusted is True
@@ -508,14 +427,23 @@ def test_near_zero_real_jump_is_flagged(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.0,
+        register_ci_gate(metric_key="train/ppo_kl",
                          steps=[0],
                          constraint={"abs_floor": 1e-6, "rel": 0.20})
         """,
     )
+    _seed_baseline(
+        store,
+        test_file,
+        metric_key="train/ppo_kl",
+        steps_key=_key([0]),
+        constraint_key=_key({"abs_floor": 1e-6, "rel": 0.20}),
+        step=0,
+        values=[1e-9, 2e-9, 1e-9],
+    )
     record = _write_record(tmp_path, {"train/ppo_kl": [[0, 0.5]]})
     result = evaluate_gate(test_file, record, store)
-    assert result.metrics[0].hard_status == GateStatus.FAIL
+    assert result.metrics[0].historical_status == GateStatus.FAIL
     assert result.trusted is False
 
 
@@ -526,7 +454,7 @@ def test_missing_required_series_verdict_not_crash(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="last", constraint={"rel": 0.20})
         """,
     )
@@ -535,7 +463,7 @@ def test_missing_required_series_verdict_not_crash(tmp_path, store):
 
     result = evaluate_gate(test_file, record, store)
     m = result.metrics[0]
-    assert m.hard_status == GateStatus.ERROR
+    assert m.historical_status == GateStatus.ERROR
     assert m.current is None
     assert "missing" in m.reason
     assert result.trusted is False
@@ -545,7 +473,7 @@ def test_empty_required_series_verdict(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="last", constraint={"rel": 0.20})
         """,
     )
@@ -553,7 +481,7 @@ def test_empty_required_series_verdict(tmp_path, store):
 
     result = evaluate_gate(test_file, record, store)
     m = result.metrics[0]
-    assert m.hard_status == GateStatus.ERROR
+    assert m.historical_status == GateStatus.ERROR
     assert result.trusted is False
 
 
@@ -563,7 +491,7 @@ def test_all_null_step_is_error_verdict(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
+        register_ci_gate(metric_key="train/grad_norm",
                          steps="all", constraint={"rel": 0.20})
         """,
     )
@@ -571,7 +499,7 @@ def test_all_null_step_is_error_verdict(tmp_path, store):
 
     result = evaluate_gate(test_file, record, store)
     assert len(result.metrics) == 1
-    assert result.metrics[0].hard_status == GateStatus.ERROR
+    assert result.metrics[0].historical_status == GateStatus.ERROR
     assert result.trusted is False
 
 
@@ -582,18 +510,27 @@ def test_higher_is_worse_drop_passes_increase_fails(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="train/grad_norm", hard_ref=2.0,
+        register_ci_gate(metric_key="train/grad_norm",
                          steps="last",
                          constraint={"rel": 0.10, "direction": "higher_is_worse"})
         """,
     )
-    # A drop well below ref must pass (one-sided).
+    _seed_baseline(
+        store,
+        test_file,
+        metric_key="train/grad_norm",
+        steps_key=LAST_KEY,
+        constraint_key=_key({"rel": 0.10, "direction": "higher_is_worse"}),
+        step=-1,
+        values=[2.0, 2.0],
+    )
+    # A drop well below the baseline mean must pass (one-sided).
     low = _write_record(tmp_path, {"train/grad_norm": [[0, 0.1]]}, name="low.jsonl")
-    assert evaluate_gate(test_file, low, store).metrics[0].hard_status == GateStatus.PASS
+    assert evaluate_gate(test_file, low, store).metrics[0].historical_status == GateStatus.PASS
 
     # A rise beyond band = 0.10*2.0 = 0.2 must fail.
     high = _write_record(tmp_path, {"train/grad_norm": [[0, 3.0]]}, name="high.jsonl")
-    assert evaluate_gate(test_file, high, store).metrics[0].hard_status == GateStatus.FAIL
+    assert evaluate_gate(test_file, high, store).metrics[0].historical_status == GateStatus.FAIL
 
 
 def test_lower_is_worse_rise_passes_drop_fails(tmp_path, store):
@@ -601,17 +538,26 @@ def test_lower_is_worse_rise_passes_drop_fails(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.80,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="last",
                          constraint={"rel": 0.10, "direction": "lower_is_worse"})
         """,
     )
+    _seed_baseline(
+        store,
+        test_file,
+        metric_key="rollout/raw_reward",
+        steps_key=LAST_KEY,
+        constraint_key=_key({"rel": 0.10, "direction": "lower_is_worse"}),
+        step=-1,
+        values=[0.80, 0.80],
+    )
     high = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.95]]}, name="high.jsonl")
-    assert evaluate_gate(test_file, high, store).metrics[0].hard_status == GateStatus.PASS
+    assert evaluate_gate(test_file, high, store).metrics[0].historical_status == GateStatus.PASS
 
     # Drop beyond band = 0.10*0.80 = 0.08 -> 0.70 fails.
     low = _write_record(tmp_path, {"rollout/raw_reward": [[0, 0.70]]}, name="low.jsonl")
-    assert evaluate_gate(test_file, low, store).metrics[0].hard_status == GateStatus.FAIL
+    assert evaluate_gate(test_file, low, store).metrics[0].historical_status == GateStatus.FAIL
 
 
 # --- multiple specs, no specs ------------------------------------------------
@@ -638,7 +584,7 @@ def test_gate_writes_no_rows(tmp_path, store):
     test_file = _write_test_file(
         tmp_path,
         """
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.30,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="all", constraint={"rel": 0.20})
         """,
     )

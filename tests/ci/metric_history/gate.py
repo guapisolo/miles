@@ -9,13 +9,10 @@
   `"all"` / a step list) with a CONSTRAINT (the pass/fail rule). `"all"` and a
   step list fan out to one comparison coordinate per step, each judged only
   against that same step's history.
-* Two checks run per coordinate, both using the spec's constraint. The HARD
-  gate compares against the static `hard_ref` and is active only when the
-  spec declares one -- no `hard_ref` means INACTIVE, not a failure.
-* The HISTORICAL gate is active only when the store returns >=1 trusted
-  baseline value for the (identity, coordinate), and compares against the mean
-  of those values. Zero trusted values means INACTIVE -- a cold start, not a
-  failure.
+* One check runs per coordinate, using the spec's constraint: the HISTORICAL
+  gate. It is active only when the store returns >=1 trusted baseline value
+  for the (identity, coordinate), and compares against the mean of those
+  values. Zero trusted values means INACTIVE -- a cold start, not a failure.
 * The run is trusted iff every *active* check passed for every coordinate.
 * The gate is pure and read-only: the store is injected via
   :class:`MetricHistoryStore` and the only store call is
@@ -30,7 +27,6 @@ Caveats:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from dataclasses import dataclass, field
@@ -52,11 +48,11 @@ _BACKEND_STR: dict[HWBackend, str] = {
 
 
 class GateStatus(Enum):
-    """Outcome of one check (hard or historical) for one coordinate."""
+    """Outcome of the historical check for one coordinate."""
 
     PASS = "pass"
     FAIL = "fail"
-    INACTIVE = "inactive"  # check not applicable: historical cold start, or hard with no hard_ref
+    INACTIVE = "inactive"  # check not applicable: historical cold start
     ERROR = "error"  # the metric could not be selected (missing/empty series, bad step)
 
 
@@ -70,7 +66,7 @@ class MetricGateResult:
     step the value actually came from, for reporting. `current` is the
     extracted scalar, or None when selection errored. `baseline_mean` is the
     mean of trusted history when the historical gate is active, else None.
-    `trusted` is True iff every active check here passed.
+    `trusted` is True iff the check here passed or was inactive.
     """
 
     metric_key: str
@@ -79,7 +75,6 @@ class MetricGateResult:
     step: int | None
     at_step: int | None
     current: float | None
-    hard_status: GateStatus
     historical_status: GateStatus
     baseline_n: int
     baseline_mean: float | None
@@ -87,8 +82,7 @@ class MetricGateResult:
 
     @property
     def trusted(self) -> bool:
-        ok = (GateStatus.PASS, GateStatus.INACTIVE)
-        return self.hard_status in ok and self.historical_status in ok
+        return self.historical_status in (GateStatus.PASS, GateStatus.INACTIVE)
 
 
 @dataclass(frozen=True)
@@ -98,7 +92,6 @@ class GateResult:
     test_path: str
     backend: str
     suite: str
-    test_file_hash: str
     metrics: list[MetricGateResult] = field(default_factory=list)
 
     @property
@@ -110,12 +103,6 @@ class GateResult:
         untrusts the whole run.
         """
         return all(m.trusted for m in self.metrics)
-
-
-def compute_test_file_hash(filename: str) -> str:
-    """sha256 of the test file's raw bytes -- the store's `test_file_hash`."""
-    with open(filename, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
 
 
 # Capture serializes non-finite floats as these markers so record lines stay
@@ -174,8 +161,7 @@ def _error_result(spec: CiGateSpec, reason: str) -> MetricGateResult:
         step=None,
         at_step=None,
         current=None,
-        hard_status=GateStatus.ERROR,
-        historical_status=GateStatus.INACTIVE,
+        historical_status=GateStatus.ERROR,
         baseline_n=0,
         baseline_mean=None,
         reason=reason,
@@ -190,7 +176,6 @@ def _evaluate_spec(
     test_path: str,
     backend: str,
     suite: str,
-    test_file_hash: str,
     history_limit: int,
 ) -> list[MetricGateResult]:
     series = by_metric.get(spec.metric_key)
@@ -205,15 +190,6 @@ def _evaluate_spec(
     results: list[MetricGateResult] = []
     for ex in selections:
         reasons: list[str] = []
-        if spec.hard_ref is None:
-            hard_status = GateStatus.INACTIVE
-            reasons.append("hard: inactive (no hard_ref)")
-        else:
-            hard = evaluate_constraint(spec.constraint, ex.value, spec.hard_ref)
-            hard_status = GateStatus.PASS if hard.ok else GateStatus.FAIL
-            if not hard.ok:
-                reasons.append(f"hard: cur={ex.value:.6g} vs ref={spec.hard_ref:.6g} exceeds band={hard.band:.6g}")
-
         trusted_values = store.recent_trusted_values(
             test_path,
             backend,
@@ -222,7 +198,6 @@ def _evaluate_spec(
             spec.steps_key,
             spec.constraint_key,
             ex.step,
-            test_file_hash,
             history_limit,
         )
         if not trusted_values:
@@ -239,8 +214,7 @@ def _evaluate_spec(
                     f"(n={len(trusted_values)}) exceeds band={hist.band:.6g}"
                 )
 
-        ok_statuses = (GateStatus.PASS, GateStatus.INACTIVE)
-        if hard_status in ok_statuses and historical_status in ok_statuses:
+        if historical_status in (GateStatus.PASS, GateStatus.INACTIVE):
             reasons.insert(0, "ok")
 
         results.append(
@@ -251,7 +225,6 @@ def _evaluate_spec(
                 step=ex.step,
                 at_step=ex.at_step,
                 current=ex.value,
-                hard_status=hard_status,
                 historical_status=historical_status,
                 baseline_n=len(trusted_values),
                 baseline_mean=baseline_mean,
@@ -271,7 +244,7 @@ def evaluate_gate(
     """Evaluate every `register_ci_gate` spec in `test_filename` against a record.
 
     `test_filename` is the repo-relative test path; its CIRegistry supplies the
-    (backend, suite) identity and its contents the `test_file_hash`.
+    (backend, suite) identity.
     `merged_record_path` is the merged per-run JSONL of the passed attempt --
     the gate never globs a base directory to find it. `store` answers the
     baseline query and nothing else (no writes, no connection opened here). A
@@ -280,7 +253,6 @@ def evaluate_gate(
     specs = parse_ci_gate_specs(test_filename)
     registry = _registry_for(test_filename)
     backend = _BACKEND_STR[registry.backend]
-    test_file_hash = compute_test_file_hash(test_filename)
     by_metric = parse_merged_record(merged_record_path)
 
     results: list[MetricGateResult] = []
@@ -293,7 +265,6 @@ def evaluate_gate(
                 test_path=registry.filename,
                 backend=backend,
                 suite=registry.suite,
-                test_file_hash=test_file_hash,
                 history_limit=history_limit,
             )
         )
@@ -302,6 +273,5 @@ def evaluate_gate(
         test_path=registry.filename,
         backend=backend,
         suite=registry.suite,
-        test_file_hash=test_file_hash,
         metrics=results,
     )

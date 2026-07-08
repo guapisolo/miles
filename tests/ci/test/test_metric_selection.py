@@ -144,7 +144,6 @@ def test_parse_single_spec_with_defaults(tmp_path):
         register_cuda_ci(est_time=600, suite="stage-c-8-gpu-h100")
         register_ci_gate(
             metric_key="train/grad_norm",
-            hard_ref=1.5,
             steps="all",
             constraint={"rel": 0.20},
         )
@@ -155,7 +154,6 @@ def test_parse_single_spec_with_defaults(tmp_path):
     assert len(specs) == 1
     s = specs[0]
     assert s.metric_key == "train/grad_norm"
-    assert s.hard_ref == pytest.approx(1.5)
     assert s.steps == "all"
     # direction defaults to two_sided.
     assert s.constraint == {"rel": 0.20, "abs_floor": 0.0, "direction": "two_sided"}
@@ -170,7 +168,6 @@ def test_parse_all_fields(tmp_path):
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(
             metric_key="train/ppo_kl",
-            hard_ref=0.0,
             steps=[0, 1],
             constraint={"abs_floor": 1e-6, "rel": 0.5, "direction": "higher_is_worse"},
             enforce=True,
@@ -192,7 +189,7 @@ def test_declaration_keys_are_canonical_json(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/ppo_kl", hard_ref=0.05,
+        register_ci_gate(metric_key="train/ppo_kl",
                          steps=[0,  1],
                          constraint={"abs_floor": 0.02})
         register_ci_gate(metric_key="train/x", steps="last",
@@ -229,7 +226,7 @@ def test_abs_optional_rel_defaults_to_zero(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         register_ci_gate(
-            metric_key="train/ppo_kl", hard_ref=0.0,
+            metric_key="train/ppo_kl",
             steps="last",
             constraint={"abs_floor": 1e-6},
         )
@@ -244,9 +241,9 @@ def test_parse_multiple_specs(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/grad_norm", hard_ref=1.0,
+        register_ci_gate(metric_key="train/grad_norm",
                          steps="all", constraint={"rel": 0.2})
-        register_ci_gate(metric_key="rollout/raw_reward", hard_ref=0.8,
+        register_ci_gate(metric_key="rollout/raw_reward",
                          steps="last",
                          constraint={"rel": 0.2, "direction": "lower_is_worse"})
         """,
@@ -256,24 +253,11 @@ def test_parse_multiple_specs(tmp_path):
     assert [s.metric_key for s in specs] == ["train/grad_norm", "rollout/raw_reward"]
 
 
-def test_negative_hard_ref_parses(tmp_path):
-    # -1.5 is an ast.UnaryOp, not a bare Constant; the parser must accept it.
-    path = _make_fixture(
-        """
-        from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=-1.5,
-                         steps="last", constraint={"rel": 0.2})
-        """,
-        tmp_path,
-    )
-    assert parse_ci_gate_specs(path)[0].hard_ref == pytest.approx(-1.5)
-
-
 def test_unknown_kwarg_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="last", constraint={"rel": 0.2}, bogus=3)
         """,
         tmp_path,
@@ -286,9 +270,9 @@ def test_non_literal_arg_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        X = 1.0
-        register_ci_gate(metric_key="train/x", hard_ref=X,
-                         steps="last", constraint={"rel": 0.2})
+        X = "last"
+        register_ci_gate(metric_key="train/x", steps=X,
+                         constraint={"rel": 0.2})
         """,
         tmp_path,
     )
@@ -301,7 +285,7 @@ def test_non_literal_inside_dict_rejected(tmp_path):
         """
         from tests.ci.metric_history import register_ci_gate
         X = 0.2
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="last", constraint={"rel": X})
         """,
         tmp_path,
@@ -314,7 +298,6 @@ def test_non_literal_inside_dict_rejected(tmp_path):
 def test_missing_required_field_rejected(tmp_path, missing):
     fields = {
         "metric_key": 'metric_key="train/x"',
-        "hard_ref": "hard_ref=1.0",
         "steps": 'steps="last"',
         "constraint": 'constraint={"rel": 0.2}',
     }
@@ -328,32 +311,6 @@ def test_missing_required_field_rejected(tmp_path, missing):
         tmp_path,
     )
     with pytest.raises(ValueError, match=f"{missing} is required"):
-        parse_ci_gate_specs(path)
-
-
-def test_hard_ref_optional_parses_to_none(tmp_path):
-    path = _make_fixture(
-        """
-        from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x",
-                         steps="last", constraint={"rel": 0.2})
-        """,
-        tmp_path,
-    )
-    (spec,) = parse_ci_gate_specs(path)
-    assert spec.hard_ref is None
-
-
-def test_hard_ref_non_number_still_rejected(tmp_path):
-    path = _make_fixture(
-        """
-        from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref="0.5",
-                         steps="last", constraint={"rel": 0.2})
-        """,
-        tmp_path,
-    )
-    with pytest.raises(ValueError, match="hard_ref must be a number"):
         parse_ci_gate_specs(path)
 
 
@@ -373,7 +330,7 @@ def test_unknown_steps_keyword_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="mean_last_9000", constraint={"rel": 0.2})
         """,
         tmp_path,
@@ -388,7 +345,7 @@ def test_constraint_name_key_is_gone(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="last", constraint={"name": "rel", "rel": 0.2})
         """,
         tmp_path,
@@ -403,7 +360,7 @@ def test_constraint_without_band_param_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="last", constraint={"direction": "two_sided"})
         """,
         tmp_path,
@@ -416,7 +373,7 @@ def test_non_string_non_list_steps_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps=0, constraint={"rel": 0.2})
         """,
         tmp_path,
@@ -434,7 +391,7 @@ def test_bad_steps_list_rejected(tmp_path, steps_literal):
     path = _make_fixture(
         f"""
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps={steps_literal},
                          constraint={{"rel": 0.2}})
         """,
@@ -448,7 +405,7 @@ def test_bad_direction_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="last",
                          constraint={"rel": 0.2, "direction": "up_only"})
         """,
@@ -462,7 +419,7 @@ def test_negative_rel_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="last", constraint={"rel": -0.2})
         """,
         tmp_path,
@@ -476,7 +433,7 @@ def test_duplicate_dict_key_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="last",
                          constraint={"rel": 0.2, "rel": 0.3})
         """,
@@ -492,7 +449,7 @@ def test_sub_label_argument_is_gone(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="last", constraint={"rel": 0.2},
                          sub_label="shard-0")
         """,
@@ -506,7 +463,7 @@ def test_non_bool_enforce_rejected(tmp_path):
     path = _make_fixture(
         """
         from tests.ci.metric_history import register_ci_gate
-        register_ci_gate(metric_key="train/x", hard_ref=1.0,
+        register_ci_gate(metric_key="train/x",
                          steps="last", constraint={"rel": 0.2}, enforce=1)
         """,
         tmp_path,
@@ -523,7 +480,7 @@ def test_register_ci_gate_does_not_disturb_suite_parsing(tmp_path):
         from tests.ci.ci_register import register_cuda_ci
         from tests.ci.metric_history import register_ci_gate
         register_cuda_ci(est_time=600, suite="stage-c-8-gpu-h100", labels=["megatron"])
-        register_ci_gate(metric_key="train/grad_norm", hard_ref=1.5,
+        register_ci_gate(metric_key="train/grad_norm",
                          steps="all", constraint={"rel": 0.2})
         """,
         tmp_path,
@@ -541,7 +498,6 @@ def test_register_ci_gate_runtime_is_noop():
     assert (
         register_ci_gate(
             metric_key="train/grad_norm",
-            hard_ref=1.0,
             steps="all",
             constraint={"rel": 0.2},
         )
