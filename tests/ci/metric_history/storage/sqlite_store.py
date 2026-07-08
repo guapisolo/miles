@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS runs (
     test_path           TEXT NOT NULL,
     backend             TEXT NOT NULL,
     suite               TEXT NOT NULL,
-    test_file_hash      TEXT NOT NULL,
     commit_sha          TEXT NOT NULL,
     pr_number           INTEGER,
     github_run_id       INTEGER,
@@ -55,7 +54,7 @@ CREATE TABLE IF NOT EXISTS metric_values (
 );
 
 CREATE INDEX IF NOT EXISTS runs_baseline_idx
-    ON runs (test_path, backend, suite, test_file_hash, trusted, created_at DESC);
+    ON runs (test_path, backend, suite, trusted, created_at DESC);
 """
 
 # Mirrors the authoritative baseline query: every coordinate column is
@@ -71,7 +70,6 @@ WHERE r.test_path = ?
   AND mv.steps_key = ?
   AND mv.constraint_key = ?
   AND mv.step = ?
-  AND r.test_file_hash = ?
   AND r.trusted = 1
 ORDER BY r.created_at DESC
 LIMIT ?
@@ -110,17 +108,16 @@ class SQLiteMetricHistoryStore(MetricHistoryStore):
             self._conn.execute(
                 """
                 INSERT INTO runs (
-                    run_id, test_path, backend, suite, test_file_hash,
+                    run_id, test_path, backend, suite,
                     commit_sha, pr_number, github_run_id, github_run_attempt,
                     event_name, ref, created_at, trusted
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
                     identity.test_path,
                     identity.backend,
                     identity.suite,
-                    identity.test_file_hash,
                     provenance.commit_sha,
                     provenance.pr_number,
                     provenance.github_run_id,
@@ -147,12 +144,11 @@ class SQLiteMetricHistoryStore(MetricHistoryStore):
         steps_key: str,
         constraint_key: str,
         step: int,
-        test_file_hash: str,
         limit: int,
     ) -> list[float]:
         rows = self._conn.execute(
             _BASELINE_SQL,
-            (test_path, backend, suite, metric_key, steps_key, constraint_key, step, test_file_hash, limit),
+            (test_path, backend, suite, metric_key, steps_key, constraint_key, step, limit),
         ).fetchall()
         return [row[0] for row in rows]
 

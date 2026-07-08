@@ -58,7 +58,6 @@ class NeonMetricHistoryStore(MetricHistoryStore):
         steps_key: str,
         constraint_key: str,
         step: int,
-        test_file_hash: str,
         limit: int,
     ) -> list[float]:
         raise NotImplementedError(_NOT_IMPLEMENTED)

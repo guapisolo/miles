@@ -4,21 +4,16 @@
 * The gate compares a candidate run's metrics against a baseline assembled
   from the most recent *trusted* runs that share the same test identity.
 * Two normalized tables back the contract. `runs` -- one row per CI
-  execution of a test, holding identity (test_path, backend, suite,
-  test_file_hash), provenance (commit_sha, pr_number, github_run_id,
-  github_run_attempt, event_name, ref), the `created_at` timestamp, and
-  the run-level `trusted` flag.
+  execution of a test, holding identity (test_path, backend, suite),
+  provenance (commit_sha, pr_number, github_run_id, github_run_attempt,
+  event_name, ref), the `created_at` timestamp, and the run-level
+  `trusted` flag.
 * `metric_values` -- one row per comparison-coordinate value a run produced:
   `(metric_key, steps_key, constraint_key, step, value)`, keyed back to `runs`
   by `run_id`.
 * `trusted` lives on the run, not on the metric: a run is trusted as a
   whole or not at all, so revoking trust drops every metric the run
   contributed in one operation.
-* `test_file_hash` is the sha256 of the test file's contents, computed by
-  the caller; the store only stores and matches on it. Runs of the same
-  `test_path` with different file contents get different hashes and never
-  share a baseline -- a test edit starts a fresh history rather than
-  silently comparing against measurements of older code.
 * This module defines that storage contract and nothing else: it does not
   decide what counts as a regression, does not read the candidate run, and
   does not talk to CI.
@@ -55,15 +50,14 @@ class MetricSample:
 class RunIdentity:
     """The fields that decide whether two runs share a baseline.
 
-    A baseline query is scoped to an exact (test_path, backend, suite,
-    test_file_hash) tuple, so any difference here isolates one test's history
-    from another's.
+    A baseline query is scoped to an exact (test_path, backend, suite)
+    tuple, so any difference here isolates one test's history from
+    another's. A test-file edit does not reset the series.
     """
 
     test_path: str
     backend: str
     suite: str
-    test_file_hash: str
 
 
 @dataclass(frozen=True)
@@ -129,7 +123,6 @@ class MetricHistoryStore(abc.ABC):
         steps_key: str,
         constraint_key: str,
         step: int,
-        test_file_hash: str,
         limit: int,
     ) -> list[float]:
         """Return up to `limit` baseline values, newest run first.

@@ -23,7 +23,6 @@ IDENTITY = RunIdentity(
     test_path="tests/e2e/test_grpo.py",
     backend="megatron",
     suite="stage-c-8-gpu-h100",
-    test_file_hash="a" * 64,
 )
 
 PROVENANCE = RunProvenance(
@@ -58,7 +57,6 @@ def _recent(
         steps_key,
         constraint_key,
         step,
-        identity.test_file_hash,
         limit,
     )
 
@@ -126,11 +124,10 @@ def test_identity_isolation(store):
     _write(store, created_at="2026-06-01T00:00:00+00:00", values=[_sample("reward_mean", 0.5)])
 
     # Same metric, but each of these differs in exactly one identity field.
-    other_backend = RunIdentity(IDENTITY.test_path, "fsdp", IDENTITY.suite, IDENTITY.test_file_hash)
-    other_suite = RunIdentity(IDENTITY.test_path, IDENTITY.backend, "stage-b-2-gpu-h200", IDENTITY.test_file_hash)
-    other_hash = RunIdentity(IDENTITY.test_path, IDENTITY.backend, IDENTITY.suite, "b" * 64)
-    other_path = RunIdentity("tests/e2e/test_other.py", IDENTITY.backend, IDENTITY.suite, IDENTITY.test_file_hash)
-    for ident in (other_backend, other_suite, other_hash, other_path):
+    other_backend = RunIdentity(IDENTITY.test_path, "fsdp", IDENTITY.suite)
+    other_suite = RunIdentity(IDENTITY.test_path, IDENTITY.backend, "stage-b-2-gpu-h200")
+    other_path = RunIdentity("tests/e2e/test_other.py", IDENTITY.backend, IDENTITY.suite)
+    for ident in (other_backend, other_suite, other_path):
         _write(
             store,
             identity=ident,
@@ -230,7 +227,6 @@ def test_baseline_sql_matches_authoritative_shape():
         "mv.steps_key = ?",
         "mv.constraint_key = ?",
         "mv.step = ?",
-        "r.test_file_hash = ?",
         "r.trusted = 1",
         "order by r.created_at desc",
         "limit ?",
