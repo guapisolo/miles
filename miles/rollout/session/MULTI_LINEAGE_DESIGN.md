@@ -225,18 +225,18 @@ sequenceDiagram
 分派全家住进新模块 `miles/rollout/session/dispatch.py`(独立成模块是审查便利性偏好,并入 `linear_trajectory.py` 同样满足落点审查,实施时二选一)。判定与变更拆开:纯函数 `classify_extension` 从 `_try_detect_and_rollback_to_assistant_checkpoint` 抽出判定半边;变更半边原样抽为 `LinearTrajectory.apply_rollback`(截断 `messages`/`trajectory_token_ids`/`records` + 现有日志),只有 retry 档会触发它:
 
 ```python
-class Kind(Enum): EXTEND; ROLLBACK; DIVERGED
+class MatchKind(Enum): EXTEND; ROLLBACK; DIVERGED
 
 @dataclass
-class Classification:
-    kind: Kind
+class MatchResult:
+    kind: MatchKind
     match_len: int                    # 诊断用
     rollback: RollbackPlan | None     # kind==ROLLBACK 时非空:checkpoint_index、msg_end、discard_count
                                       # discard_count 以 assistant 计(仅计自己生成的),0 = 只丢尾部环境消息
     # kind==DIVERGED 时附诊断字段(matched prefix 内有无 assistant、discard_count),
     # 供 disabled/retry 复原今天的 400 文案
 
-def classify_extension(segment: LinearTrajectory, request_messages) -> Classification: ...
+def classify_extension(segment: LinearTrajectory, request_messages) -> MatchResult: ...
 
 @dataclass
 class DispatchDecision:
@@ -251,20 +251,20 @@ class DispatchDecision:
 def dispatch_disabled(state, request_messages):
     segment = state.segments[0]
     c = classify_extension(segment, request_messages)
-    if c.kind is not Kind.EXTEND:
+    if c.kind is not MatchKind.EXTEND:
         raise MessageValidationError(...)          # 非严格延伸一律 400
     return DispatchDecision(segment, rollback=None)
 
 def dispatch_retry(state, request_messages):       # = 今天的语义,文案逐字保真(约束 1)
     segment = state.segments[0]
     c = classify_extension(segment, request_messages)
-    if c.kind is Kind.DIVERGED:
+    if c.kind is MatchKind.DIVERGED:
         raise MessageValidationError(...)          # 按诊断字段复原今天的两种文案
     return DispatchDecision(segment, rollback=c.rollback)   # EXTEND,或 ≤1 ROLLBACK(含 divergent 续接)
 
 def dispatch_fork(state, request_messages):        # 只认严格延伸;永不破坏性回退
     candidates = [(l, c) for l in state.segments
-                  if (c := classify_extension(l, request_messages)).kind is Kind.EXTEND]
+                  if (c := classify_extension(l, request_messages)).kind is MatchKind.EXTEND]
     live = [(l, c) for l, c in candidates if not l.truncated]
     if live:
         segment, c = _pick_most_recent(live)       # 并列取最近落账者,无落账则创建序(twin 歧义见风险)
@@ -331,7 +331,7 @@ async with state.lock:
 
 1. **M1 结构(模式无关,行为等价)**:引入 `SessionState`;`lock`/`closing` 上移;`SessionRegistry.sessions` 值类型替换;core.py 触点经 `state.segments[0]` 平凡 seam。后置状态:可运行,行为与今天全等。验证:存量测试全绿;适配白名单:凡直接构造或经 `registry.get_session` 获取 `LinearTrajectory` 的内部单测,允许改为经 `SessionState.segments[0]` 取对象、就 lock/closing 新位置改引用——**断言一律不许动**。回滚:revert。
 2. **M2 rollback pin tests(对今日行为,先钉后拆)**:存量 HTTP 级测试对 rollback 面零覆盖,而唯一覆盖它的单测(`test_linear_trajectory.py` TestRollback)在 M3 必须语义重写——保真必须先落到不会被重写的层。针对现行为新增 HTTP 级 pin tests(归属 `test_sessions.py`):divergent 续接与 pure-drop 经 chat endpoint 200 + `GET /sessions` 的 records 收缩/回长;深回退与无锚点两种 400 **逐字节**断言(含插值数字);**400 后状态不变**——深回退/无锚点 400 之后 `GET /sessions` 断言 records 与 `metadata.accumulated_token_ids` 不变、随后合法延伸仍 200(判定/变更拆分最易破坏的不变量);**退化延伸**——重发与历史完全相同的 messages → 200 且 records 增长(classify 重写的 off-by-one 热点);**divergent + 不允许的 append role → 400 且 rollback 副作用已发生**(characterization:今天先回退后检查的顺序行为,M3 的新编排保持同序);append-only 拒绝的 `--tito-allowed-append-roles` 后缀文案;rollback 后 `collect_samples` 仍出恰 1 个对齐 Sample;few-shot 首请求形状的 characterization(钉住今天的静默损坏行为,M3 翻转为修正后断言)。后置状态:重构将触碰的行为面全部有 HTTP 级 pin。验证:pin tests 对现代码全绿。回滚:revert(纯增测试)。
-3. **M3 classify 拆分(retry 语义不变)**:新建 `dispatch.py`(`classify_extension`、`Classification`、`DispatchDecision`);`apply_rollback` 变更半边抽到 `LinearTrajectory`;`prompt_assistant_count` 修正(few-shot characterization 随之翻转,行为变化边界仅此形状);`dispatch_retry` 硬接线为唯一策略(尚无 arg)。后置状态:现行为全链路走新结构,HTTP 面行为与文案不变。验证:HTTP 级测试(含 M2 pin)零修改全绿;`test_linear_trajectory.py` TestRollback 允许**语义重写**(判定改走 `classify_extension`、变更改走 `apply_rollback`)——其保真职责已由 M2 的 HTTP pin 接管。回滚:revert。
+3. **M3 classify 拆分(retry 语义不变)**:新建 `dispatch.py`(`classify_extension`、`MatchResult`、`DispatchDecision`);`apply_rollback` 变更半边抽到 `LinearTrajectory`;`prompt_assistant_count` 修正(few-shot characterization 随之翻转,行为变化边界仅此形状);`dispatch_retry` 硬接线为唯一策略(尚无 arg)。后置状态:现行为全链路走新结构,HTTP 面行为与文案不变。验证:HTTP 级测试(含 M2 pin)零修改全绿;`test_linear_trajectory.py` TestRollback 允许**语义重写**(判定改走 `classify_extension`、变更改走 `apply_rollback`)——其保真职责已由 M2 的 HTTP pin 接管。回滚:revert。
 4. **M4 mode 接口 + disabled + fork 分派机制**:`--session-rollback-mode` arg(**本里程碑 choices 仅 `{disabled, retry}`**)与 `SessionRegistry.__init__` 策略选定;`dispatch_disabled`;`dispatch_fork` 全量落地(含 seed 占位、409、`MAX_SEGMENTS` 可辨识文案、fork 日志)并被单测覆盖但**不入 choices**——数据面未跟上前放开 fork 会静默丢弃非首 segment 的训练数据,不构成连贯后置状态。后置状态:默认行为不变,disabled 可用,fork 机制代码完整但不可达。验证:语义总表全矩阵单测(3 档 × 7 形状,纯 `SessionState` 级,占位判定须显式含**空 session 两个不同首请求并发**与并发 sibling 两种形状)+ disabled 档最小 HTTP 测试(非延伸请求 400)+ 存量测试全绿。回滚:revert。
 5. **M5 数据面 + fork 放开 + e2e**:`collect_samples`/`get_session`/metadata 的 fork 档 early-return 分支(metadata 形状见数据流三);arg choices 加入 `fork`;router 级测试(现有 `MockSGLangServer` harness 走 subagent fork、并发 sibling、409)与装配测试(双 segment 出 2 个 Sample、新 Sample `loss_mask` 长度 == 自身 `response_length` 的 token 级断言、S2 per-segment);e2e 增 `--session-rollback-mode fork` 的 subagent 分叉 agent 变体(**不开启** `partial_rollout` 与 `recompute_logprobs_via_prefill`,见风险),断言 Sample 数 == segment 数。后置状态:三档全部可用。验证:全部新旧测试绿;e2e 变体在 CI 跑通。回滚:revert(fork choice 随 revert 消失,退回 M4 连贯态)。
 
