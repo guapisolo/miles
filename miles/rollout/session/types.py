@@ -16,8 +16,8 @@ class GetSessionResponse(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
-class LineageDump(BaseModel):
-    """One lineage in the fork-mode ``GET /sessions/{id}`` dump."""
+class SegmentDump(BaseModel):
+    """One segment in the fork-mode ``GET /sessions/{id}`` dump."""
 
     records: list[SessionRecord]
     truncated: bool
@@ -25,11 +25,11 @@ class LineageDump(BaseModel):
 
 
 class ForkedGetSessionResponse(BaseModel):
-    """Fork-mode session dump: per-lineage records plus session-level metadata.
+    """Fork-mode session dump: per-segment records plus session-level metadata.
 
-    Single-lineage modes keep the flat ``GetSessionResponse`` shape untouched.
+    Single-segment modes keep the flat ``GetSessionResponse`` shape untouched.
     """
 
     session_id: str
-    lineages: list[LineageDump]
+    segments: list[SegmentDump]
     metadata: dict = Field(default_factory=dict)

@@ -723,7 +723,7 @@ class TestDisabledMode:
 
 
 class TestForkMode:
-    """--session-rollback-mode=fork: divergent conversations become lineages."""
+    """--session-rollback-mode=fork: divergent conversations become segments."""
 
     U1 = {"role": "user", "content": "What is 1+2?"}
     T1 = {"role": "tool", "content": "tool-result-1", "tool_call_id": "t0"}
@@ -735,12 +735,12 @@ class TestForkMode:
         assert resp.status_code == 200
         return resp.json()["choices"][0]["message"]
 
-    def _lineages(self, url: str, session_id: str) -> list:
+    def _segments(self, url: str, session_id: str) -> list:
         body = requests.get(f"{url}/sessions/{session_id}", timeout=5.0).json()
-        assert "records" not in body  # fork mode serves the per-lineage shape
-        return body["lineages"]
+        assert "records" not in body  # fork mode serves the per-segment shape
+        return body["segments"]
 
-    def test_subagent_forks_and_both_lineages_grow(self):
+    def test_subagent_forks_and_both_segments_grow(self):
         with _serve_router({"session_rollback_mode": "fork"}) as env:
             session_id = _create_session(env.url)
             a1 = self._turn(env.url, session_id, [self.U1])
@@ -748,8 +748,8 @@ class TestForkMode:
 
             # Subagent conversation: fresh system prompt, zero overlap -> fork.
             b1 = self._turn(env.url, session_id, [self.SUB_SYS, self.SUB_TASK])
-            lineages = self._lineages(env.url, session_id)
-            assert [len(lineage["records"]) for lineage in lineages] == [2, 1]
+            segments = self._segments(env.url, session_id)
+            assert [len(segment["records"]) for segment in segments] == [2, 1]
 
             # Both lines keep extending independently.
             sub_tool = {"role": "tool", "content": "found it", "tool_call_id": "s0"}
@@ -757,21 +757,21 @@ class TestForkMode:
             main_tool = {"role": "tool", "content": "tool-result-2", "tool_call_id": "t1"}
             self._turn(env.url, session_id, [self.U1, a1, self.T1, a2, main_tool])
 
-            lineages = self._lineages(env.url, session_id)
-            assert [len(lineage["records"]) for lineage in lineages] == [3, 2]
-            assert all(lineage["truncated"] is False for lineage in lineages)
+            segments = self._segments(env.url, session_id)
+            assert [len(segment["records"]) for segment in segments] == [3, 2]
+            assert all(segment["truncated"] is False for segment in segments)
 
-    def test_sibling_subagents_get_separate_lineages(self):
+    def test_sibling_subagents_get_separate_segments(self):
         with _serve_router({"session_rollback_mode": "fork"}) as env:
             session_id = _create_session(env.url)
             self._turn(env.url, session_id, [self.U1])
             self._turn(env.url, session_id, [self.SUB_SYS, {"role": "user", "content": "task A"}])
             self._turn(env.url, session_id, [self.SUB_SYS, {"role": "user", "content": "task B"}])
 
-            lineages = self._lineages(env.url, session_id)
-            assert [len(lineage["records"]) for lineage in lineages] == [1, 1, 1]
+            segments = self._segments(env.url, session_id)
+            assert [len(segment["records"]) for segment in segments] == [1, 1, 1]
 
-    def test_divergent_retry_forks_and_preserves_old_lineage(self):
+    def test_divergent_retry_forks_and_preserves_old_segment(self):
         with _serve_router({"session_rollback_mode": "fork"}) as env:
             session_id = _create_session(env.url)
             a1 = self._turn(env.url, session_id, [self.U1])
@@ -780,13 +780,13 @@ class TestForkMode:
             t1_diff = {"role": "tool", "content": "tool-result-DIFFERENT", "tool_call_id": "t0"}
             self._turn(env.url, session_id, [self.U1, a1, t1_diff])
 
-            lineages = self._lineages(env.url, session_id)
-            assert [len(lineage["records"]) for lineage in lineages] == [2, 1]
-            # The abandoned turn is still on the old lineage, untouched.
-            old_last = lineages[0]["records"][-1]["request"]["messages"][-1]
+            segments = self._segments(env.url, session_id)
+            assert [len(segment["records"]) for segment in segments] == [2, 1]
+            # The abandoned turn is still on the old segment, untouched.
+            old_last = segments[0]["records"][-1]["request"]["messages"][-1]
             assert old_last == self.T1
 
-    def test_truncated_lineage_extension_409(self):
+    def test_truncated_segment_extension_409(self):
         with _serve_router({"session_rollback_mode": "fork"}) as env:
             session_id = _create_session(env.url)
 
@@ -802,15 +802,15 @@ class TestForkMode:
 
             resp = _post_chat(env.url, session_id, {"messages": [self.U1, a1, self.T1]})
             assert resp.status_code == 409
-            assert resp.json()["error"].startswith("truncated lineage cannot be extended")
-            [lineage] = self._lineages(env.url, session_id)
-            assert lineage["truncated"] is True
+            assert resp.json()["error"].startswith("truncated segment cannot be extended")
+            [segment] = self._segments(env.url, session_id)
+            assert segment["truncated"] is True
 
-            # Diverging before the cut still works: it forks a fresh lineage.
+            # Diverging before the cut still works: it forks a fresh segment.
             fork = _post_chat(env.url, session_id, {"messages": [self.SUB_SYS, self.SUB_TASK]})
             assert fork.status_code == 200
 
-    def test_collect_samples_one_per_lineage(self):
+    def test_collect_samples_one_per_segment(self):
         from miles.rollout.session.samples.codec import decode_samples_reply
         from miles.utils.types import Sample
 
@@ -837,12 +837,12 @@ class TestForkMode:
         assert reply.empty_reason is None
         assert len(reply.samples) == 2
         main_sample, sub_sample = reply.samples
-        # Per-lineage metadata rides beside the samples, index-aligned.
-        assert len(reply.session_metadata["lineages"]) == 2
-        for sample, lineage_meta in zip(reply.samples, reply.session_metadata["lineages"], strict=True):
-            assert sample.tokens == lineage_meta["accumulated_token_ids"]
+        # Per-segment metadata rides beside the samples, index-aligned.
+        assert len(reply.session_metadata["segments"]) == 2
+        for sample, segment_meta in zip(reply.samples, reply.session_metadata["segments"], strict=True):
+            assert sample.tokens == segment_meta["accumulated_token_ids"]
             assert len(sample.loss_mask) == sample.response_length
         # The subagent's sample carries only its own generation as loss tokens:
-        # its replayed context lives in the prompt region of its own lineage.
+        # its replayed context lives in the prompt region of its own segment.
         assert sub_sample.response == b1["content"]
         assert main_sample.response_length > 0

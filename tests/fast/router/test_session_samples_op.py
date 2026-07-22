@@ -133,7 +133,7 @@ _AGENT_METADATA = {"shared_key": "from-agent", "agent_only": 1, "max_trim_tokens
 async def _make_session(core, records, accumulated) -> str:
     response = await core.create_session()
     sid = json.loads(response.body)["session_id"]
-    session = core.registry.sessions[sid].lineages[0]
+    session = core.registry.sessions[sid].segments[0]
     for record in records:
         session.append_record(record)
     if accumulated is not None:
@@ -295,7 +295,7 @@ def test_samples_route_registered_before_catch_all_proxy(app_client):
     assert reply.empty_reason == "no_records", "catch-all session_proxy swallowed the samples route"
 
 
-# ── fork mode: per-lineage assembly ──
+# ── fork mode: per-segment assembly ──
 
 
 @pytest.fixture(scope="module")
@@ -306,25 +306,25 @@ def fork_core():
 _LINEAGE2_ACCUMULATED = [5, 6, 40, 41]
 
 
-def _second_lineage_records():
+def _second_segment_records():
     return [_make_record(prompt_token_ids=[5, 6], output_token_ids=[40, 41], output_log_probs=[-0.1, -0.2])]
 
 
 async def _make_forked_session(fork_core, first, first_acc, second, second_acc) -> str:
     sid = await _make_session(fork_core, first, first_acc)
     state = fork_core.registry.sessions[sid]
-    lineage = LinearTrajectory()
+    segment = LinearTrajectory()
     for record in second:
-        lineage.append_record(record)
+        segment.append_record(record)
     if second_acc is not None:
-        lineage.trajectory_token_ids.append(list(second_acc))
-    state.lineages.append(lineage)
+        segment.trajectory_token_ids.append(list(second_acc))
+    state.segments.append(segment)
     return sid
 
 
-async def test_fork_two_lineages_two_samples(fork_core):
+async def test_fork_two_segments_two_samples(fork_core):
     sid = await _make_forked_session(
-        fork_core, _two_turn_records(), _ACCUMULATED, _second_lineage_records(), _LINEAGE2_ACCUMULATED
+        fork_core, _two_turn_records(), _ACCUMULATED, _second_segment_records(), _LINEAGE2_ACCUMULATED
     )
     status, payload = await _collect_via_op(fork_core, sid)
     assert status == 200
@@ -336,16 +336,16 @@ async def test_fork_two_lineages_two_samples(fork_core):
     assert second.tokens == _LINEAGE2_ACCUMULATED
     assert second.loss_mask == [1, 1]
     assert second.rollout_log_probs == [-0.1, -0.2]
-    # Metadata: per-lineage list aligned with the samples, max_trim_tokens
+    # Metadata: per-segment list aligned with the samples, max_trim_tokens
     # lifted to the session level.
     meta = reply.session_metadata
-    assert [m["accumulated_token_ids"] for m in meta["lineages"]] == [_ACCUMULATED, _LINEAGE2_ACCUMULATED]
+    assert [m["accumulated_token_ids"] for m in meta["segments"]] == [_ACCUMULATED, _LINEAGE2_ACCUMULATED]
     assert "max_trim_tokens" in meta
-    assert all("max_trim_tokens" not in m for m in meta["lineages"])
+    assert all("max_trim_tokens" not in m for m in meta["segments"])
 
 
 async def test_fork_aborted_middle_turn_stops_merge(fork_core):
-    """S2 per lineage: merge stops at the first non-COMPLETED turn."""
+    """S2 per segment: merge stops at the first non-COMPLETED turn."""
     aborted_then_stop = [
         _make_record(
             prompt_token_ids=[5, 6], output_token_ids=[40, 41], output_log_probs=[-0.1, -0.2], finish_reason="abort"
@@ -363,21 +363,21 @@ async def test_fork_aborted_middle_turn_stops_merge(fork_core):
     assert second.tokens == [5, 6, 40, 41]
 
 
-async def test_fork_empty_lineage_skipped(fork_core):
+async def test_fork_empty_segment_skipped(fork_core):
     sid = await _make_session(fork_core, _two_turn_records(), _ACCUMULATED)
     state = fork_core.registry.sessions[sid]
-    state.lineages.append(LinearTrajectory(seed_messages=[{"role": "user", "content": "never answered"}]))
+    state.segments.append(LinearTrajectory(seed_messages=[{"role": "user", "content": "never answered"}]))
     status, payload = await _collect_via_op(fork_core, sid)
     assert status == 200
     reply = decode_samples_reply(payload, Sample())
     assert len(reply.samples) == 1
-    assert len(reply.session_metadata["lineages"]) == 1
+    assert len(reply.session_metadata["segments"]) == 1
 
 
-async def test_fork_any_lineage_failure_is_422(fork_core):
-    """One lineage's assembly assertion fails the whole op — no partial replies."""
+async def test_fork_any_segment_failure_is_422(fork_core):
+    """One segment's assembly assertion fails the whole op — no partial replies."""
     sid = await _make_forked_session(
-        fork_core, _two_turn_records(), _ACCUMULATED, _second_lineage_records(), [5, 6, 40, 99]
+        fork_core, _two_turn_records(), _ACCUMULATED, _second_segment_records(), [5, 6, 40, 99]
     )
     status, body = await _collect_via_op(fork_core, sid)
     assert status == 422
@@ -385,16 +385,16 @@ async def test_fork_any_lineage_failure_is_422(fork_core):
 
 async def test_fork_get_session_shape(fork_core):
     sid = await _make_forked_session(
-        fork_core, _two_turn_records(), _ACCUMULATED, _second_lineage_records(), _LINEAGE2_ACCUMULATED
+        fork_core, _two_turn_records(), _ACCUMULATED, _second_segment_records(), _LINEAGE2_ACCUMULATED
     )
     response = await fork_core.get_session(sid)
     assert response.status_code == 200
     body = json.loads(response.body)
     assert "records" not in body
-    assert len(body["lineages"]) == 2
-    for dump in body["lineages"]:
+    assert len(body["segments"]) == 2
+    for dump in body["segments"]:
         assert set(dump) == {"records", "truncated", "metadata"}
         assert dump["truncated"] is False
         assert "max_trim_tokens" not in dump["metadata"]
     assert body["metadata"] == {"max_trim_tokens": fork_core.registry.tito_tokenizer.max_trim_tokens}
-    assert [len(dump["records"]) for dump in body["lineages"]] == [2, 1]
+    assert [len(dump["records"]) for dump in body["segments"]] == [2, 1]

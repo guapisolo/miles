@@ -2163,8 +2163,8 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 "strictly extend the stored history. 'retry' (default): allow the "
                 "agent to discard at most one assistant turn and regenerate; "
                 "'disabled': reject any non-extension with 400 (strict white-box "
-                "mode); 'fork': start a new lineage per divergent conversation "
-                "(subagent-style harnesses) — each lineage becomes its own "
+                "mode); 'fork': start a new segment per divergent conversation "
+                "(subagent-style harnesses) — each segment becomes its own "
                 "training Sample and no destructive rollback ever happens.",
             )
             return parser

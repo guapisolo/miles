@@ -27,7 +27,7 @@ from miles.rollout.session.errors import (
 from miles.rollout.session.linear_trajectory import SessionRegistry
 from miles.rollout.session.samples.codec import encode_samples_reply
 from miles.rollout.session.samples.merge import compute_samples_from_openai_records, truncate_samples_by_total_tokens
-from miles.rollout.session.types import ForkedGetSessionResponse, GetSessionResponse, LineageDump, SessionRecord
+from miles.rollout.session.types import ForkedGetSessionResponse, GetSessionResponse, SegmentDump, SessionRecord
 
 logger = logging.getLogger(__name__)
 
@@ -166,19 +166,19 @@ class SessionCore:
         session_id = self.registry.create_session()
         return Response(content=_render_json({"session_id": session_id}), status_code=200, media_type=JSON_MEDIA_TYPE)
 
-    def _session_metadata(self, session_id: str, lineage) -> dict:
+    def _session_metadata(self, session_id: str, segment) -> dict:
         """The per-session assembly/inspection metadata dict, shared by
         `get_session` (records debug dump) and `collect_samples` (samples op)
         so the two can never drift."""
         metadata: dict = {}
         try:
-            mismatch = self.registry.compute_session_mismatch(lineage)
+            mismatch = self.registry.compute_session_mismatch(segment)
         except TokenizationError:
             logger.exception("Failed to compute tito_session_mismatch for session %s", session_id)
             mismatch = None
         if mismatch is not None:
             metadata["tito_session_mismatch"] = mismatch
-        metadata["accumulated_token_ids"] = lineage.token_ids
+        metadata["accumulated_token_ids"] = segment.token_ids
         metadata["max_trim_tokens"] = self.registry.tito_tokenizer.max_trim_tokens
         return metadata
 
@@ -186,32 +186,32 @@ class SessionCore:
         state = self.registry.get_session(session_id)
         if self.rollback_mode == "fork":
             return self._get_session_forked(session_id, state)
-        lineage = state.lineages[0]
-        metadata = self._session_metadata(session_id, lineage)
-        payload = GetSessionResponse(session_id=session_id, records=lineage.records, metadata=metadata)
+        segment = state.segments[0]
+        metadata = self._session_metadata(session_id, segment)
+        payload = GetSessionResponse(session_id=session_id, records=segment.records, metadata=metadata)
         return Response(
             content=_render_json(payload.model_dump(mode="json")), status_code=200, media_type=JSON_MEDIA_TYPE
         )
 
-    def _lineage_metadata(self, session_id: str, lineage) -> dict:
-        """Per-lineage slice of the assembly metadata; ``max_trim_tokens`` is
-        session-level in fork mode and lives beside the lineage list."""
-        metadata = self._session_metadata(session_id, lineage)
+    def _segment_metadata(self, session_id: str, segment) -> dict:
+        """Per-segment slice of the assembly metadata; ``max_trim_tokens`` is
+        session-level in fork mode and lives beside the segment list."""
+        metadata = self._session_metadata(session_id, segment)
         metadata.pop("max_trim_tokens", None)
         return metadata
 
     def _get_session_forked(self, session_id: str, state) -> Response:
-        lineages = [
-            LineageDump(
-                records=lineage.records,
-                truncated=lineage.truncated,
-                metadata=self._lineage_metadata(session_id, lineage),
+        segments = [
+            SegmentDump(
+                records=segment.records,
+                truncated=segment.truncated,
+                metadata=self._segment_metadata(session_id, segment),
             )
-            for lineage in state.lineages
+            for segment in state.segments
         ]
         payload = ForkedGetSessionResponse(
             session_id=session_id,
-            lineages=lineages,
+            segments=segments,
             metadata={"max_trim_tokens": self.registry.tito_tokenizer.max_trim_tokens},
         )
         return Response(
@@ -237,15 +237,15 @@ class SessionCore:
         state = self.registry.get_session(session_id)
         if self.rollback_mode == "fork":
             return self._collect_samples_forked(session_id, state, max_seq_len=max_seq_len)
-        lineage = state.lineages[0]
-        metadata = self._session_metadata(session_id, lineage)
+        segment = state.segments[0]
+        metadata = self._session_metadata(session_id, segment)
         tokenizer = self.registry.tokenizer
-        if not lineage.records:
+        if not segment.records:
             return _samples_response(encode_samples_reply([], metadata, empty_reason="no_records"))
         try:
             samples = compute_samples_from_openai_records(
                 self.args,
-                lineage.records,
+                segment.records,
                 tokenizer,
                 accumulated_token_ids=metadata.get("accumulated_token_ids"),
                 max_trim_tokens=metadata.get("max_trim_tokens", 0),
@@ -254,46 +254,46 @@ class SessionCore:
                 samples = truncate_samples_by_total_tokens(samples, max_seq_len, tokenizer)
             if not samples:
                 return _samples_response(encode_samples_reply([], metadata, empty_reason="all_truncated"))
-            # Single-lineage modes merge to exactly one Sample; fork mode
-            # assembles per lineage in _collect_samples_forked.
+            # Single-segment modes merge to exactly one Sample; fork mode
+            # assembles per segment in _collect_samples_forked.
             samples = [merge_samples(samples, tokenizer)]
         except (AssertionError, ValueError) as exc:
             return Response(content=str(exc).encode(), status_code=422, media_type="text/plain")
         return _samples_response(encode_samples_reply(samples, metadata))
 
     def _collect_samples_forked(self, session_id: str, state, *, max_seq_len: int | None) -> Response:
-        """Per-lineage assembly: every lineage with records yields exactly one
-        merged Sample, in lineage creation order. ``session_metadata`` carries
-        the per-lineage assembly metadata aligned index-for-index with the
-        samples, plus the session-level ``max_trim_tokens``. Any lineage's
+        """Per-segment assembly: every segment with records yields exactly one
+        merged Sample, in segment creation order. ``session_metadata`` carries
+        the per-segment assembly metadata aligned index-for-index with the
+        samples, plus the session-level ``max_trim_tokens``. Any segment's
         deterministic assembly failure fails the whole op with 422 — no
         partial replies.
         """
         tokenizer = self.registry.tokenizer
         max_trim_tokens = self.registry.tito_tokenizer.max_trim_tokens
-        metadata: dict = {"lineages": [], "max_trim_tokens": max_trim_tokens}
-        recorded = [lineage for lineage in state.lineages if lineage.records]
+        metadata: dict = {"segments": [], "max_trim_tokens": max_trim_tokens}
+        recorded = [segment for segment in state.segments if segment.records]
         if not recorded:
             return _samples_response(encode_samples_reply([], metadata, empty_reason="no_records"))
         samples = []
         try:
-            for lineage in recorded:
-                lineage_metadata = self._lineage_metadata(session_id, lineage)
-                lineage_samples = compute_samples_from_openai_records(
+            for segment in recorded:
+                segment_metadata = self._segment_metadata(session_id, segment)
+                segment_samples = compute_samples_from_openai_records(
                     self.args,
-                    lineage.records,
+                    segment.records,
                     tokenizer,
-                    accumulated_token_ids=lineage_metadata.get("accumulated_token_ids"),
+                    accumulated_token_ids=segment_metadata.get("accumulated_token_ids"),
                     max_trim_tokens=max_trim_tokens,
                 )
                 if max_seq_len is not None:
-                    lineage_samples = truncate_samples_by_total_tokens(lineage_samples, max_seq_len, tokenizer)
-                if not lineage_samples:
+                    segment_samples = truncate_samples_by_total_tokens(segment_samples, max_seq_len, tokenizer)
+                if not segment_samples:
                     # Truncated away entirely; skip its metadata too so the
-                    # per-lineage list stays aligned with the samples.
+                    # per-segment list stays aligned with the samples.
                     continue
-                samples.append(merge_samples(lineage_samples, tokenizer))
-                metadata["lineages"].append(lineage_metadata)
+                samples.append(merge_samples(segment_samples, tokenizer))
+                metadata["segments"].append(segment_metadata)
         except (AssertionError, ValueError) as exc:
             return Response(content=str(exc).encode(), status_code=422, media_type="text/plain")
         if not samples:
@@ -368,10 +368,10 @@ class SessionCore:
 
             request_messages = request_body.get("messages", [])
             decision = self.dispatch(state, request_messages)
-            lineage = decision.lineage
+            segment = decision.segment
             if decision.rollback is not None:
-                lineage.apply_rollback(decision.rollback)
-            prompt_token_ids = lineage.prepare_pretokenized(
+                segment.apply_rollback(decision.rollback)
+            prompt_token_ids = segment.prepare_pretokenized(
                 request_messages,
                 tools=request_body.get("tools"),
                 tito_tokenizer=self.registry.tito_tokenizer,
@@ -380,7 +380,7 @@ class SessionCore:
             logger.debug("Using TITO input_ids: %d tokens", len(prompt_token_ids))
 
             proxy_body = json.dumps(request_body).encode()
-            expected_num_assistant = lineage.num_assistant
+            expected_num_assistant = segment.num_assistant
         # --- lock released ---
 
         # --- Phase 2: proxy to backend (NO lock held) ---
@@ -433,15 +433,15 @@ class SessionCore:
                 logger.warning(f"Session {session_id} closed during proxy, skipping state update")
                 return _chat_client_response(result, response, client_stream)
 
-            if lineage.num_assistant != expected_num_assistant:
+            if segment.num_assistant != expected_num_assistant:
                 logger.warning(
                     f"Session {session_id} state changed during proxy "
                     f"(expected num_assistant={expected_num_assistant}, "
-                    f"got {lineage.num_assistant}), skipping state update"
+                    f"got {segment.num_assistant}), skipping state update"
                 )
                 return _chat_client_response(result, response, client_stream)
 
-            lineage.update_pretokenized_state(
+            segment.update_pretokenized_state(
                 request_messages,
                 assistant_message,
                 prompt_token_ids=prompt_token_ids,
@@ -457,7 +457,7 @@ class SessionCore:
                 request=request_body,
                 response=response,
             )
-            lineage.append_record(record)
+            segment.append_record(record)
         # --- lock released ---
 
         return _chat_client_response(result, response, client_stream)

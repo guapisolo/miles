@@ -22,7 +22,7 @@ class RollbackPlan:
     """Mutation recipe for ``LinearTrajectory.apply_rollback``.
 
     Produced by ``dispatch.classify_extension`` (the judgment half of retry
-    handling). ``checkpoint_index`` indexes the lineage's own generated
+    handling). ``checkpoint_index`` indexes the segment's own generated
     assistants (= ``trajectory_token_ids``); ``discard_count`` counts the own
     assistants dropped.
     """
@@ -54,10 +54,10 @@ class LinearTrajectory:
     # foreign history) are prompt, not checkpoints: they have no entry in
     # trajectory_token_ids and are never rollback anchors.
     prompt_assistant_count: int = 0
-    # Placeholder claimed at dispatch time for a lineage that has not
+    # Placeholder claimed at dispatch time for a segment that has not
     # committed a turn yet; only fork-mode matching reads it (an uncommitted
-    # lineage accepts only requests extending its seed, which is what keeps
-    # concurrent sibling first-requests out of each other's lineage).
+    # segment accepts only requests extending its seed, which is what keeps
+    # concurrent sibling first-requests out of each other's segment).
     seed_messages: list[dict[str, Any]] | None = field(default=None, repr=False)
 
     @property
@@ -67,7 +67,7 @@ class LinearTrajectory:
 
     @property
     def truncated(self) -> bool:
-        """The lineage ends in a length-truncated turn.
+        """The segment ends in a length-truncated turn.
 
         Derived, not stored: the last record already carries finish_reason,
         and a rollback that truncates records makes the flag vanish with the
@@ -212,16 +212,16 @@ class LinearTrajectory:
 
 @dataclass
 class SessionState:
-    """Per-session concurrency container plus its trajectory lineages.
+    """Per-session concurrency container plus its trajectory segments.
 
     Owns the lock/closing gate (previously on ``LinearTrajectory``); the lock
-    guards the lineage list and every trajectory's state. Today each session
-    holds exactly one lineage.
+    guards the segment list and every trajectory's state. Today each session
+    holds exactly one segment.
     """
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
     closing: bool = field(default=False, repr=False, compare=False)
-    lineages: list[LinearTrajectory] = field(default_factory=lambda: [LinearTrajectory()])
+    segments: list[LinearTrajectory] = field(default_factory=lambda: [LinearTrajectory()])
 
 
 class SessionRegistry:
