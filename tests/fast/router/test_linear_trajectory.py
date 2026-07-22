@@ -11,8 +11,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from miles.rollout.session.dispatch import Kind, classify_extension, dispatch_retry
 from miles.rollout.session.errors import MessageValidationError, SessionNotFoundError, TokenizationError
-from miles.rollout.session.linear_trajectory import SessionRegistry
+from miles.rollout.session.linear_trajectory import RollbackPlan, SessionRegistry
 from miles.rollout.session.types import SessionRecord
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer
 
@@ -435,12 +436,24 @@ class TestAppendRoleToolUser:
 
 
 class TestRollback:
-    """Tests for session rollback to a previous assistant checkpoint."""
+    """Retry handling through the classify/apply split.
+
+    Judgment (``classify_extension`` / ``dispatch_retry``) is pure; mutation
+    (``apply_rollback``) runs only on the dispatched plan. Byte-level HTTP
+    fidelity for these flows is pinned by ``TestRollbackPins`` in
+    ``test_sessions.py``; this suite covers the mechanism."""
+
+    def _dispatch_and_apply(self, state, messages):
+        decision = dispatch_retry(state, messages)
+        if decision.rollback is not None:
+            decision.lineage.apply_rollback(decision.rollback)
+        return decision
 
     def test_rollback_to_first_assistant(self, registry: SessionRegistry):
-        """After 2 completions, rolling back to the first assistant checkpoint works."""
+        """After 2 completions, a divergent retry rolls back to the first checkpoint."""
         sid = registry.create_session()
-        session = registry.get_session(sid).lineages[0]
+        state = registry.get_session(sid)
+        session = state.lineages[0]
 
         # Turn 1: [sys, user] -> assistant1
         t1_msgs = [SYS_MSG, USER_MSG]
@@ -456,9 +469,11 @@ class TestRollback:
         assert session.num_assistant == 2
         assert len(session.trajectory_token_ids) == 2
 
-        # Rollback: send [sys, user, asst1, NEW_tool] - diverges after asst1
+        # Retry: send [sys, user, asst1, NEW_tool] - diverges after asst1
         new_tool = {"role": "tool", "content": '{"temperature": 99}', "tool_call_id": "call_1"}
         rollback_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool]
+        decision = self._dispatch_and_apply(state, rollback_msgs)
+        assert decision.rollback == RollbackPlan(checkpoint_index=0, rollback_msg_end=3, discard_count=1)
         result = session.prepare_pretokenized(rollback_msgs, tito_tokenizer=registry.tito_tokenizer)
         assert isinstance(result, list)
 
@@ -471,7 +486,8 @@ class TestRollback:
     def test_multi_step_rollback_raises(self, registry: SessionRegistry):
         """Rollback that discards >1 assistant raises MessageValidationError and leaves state unchanged."""
         sid = registry.create_session()
-        session = registry.get_session(sid).lineages[0]
+        state = registry.get_session(sid)
+        session = state.lineages[0]
 
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
 
@@ -498,11 +514,9 @@ class TestRollback:
         # Attempt rollback to checkpoint 0 (discard 2 assistants) — should fail
         new_tool = {"role": "tool", "content": '{"alt": true}', "tool_call_id": "call_1"}
         with pytest.raises(MessageValidationError, match="exceeds max_assistant_rollback_steps"):
-            session.prepare_pretokenized(
-                [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool], tito_tokenizer=registry.tito_tokenizer
-            )
+            dispatch_retry(state, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
 
-        # State must be unchanged
+        # State must be unchanged: judgment is pure and no plan was applied
         assert session.messages == prev_messages
         assert session.trajectory_token_ids == prev_token_ids
         assert session.records == prev_records
@@ -511,7 +525,8 @@ class TestRollback:
     def test_rollback_then_continue_full_trajectory(self, registry: SessionRegistry):
         """Rollback and then complete a full new trajectory from the checkpoint."""
         sid = registry.create_session()
-        session = registry.get_session(sid).lineages[0]
+        state = registry.get_session(sid)
+        session = state.lineages[0]
 
         # Turn 1
         t1_msgs = [SYS_MSG, USER_MSG]
@@ -525,6 +540,7 @@ class TestRollback:
         # Rollback to asst1, send different tool
         new_tool = {"role": "tool", "content": '{"retry": true}', "tool_call_id": "call_1"}
         rollback_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool]
+        self._dispatch_and_apply(state, rollback_msgs)
         result = session.prepare_pretokenized(rollback_msgs, tito_tokenizer=registry.tito_tokenizer)
         assert isinstance(result, list)
 
@@ -541,7 +557,8 @@ class TestRollback:
     def test_rollback_fewer_messages_than_stored(self, registry_with_system: SessionRegistry):
         """Rollback triggered when request has strictly fewer messages than stored."""
         sid = registry_with_system.create_session()
-        session = registry_with_system.get_session(sid).lineages[0]
+        state = registry_with_system.get_session(sid)
+        session = state.lineages[0]
 
         # Turn 1: [sys, user] -> asst1
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
@@ -554,6 +571,7 @@ class TestRollback:
 
         # Agent retries with only [sys, user, asst1, sys_retry] (4 messages)
         retry_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, RETRY_SYS_MSG]
+        self._dispatch_and_apply(state, retry_msgs)
         result = session.prepare_pretokenized(retry_msgs, tito_tokenizer=registry_with_system.tito_tokenizer)
         assert isinstance(result, list)
 
@@ -563,7 +581,8 @@ class TestRollback:
     def test_rollback_to_second_assistant(self, registry: SessionRegistry):
         """Rollback to the second checkpoint (skipping the third)."""
         sid = registry.create_session()
-        session = registry.get_session(sid).lineages[0]
+        state = registry.get_session(sid)
+        session = state.lineages[0]
 
         # 3 completions
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
@@ -581,6 +600,8 @@ class TestRollback:
         # Rollback: keep up to asst2, diverge at tool2
         new_tool = {"role": "tool", "content": '{"alt": 1}', "tool_call_id": "call_2"}
         rollback_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, new_tool]
+        decision = self._dispatch_and_apply(state, rollback_msgs)
+        assert decision.rollback == RollbackPlan(checkpoint_index=1, rollback_msg_end=5, discard_count=1)
         result = session.prepare_pretokenized(rollback_msgs, tito_tokenizer=registry.tito_tokenizer)
         assert isinstance(result, list)
 
@@ -590,14 +611,17 @@ class TestRollback:
         assert session.messages == [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2]
 
     def test_no_rollback_when_append_only(self, registry: SessionRegistry):
-        """Normal append-only flow does not trigger rollback."""
+        """Normal append-only flow classifies as EXTEND and mutates nothing."""
         sid = registry.create_session()
-        session = registry.get_session(sid).lineages[0]
+        state = registry.get_session(sid)
+        session = state.lineages[0]
 
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
 
         # Append tool - not a rollback
         t2_msgs = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
+        decision = dispatch_retry(state, t2_msgs)
+        assert decision.rollback is None
         result = session.prepare_pretokenized(t2_msgs, tito_tokenizer=registry.tito_tokenizer)
         assert isinstance(result, list)
 
@@ -607,20 +631,22 @@ class TestRollback:
         assert session.token_ids == [1, 2, 10]
 
     def test_rollback_no_assistant_in_prefix_raises(self, registry: SessionRegistry):
-        """Rollback raises if no assistant message exists in the matched prefix."""
+        """Dispatch rejects when no assistant anchor exists in the matched prefix."""
         sid = registry.create_session()
-        session = registry.get_session(sid).lineages[0]
+        state = registry.get_session(sid)
+        session = state.lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
 
         # Diverge at user message (index 1) - only sys matched, no assistant
         bad_msgs = [SYS_MSG, {"role": "user", "content": "different question"}]
         with pytest.raises(MessageValidationError, match="rollback failed.*no assistant"):
-            session.prepare_pretokenized(bad_msgs, tito_tokenizer=registry.tito_tokenizer)
+            dispatch_retry(state, bad_msgs)
 
     def test_rollback_records_truncated(self, registry: SessionRegistry):
         """Records are truncated in sync with trajectory_token_ids on rollback."""
         sid = registry.create_session()
-        session = registry.get_session(sid).lineages[0]
+        state = registry.get_session(sid)
+        session = state.lineages[0]
 
         # Turn 1
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
@@ -642,12 +668,107 @@ class TestRollback:
 
         # Rollback to checkpoint 0
         new_tool = {"role": "tool", "content": '{"alt": 1}', "tool_call_id": "call_1"}
-        session.prepare_pretokenized(
-            [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool], tito_tokenizer=registry.tito_tokenizer
-        )
+        self._dispatch_and_apply(state, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
 
         assert len(session.records) == 1
         assert session.records[0].timestamp == 1.0
+
+
+class TestClassifyExtension:
+    """Counting matrix for the pure judgment: the step unit is the ASSISTANT,
+    not the message, and only the lineage's own generated assistants anchor a
+    rollback (assistants carried by the first request are prompt)."""
+
+    FS_USER_2 = {"role": "user", "content": "the real question"}
+
+    def _fresh(self, registry):
+        sid = registry.create_session()
+        state = registry.get_session(sid)
+        return state, state.lineages[0]
+
+    def _two_turns(self, registry):
+        """stored: [sys, user, asst1, tool1, asst2]; 2 own checkpoints."""
+        state, session = self._fresh(registry)
+        session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
+        t2 = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
+        session.prepare_pretokenized(t2, tito_tokenizer=registry.tito_tokenizer)
+        session.update_pretokenized_state(t2, ASSISTANT_MSG_2, [1, 2, 10, 20], [30], max_trim_tokens=0)
+        return state, session
+
+    def test_empty_lineage_extends_anything(self, registry: SessionRegistry):
+        _, session = self._fresh(registry)
+        assert classify_extension(session, [USER_MSG]).kind is Kind.EXTEND
+
+    def test_strict_extension(self, registry: SessionRegistry):
+        _, session = self._two_turns(registry)
+        request = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, TOOL_MSG_2]
+        assert classify_extension(session, request).kind is Kind.EXTEND
+
+    def test_degenerate_equal_history_is_extend(self, registry: SessionRegistry):
+        _, session = self._two_turns(registry)
+        request = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2]
+        assert classify_extension(session, request).kind is Kind.EXTEND
+
+    def test_pure_drop_one_assistant(self, registry: SessionRegistry):
+        """Dropping asst2 (and nothing else) is one step even though the
+        request also re-sends tool1: 2 messages beyond the anchor, 1 assistant."""
+        _, session = self._two_turns(registry)
+        c = classify_extension(session, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1])
+        assert c.kind is Kind.ROLLBACK
+        assert c.rollback == RollbackPlan(checkpoint_index=0, rollback_msg_end=3, discard_count=1)
+
+    def test_divergent_one_assistant(self, registry: SessionRegistry):
+        _, session = self._two_turns(registry)
+        new_tool = {"role": "tool", "content": '{"alt": 1}', "tool_call_id": "call_1"}
+        c = classify_extension(session, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
+        assert c.kind is Kind.ROLLBACK
+        assert c.rollback == RollbackPlan(checkpoint_index=0, rollback_msg_end=3, discard_count=1)
+
+    def test_deep_divergence_two_assistants(self, registry: SessionRegistry):
+        state, session = self._two_turns(registry)
+        t3 = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, ASSISTANT_MSG_2, TOOL_MSG_2]
+        session.prepare_pretokenized(t3, tito_tokenizer=registry.tito_tokenizer)
+        session.update_pretokenized_state(t3, ASSISTANT_MSG_FINAL, [1, 2, 10, 20, 30, 40], [50], max_trim_tokens=0)
+
+        new_tool = {"role": "tool", "content": '{"alt": 1}', "tool_call_id": "call_1"}
+        c = classify_extension(session, [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, new_tool])
+        assert c.kind is Kind.DIVERGED
+        assert c.diverged_discard_count == 2
+
+    def test_no_anchor(self, registry: SessionRegistry):
+        _, session = self._fresh(registry)
+        session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
+        c = classify_extension(session, [SYS_MSG, {"role": "user", "content": "different"}])
+        assert c.kind is Kind.DIVERGED
+        assert c.match_len == 1
+        assert c.diverged_discard_count is None
+
+    def test_prompt_assistant_is_not_an_anchor(self, registry: SessionRegistry):
+        """Few-shot first request: the anchor is the generated assistant, and
+        the plan drops exactly one own checkpoint (historically this computed
+        discard_count=0 and kept a stale checkpoint)."""
+        _, session = self._fresh(registry)
+        few_shot = [USER_MSG, ASSISTANT_MSG_1, self.FS_USER_2]
+        session.update_pretokenized_state(few_shot, ASSISTANT_MSG_2, [1, 2], [10], max_trim_tokens=0)
+        assert session.prompt_assistant_count == 1
+        t2 = [*few_shot, ASSISTANT_MSG_2, TOOL_MSG_2]
+        session.prepare_pretokenized(t2, tito_tokenizer=registry.tito_tokenizer)
+        session.update_pretokenized_state(t2, ASSISTANT_MSG_FINAL, [1, 2, 10, 20], [30], max_trim_tokens=0)
+        # stored: [user, fs_asst, user2, asst2, tool2, final]; own: asst2(#0), final(#1)
+
+        new_tool = {"role": "tool", "content": '{"alt": 1}', "tool_call_id": "call_2"}
+        c = classify_extension(session, [*few_shot, ASSISTANT_MSG_2, new_tool])
+        assert c.kind is Kind.ROLLBACK
+        assert c.rollback == RollbackPlan(checkpoint_index=0, rollback_msg_end=4, discard_count=1)
+
+    def test_prefix_with_only_prompt_assistants_has_no_anchor(self, registry: SessionRegistry):
+        _, session = self._fresh(registry)
+        few_shot = [USER_MSG, ASSISTANT_MSG_1, self.FS_USER_2]
+        session.update_pretokenized_state(few_shot, ASSISTANT_MSG_2, [1, 2], [10], max_trim_tokens=0)
+
+        c = classify_extension(session, [USER_MSG, ASSISTANT_MSG_1, {"role": "user", "content": "changed"}])
+        assert c.kind is Kind.DIVERGED
+        assert c.diverged_discard_count is None
 
 
 class TestUpdatePretokenizedStateMissingSession:

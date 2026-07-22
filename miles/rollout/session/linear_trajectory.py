@@ -6,7 +6,7 @@ from typing import Any
 
 from miles.rollout.session.errors import MessageValidationError, SessionNotFoundError, TokenizationError
 from miles.rollout.session.types import SessionRecord
-from miles.utils.chat_template_utils import assert_messages_append_only_with_allowed_role, message_matches
+from miles.utils.chat_template_utils import assert_messages_append_only_with_allowed_role
 from miles.utils.chat_template_utils.tito_tokenizer import TITOTokenizer
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 MAX_ASSISTANT_ROLLBACK_STEPS = 1
 
 
+@dataclass(frozen=True)
+class RollbackPlan:
+    """Mutation recipe for ``LinearTrajectory.apply_rollback``.
+
+    Produced by ``dispatch.classify_extension`` (the judgment half of retry
+    handling). ``checkpoint_index`` indexes the lineage's own generated
+    assistants (= ``trajectory_token_ids``); ``discard_count`` counts the own
+    assistants dropped.
+    """
+
+    checkpoint_index: int
+    rollback_msg_end: int
+    discard_count: int
+
+
 @dataclass
 class LinearTrajectory:
     """State for a linear trajectory.
@@ -24,7 +39,8 @@ class LinearTrajectory:
     Tracks the full message history and accumulated token IDs for one session.
     The typical message sequence is: [system?, user, assistant, tool, assistant, tool, …],
     but the agent may retry from an earlier point (e.g. re-running a tool call),
-    in which case the session is rolled back at most one assistant step.
+    in which case the dispatch layer rolls the trajectory back at most one
+    assistant step (``dispatch.classify_extension`` + ``apply_rollback``).
 
     Concurrency contract: all mutating methods must be called under the owning
     ``SessionState.lock``.
@@ -34,6 +50,10 @@ class LinearTrajectory:
     records: list[SessionRecord] = field(default_factory=list)
     trajectory_token_ids: list[list[int]] = field(default_factory=list)
     num_assistant: int = 0
+    # Assistants carried by the FIRST request (few-shot examples, replayed
+    # foreign history) are prompt, not checkpoints: they have no entry in
+    # trajectory_token_ids and are never rollback anchors.
+    prompt_assistant_count: int = 0
 
     @property
     def token_ids(self) -> list[int]:
@@ -54,9 +74,10 @@ class LinearTrajectory:
 
         On the first turn (no stored token_ids), renders *request_messages*
         from scratch via the chat template.  On subsequent turns, validates
-        that *request_messages* extends the stored history (rolling back at
-        most one assistant step on agent retries) and reuses the stored
-        token_ids as the pretokenized prefix.
+        that *request_messages* extends the stored history and reuses the
+        stored token_ids as the pretokenized prefix.  Retry judgment happens
+        BEFORE this call: the dispatch layer classifies the request and
+        applies any ``RollbackPlan`` via ``apply_rollback``.
 
         Must be called under the owning ``SessionState.lock``.
         """
@@ -68,10 +89,8 @@ class LinearTrajectory:
                 tokenize=True,
             )
 
-        # 1. Detect agent retries and roll back (at most one assistant step).
-        self._try_detect_and_rollback_to_assistant_checkpoint(request_messages)
-        # 2. Confirm the (possibly rolled-back) stored messages are a prefix of request,
-        #    and that each appended message role is in tito_tokenizer.allowed_append_roles.
+        # Confirm the (possibly rolled-back) stored messages are a prefix of request,
+        # and that each appended message role is in tito_tokenizer.allowed_append_roles.
         try:
             assert_messages_append_only_with_allowed_role(
                 self.messages, request_messages, tito_tokenizer.allowed_append_roles
@@ -127,31 +146,18 @@ class LinearTrajectory:
                     f"assistant_message={assistant_message}"
                 )
 
+        if not self.trajectory_token_ids:
+            self.prompt_assistant_count = sum(1 for m in request_messages if m.get("role") == "assistant")
         self.messages = list(request_messages) + [assistant_message]
         self.trajectory_token_ids.append(all_token_ids)
         self.num_assistant += 1
 
-    def _try_detect_and_rollback_to_assistant_checkpoint(
-        self,
-        request_messages: list[dict[str, Any]],
-    ) -> None:
-        """Detect if *request_messages* diverges from stored history and roll back.
+    def apply_rollback(self, plan: RollbackPlan) -> None:
+        """Truncate messages/checkpoints/records back to the plan's checkpoint.
 
-        In agentic workflows the agent may retry from an earlier point — for
-        example, re-running a tool call with different arguments.  When that
-        happens the new request shares a common prefix with the stored messages
-        but diverges before the end.  This method truncates session state back
-        to the last assistant checkpoint within the matching prefix.
-
-        Only a single-step rollback is allowed (controlled by
-        ``MAX_ASSISTANT_ROLLBACK_STEPS``).  Discarding exactly one assistant
-        message means the agent is retrying from the preceding checkpoint —
-        the request shares the stored prefix up to that assistant and then
-        continues with whatever the agent chooses (same or different tool
-        result, additional messages, etc.).  Any request that would need to
-        discard more than one assistant (i.e. jump back across multiple
-        turns) is rejected with ``MessageValidationError`` and no state is
-        modified.
+        The mutation half of retry handling; the judgment half is
+        ``dispatch.classify_extension``, which produced *plan* against this
+        trajectory's current state under the same lock hold.
 
         Example — agent retries after the first tool call::
 
@@ -162,75 +168,29 @@ class LinearTrajectory:
             request: [sys, user, assistant₁, tool₁_different, ...]
                                              ↑ diverges here (index 3)
 
-            match_len = 3  (sys, user, assistant₁ all match)
-            Last assistant in matched prefix → assistant₁ (checkpoint 0)
-            discard_count = 2 - 1 = 1  (≤ MAX_ASSISTANT_ROLLBACK_STEPS)
+            plan: checkpoint_index=0, rollback_msg_end=3, discard_count=1
 
             After rollback:
-              messages           = [sys, user, assistant₁]
+              messages             = [sys, user, assistant₁]
               trajectory_token_ids = [checkpoint_0_ids]
               records              = [record_0]
               num_assistant        = 1
 
-        No rollback occurs when:
-        - The stored history is empty.
-        - *request_messages* is a strict extension of stored messages
-          (``match_len >= len(stored)``).
+        Must be called under the owning ``SessionState.lock``.
         """
-        stored = self.messages
-        if not stored or not self.trajectory_token_ids:
-            return
-
-        match_len = 0
-        for i in range(min(len(request_messages), len(stored))):
-            if message_matches(stored[i], request_messages[i]):
-                match_len = i + 1
-            else:
-                break
-
-        if match_len >= len(stored):
-            return
-
-        # Find the last assistant message within the matched prefix.
-        rollback_msg_end = None
-        checkpoint_index = -1
-        assistant_count = 0
-        for i in range(match_len):
-            if stored[i].get("role") == "assistant":
-                rollback_msg_end = i + 1
-                checkpoint_index = assistant_count
-                assistant_count += 1
-
-        if checkpoint_index < 0:
-            raise MessageValidationError(
-                f"rollback failed: no assistant message found in the first "
-                f"{match_len} matched messages (stored has {len(stored)} messages, "
-                f"request has {len(request_messages)} messages)"
-            )
-
-        discard_count = self.num_assistant - (checkpoint_index + 1)
-        if discard_count > MAX_ASSISTANT_ROLLBACK_STEPS:
-            raise MessageValidationError(
-                f"rollback failed: discard_count={discard_count} exceeds "
-                f"max_assistant_rollback_steps={MAX_ASSISTANT_ROLLBACK_STEPS} "
-                f"(stored has {len(stored)} messages, "
-                f"request has {len(request_messages)} messages)"
-            )
-
         logger.info(
             "Rolling back session: stored %d messages / %d checkpoints -> "
             "checkpoint %d (messages[:%d]), discarding %d assistant(s)",
-            len(stored),
+            len(self.messages),
             self.num_assistant,
-            checkpoint_index,
-            rollback_msg_end,
-            discard_count,
+            plan.checkpoint_index,
+            plan.rollback_msg_end,
+            plan.discard_count,
         )
-
-        self.messages = stored[:rollback_msg_end]
-        self.trajectory_token_ids = self.trajectory_token_ids[: checkpoint_index + 1]
-        self.records = self.records[: checkpoint_index + 1]
-        self.num_assistant = checkpoint_index + 1
+        self.messages = self.messages[: plan.rollback_msg_end]
+        self.trajectory_token_ids = self.trajectory_token_ids[: plan.checkpoint_index + 1]
+        self.records = self.records[: plan.checkpoint_index + 1]
+        self.num_assistant = plan.checkpoint_index + 1
 
 
 @dataclass

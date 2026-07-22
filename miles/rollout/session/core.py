@@ -6,6 +6,7 @@ HTTP-agnostic: the FastAPI adapter (``sessions.py`` + ``server.py``) turns each 
 - ``chat_completions`` holds the per-session lock for prep and state update but not across the proxy call; ``closing`` re-checks and the ``num_assistant`` check gate concurrent DELETE/chat.
 - ``stream: true`` is served as fake streaming: the backend call stays non-streaming (TITO needs the complete message + meta_info) and the full response is re-rendered as a single SSE chunk plus ``data: [DONE]``. Errors all happen before the SSE body is built, so they keep their real status codes as JSON.
 - ``collect_samples`` assembles training Samples from the session's records on the server (compute -> truncate -> merge, synchronously on the loop like the lock-free ``get_session``); deterministic assembly failures return 422 with the assertion text.
+- Request dispatch (extension/rollback judgment) lives in ``dispatch``; ``chat_completions`` applies the returned rollback plan under the lock before pretokenizing.
 """
 
 import json
@@ -16,6 +17,7 @@ from dataclasses import dataclass
 from starlette.responses import Response
 
 from miles.rollout.generate_utils.sample_utils import merge_samples
+from miles.rollout.session.dispatch import dispatch_retry
 from miles.rollout.session.errors import (
     MessageValidationError,
     SessionNotFoundError,
@@ -146,6 +148,9 @@ class SessionCore:
         self.registry = registry
         self.args = args
         self.instance_id = session_server_instance_id
+        # The single mode selection point (MULTI_LINEAGE_DESIGN.md): resolved
+        # once at construction, no runtime mode checks anywhere else.
+        self.dispatch = dispatch_retry
 
     async def health(self) -> Response:
         body = {"status": "ok"}
@@ -252,7 +257,6 @@ class SessionCore:
         async with state.lock:
             if state.closing:
                 raise SessionNotFoundError(f"session not found: session_id={session_id}")
-            lineage = state.lineages[0]
 
             try:
                 request_body = json.loads(body) if body else {}
@@ -289,6 +293,10 @@ class SessionCore:
                 }
 
             request_messages = request_body.get("messages", [])
+            decision = self.dispatch(state, request_messages)
+            lineage = decision.lineage
+            if decision.rollback is not None:
+                lineage.apply_rollback(decision.rollback)
             prompt_token_ids = lineage.prepare_pretokenized(
                 request_messages,
                 tools=request_body.get("tools"),

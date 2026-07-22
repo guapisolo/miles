@@ -664,14 +664,15 @@ class TestRollbackPins:
         assert sample.response_length > 0
         assert len(sample.loss_mask) == sample.response_length
 
-    def test_few_shot_first_request_divergent_retry_characterization(self, router_env):
-        """Characterization of the prompt-assistant counting bug (flips at M3).
+    def test_few_shot_first_request_divergent_retry_rolls_back_cleanly(self, router_env):
+        """Assistants carried by the first request are prompt, not checkpoints.
 
-        The first request carries a few-shot assistant; the rollback anchor
-        math counts it as a checkpoint, so a divergent retry computes
-        discard_count=0, keeps the stale second checkpoint, and answers 200
-        with a corrupted token stream: records grow to 3 instead of rolling
-        back to 1 + regenerating (=2)."""
+        Historically the rollback anchor math counted the few-shot assistant
+        as a checkpoint, so this divergent retry computed discard_count=0,
+        kept the stale second checkpoint, and answered 200 with a corrupted
+        token stream (records grew to 3). With ``prompt_assistant_count`` the
+        anchor is the generated assistant: one-step rollback + regenerate,
+        records land at 2."""
         few_shot = [
             {"role": "user", "content": "Q-few-shot"},
             {"role": "assistant", "content": "A-few-shot"},
@@ -685,4 +686,4 @@ class TestRollbackPins:
         retry = _post_chat(router_env.url, session_id, {"messages": [*few_shot, a1, self.T1_DIFF]})
 
         assert retry.status_code == 200
-        assert len(self._get(router_env.url, session_id)["records"]) == 3
+        assert len(self._get(router_env.url, session_id)["records"]) == 2
