@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from starlette.responses import Response
 
 from miles.rollout.generate_utils.sample_utils import merge_samples
-from miles.rollout.session.dispatch import dispatch_disabled, dispatch_retry
+from miles.rollout.session.dispatch import dispatch_disabled, dispatch_fork, dispatch_retry
 from miles.rollout.session.errors import (
     MessageValidationError,
     SessionNotFoundError,
@@ -27,7 +27,7 @@ from miles.rollout.session.errors import (
 from miles.rollout.session.linear_trajectory import SessionRegistry
 from miles.rollout.session.samples.codec import encode_samples_reply
 from miles.rollout.session.samples.merge import compute_samples_from_openai_records, truncate_samples_by_total_tokens
-from miles.rollout.session.types import GetSessionResponse, SessionRecord
+from miles.rollout.session.types import ForkedGetSessionResponse, GetSessionResponse, LineageDump, SessionRecord
 
 logger = logging.getLogger(__name__)
 
@@ -148,14 +148,13 @@ class SessionCore:
         self.registry = registry
         self.args = args
         self.instance_id = session_server_instance_id
-        # The single mode selection point (MULTI_LINEAGE_DESIGN.md): resolved
-        # once at construction, no runtime mode checks anywhere else. The
-        # 'fork' policy exists (dispatch.dispatch_fork) but stays out of this
-        # map until its per-lineage sample assembly lands: serving forked
-        # lineages whose records the data plane would drop is not a coherent
-        # state.
-        mode = getattr(args, "session_rollback_mode", "retry")
-        self.dispatch = {"disabled": dispatch_disabled, "retry": dispatch_retry}[mode]
+        # The mode branch points (MULTI_LINEAGE_DESIGN.md): this dispatch
+        # selection plus the two fork-mode early-returns in get_session /
+        # collect_samples. Nothing else may check the mode.
+        self.rollback_mode = getattr(args, "session_rollback_mode", "retry")
+        self.dispatch = {"disabled": dispatch_disabled, "retry": dispatch_retry, "fork": dispatch_fork}[
+            self.rollback_mode
+        ]
 
     async def health(self) -> Response:
         body = {"status": "ok"}
@@ -184,9 +183,37 @@ class SessionCore:
         return metadata
 
     async def get_session(self, session_id: str) -> Response:
-        lineage = self.registry.get_session(session_id).lineages[0]
+        state = self.registry.get_session(session_id)
+        if self.rollback_mode == "fork":
+            return self._get_session_forked(session_id, state)
+        lineage = state.lineages[0]
         metadata = self._session_metadata(session_id, lineage)
         payload = GetSessionResponse(session_id=session_id, records=lineage.records, metadata=metadata)
+        return Response(
+            content=_render_json(payload.model_dump(mode="json")), status_code=200, media_type=JSON_MEDIA_TYPE
+        )
+
+    def _lineage_metadata(self, session_id: str, lineage) -> dict:
+        """Per-lineage slice of the assembly metadata; ``max_trim_tokens`` is
+        session-level in fork mode and lives beside the lineage list."""
+        metadata = self._session_metadata(session_id, lineage)
+        metadata.pop("max_trim_tokens", None)
+        return metadata
+
+    def _get_session_forked(self, session_id: str, state) -> Response:
+        lineages = [
+            LineageDump(
+                records=lineage.records,
+                truncated=lineage.truncated,
+                metadata=self._lineage_metadata(session_id, lineage),
+            )
+            for lineage in state.lineages
+        ]
+        payload = ForkedGetSessionResponse(
+            session_id=session_id,
+            lineages=lineages,
+            metadata={"max_trim_tokens": self.registry.tito_tokenizer.max_trim_tokens},
+        )
         return Response(
             content=_render_json(payload.model_dump(mode="json")), status_code=200, media_type=JSON_MEDIA_TYPE
         )
@@ -207,7 +234,10 @@ class SessionCore:
         deterministic record damage. Unknown exceptions still propagate (a real
         bug must not masquerade as 422).
         """
-        lineage = self.registry.get_session(session_id).lineages[0]
+        state = self.registry.get_session(session_id)
+        if self.rollback_mode == "fork":
+            return self._collect_samples_forked(session_id, state, max_seq_len=max_seq_len)
+        lineage = state.lineages[0]
         metadata = self._session_metadata(session_id, lineage)
         tokenizer = self.registry.tokenizer
         if not lineage.records:
@@ -224,11 +254,50 @@ class SessionCore:
                 samples = truncate_samples_by_total_tokens(samples, max_seq_len, tokenizer)
             if not samples:
                 return _samples_response(encode_samples_reply([], metadata, empty_reason="all_truncated"))
-            # TODO: today the whole session is one linear run and merge must succeed;
-            # splitting (compaction/subagent) is a separate message-level operation, not built yet.
+            # Single-lineage modes merge to exactly one Sample; fork mode
+            # assembles per lineage in _collect_samples_forked.
             samples = [merge_samples(samples, tokenizer)]
         except (AssertionError, ValueError) as exc:
             return Response(content=str(exc).encode(), status_code=422, media_type="text/plain")
+        return _samples_response(encode_samples_reply(samples, metadata))
+
+    def _collect_samples_forked(self, session_id: str, state, *, max_seq_len: int | None) -> Response:
+        """Per-lineage assembly: every lineage with records yields exactly one
+        merged Sample, in lineage creation order. ``session_metadata`` carries
+        the per-lineage assembly metadata aligned index-for-index with the
+        samples, plus the session-level ``max_trim_tokens``. Any lineage's
+        deterministic assembly failure fails the whole op with 422 — no
+        partial replies.
+        """
+        tokenizer = self.registry.tokenizer
+        max_trim_tokens = self.registry.tito_tokenizer.max_trim_tokens
+        metadata: dict = {"lineages": [], "max_trim_tokens": max_trim_tokens}
+        recorded = [lineage for lineage in state.lineages if lineage.records]
+        if not recorded:
+            return _samples_response(encode_samples_reply([], metadata, empty_reason="no_records"))
+        samples = []
+        try:
+            for lineage in recorded:
+                lineage_metadata = self._lineage_metadata(session_id, lineage)
+                lineage_samples = compute_samples_from_openai_records(
+                    self.args,
+                    lineage.records,
+                    tokenizer,
+                    accumulated_token_ids=lineage_metadata.get("accumulated_token_ids"),
+                    max_trim_tokens=max_trim_tokens,
+                )
+                if max_seq_len is not None:
+                    lineage_samples = truncate_samples_by_total_tokens(lineage_samples, max_seq_len, tokenizer)
+                if not lineage_samples:
+                    # Truncated away entirely; skip its metadata too so the
+                    # per-lineage list stays aligned with the samples.
+                    continue
+                samples.append(merge_samples(lineage_samples, tokenizer))
+                metadata["lineages"].append(lineage_metadata)
+        except (AssertionError, ValueError) as exc:
+            return Response(content=str(exc).encode(), status_code=422, media_type="text/plain")
+        if not samples:
+            return _samples_response(encode_samples_reply([], metadata, empty_reason="all_truncated"))
         return _samples_response(encode_samples_reply(samples, metadata))
 
     async def delete_session(self, session_id: str) -> Response:

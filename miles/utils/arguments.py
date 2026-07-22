@@ -2158,14 +2158,14 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 "--session-rollback-mode",
                 type=str,
                 default="retry",
-                choices=["disabled", "retry"],
+                choices=["disabled", "retry", "fork"],
                 help="How the session server treats a chat request that does not "
                 "strictly extend the stored history. 'retry' (default): allow the "
                 "agent to discard at most one assistant turn and regenerate; "
                 "'disabled': reject any non-extension with 400 (strict white-box "
-                "mode). A 'fork' mode (one lineage per divergent conversation, for "
-                "subagent-style harnesses) lands together with its per-lineage "
-                "sample assembly.",
+                "mode); 'fork': start a new lineage per divergent conversation "
+                "(subagent-style harnesses) — each lineage becomes its own "
+                "training Sample and no destructive rollback ever happens.",
             )
             return parser
 

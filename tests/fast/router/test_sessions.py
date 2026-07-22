@@ -720,3 +720,129 @@ class TestDisabledMode:
             # Rejection mutated nothing: the extension record is still intact.
             records = requests.get(f"{env.url}/sessions/{session_id}", timeout=5.0).json()["records"]
             assert len(records) == 2
+
+
+class TestForkMode:
+    """--session-rollback-mode=fork: divergent conversations become lineages."""
+
+    U1 = {"role": "user", "content": "What is 1+2?"}
+    T1 = {"role": "tool", "content": "tool-result-1", "tool_call_id": "t0"}
+    SUB_SYS = {"role": "system", "content": "You are a search subagent."}
+    SUB_TASK = {"role": "user", "content": "Find the weather report."}
+
+    def _turn(self, url: str, session_id: str, messages: list) -> dict:
+        resp = _post_chat(url, session_id, {"messages": messages})
+        assert resp.status_code == 200
+        return resp.json()["choices"][0]["message"]
+
+    def _lineages(self, url: str, session_id: str) -> list:
+        body = requests.get(f"{url}/sessions/{session_id}", timeout=5.0).json()
+        assert "records" not in body  # fork mode serves the per-lineage shape
+        return body["lineages"]
+
+    def test_subagent_forks_and_both_lineages_grow(self):
+        with _serve_router({"session_rollback_mode": "fork"}) as env:
+            session_id = _create_session(env.url)
+            a1 = self._turn(env.url, session_id, [self.U1])
+            a2 = self._turn(env.url, session_id, [self.U1, a1, self.T1])
+
+            # Subagent conversation: fresh system prompt, zero overlap -> fork.
+            b1 = self._turn(env.url, session_id, [self.SUB_SYS, self.SUB_TASK])
+            lineages = self._lineages(env.url, session_id)
+            assert [len(lineage["records"]) for lineage in lineages] == [2, 1]
+
+            # Both lines keep extending independently.
+            sub_tool = {"role": "tool", "content": "found it", "tool_call_id": "s0"}
+            self._turn(env.url, session_id, [self.SUB_SYS, self.SUB_TASK, b1, sub_tool])
+            main_tool = {"role": "tool", "content": "tool-result-2", "tool_call_id": "t1"}
+            self._turn(env.url, session_id, [self.U1, a1, self.T1, a2, main_tool])
+
+            lineages = self._lineages(env.url, session_id)
+            assert [len(lineage["records"]) for lineage in lineages] == [3, 2]
+            assert all(lineage["truncated"] is False for lineage in lineages)
+
+    def test_sibling_subagents_get_separate_lineages(self):
+        with _serve_router({"session_rollback_mode": "fork"}) as env:
+            session_id = _create_session(env.url)
+            self._turn(env.url, session_id, [self.U1])
+            self._turn(env.url, session_id, [self.SUB_SYS, {"role": "user", "content": "task A"}])
+            self._turn(env.url, session_id, [self.SUB_SYS, {"role": "user", "content": "task B"}])
+
+            lineages = self._lineages(env.url, session_id)
+            assert [len(lineage["records"]) for lineage in lineages] == [1, 1, 1]
+
+    def test_divergent_retry_forks_and_preserves_old_lineage(self):
+        with _serve_router({"session_rollback_mode": "fork"}) as env:
+            session_id = _create_session(env.url)
+            a1 = self._turn(env.url, session_id, [self.U1])
+            self._turn(env.url, session_id, [self.U1, a1, self.T1])
+
+            t1_diff = {"role": "tool", "content": "tool-result-DIFFERENT", "tool_call_id": "t0"}
+            self._turn(env.url, session_id, [self.U1, a1, t1_diff])
+
+            lineages = self._lineages(env.url, session_id)
+            assert [len(lineage["records"]) for lineage in lineages] == [2, 1]
+            # The abandoned turn is still on the old lineage, untouched.
+            old_last = lineages[0]["records"][-1]["request"]["messages"][-1]
+            assert old_last == self.T1
+
+    def test_truncated_lineage_extension_409(self):
+        with _serve_router({"session_rollback_mode": "fork"}) as env:
+            session_id = _create_session(env.url)
+
+            fixture_response = MockSGLangServer._compute_chat_completions_response
+
+            def length_response(mock_self, payload: dict) -> dict:
+                response = fixture_response(mock_self, payload)
+                response["choices"][0]["finish_reason"] = "length"
+                return response
+
+            with patch.object(MockSGLangServer, "_compute_chat_completions_response", new=length_response):
+                a1 = self._turn(env.url, session_id, [self.U1])
+
+            resp = _post_chat(env.url, session_id, {"messages": [self.U1, a1, self.T1]})
+            assert resp.status_code == 409
+            assert resp.json()["error"].startswith("truncated lineage cannot be extended")
+            [lineage] = self._lineages(env.url, session_id)
+            assert lineage["truncated"] is True
+
+            # Diverging before the cut still works: it forks a fresh lineage.
+            fork = _post_chat(env.url, session_id, {"messages": [self.SUB_SYS, self.SUB_TASK]})
+            assert fork.status_code == 200
+
+    def test_collect_samples_one_per_lineage(self):
+        from miles.rollout.session.samples.codec import decode_samples_reply
+        from miles.utils.types import Sample
+
+        fixture_response = MockSGLangServer._compute_chat_completions_response
+
+        def clean_meta_response(mock_self, payload: dict) -> dict:
+            response = fixture_response(mock_self, payload)
+            meta = response["choices"][0]["meta_info"]
+            meta.pop("routed_experts", None)
+            meta.pop("indexer_topk", None)
+            return response
+
+        with _serve_router({"session_rollback_mode": "fork"}) as env:
+            with patch.object(MockSGLangServer, "_compute_chat_completions_response", new=clean_meta_response):
+                session_id = _create_session(env.url)
+                a1 = self._turn(env.url, session_id, [self.U1])
+                self._turn(env.url, session_id, [self.U1, a1, self.T1])
+                b1 = self._turn(env.url, session_id, [self.SUB_SYS, self.SUB_TASK])
+
+                resp = requests.post(f"{env.url}/sessions/{session_id}/samples", json={}, timeout=10.0)
+
+        assert resp.status_code == 200
+        reply = decode_samples_reply(resp.content, Sample())
+        assert reply.empty_reason is None
+        assert len(reply.samples) == 2
+        main_sample, sub_sample = reply.samples
+        # Per-lineage metadata rides beside the samples, index-aligned.
+        assert len(reply.session_metadata["lineages"]) == 2
+        for sample, lineage_meta in zip(reply.samples, reply.session_metadata["lineages"], strict=True):
+            assert sample.tokens == lineage_meta["accumulated_token_ids"]
+            assert len(sample.loss_mask) == sample.response_length
+        # The subagent's sample carries only its own generation as loss tokens:
+        # its replayed context lives in the prompt region of its own lineage.
+        assert sub_sample.response == b1["content"]
+        assert main_sample.response_length > 0

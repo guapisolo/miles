@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 from tests.fast.rollout.session.test_samples import _make_record
 
 from miles.rollout.session.core import SessionCore
-from miles.rollout.session.linear_trajectory import SessionRegistry
+from miles.rollout.session.linear_trajectory import LinearTrajectory, SessionRegistry
 from miles.rollout.session.samples.codec import decode_samples_reply
 from miles.rollout.session.sessions import setup_session_routes
 from miles.utils.chat_template_utils import get_tito_tokenizer
@@ -56,19 +56,18 @@ class _UnusedBackend:
         raise AssertionError("collect_samples must not touch the proxy backend")
 
 
-def _build_core() -> SessionCore:
+def _build_core(extra_args: dict | None = None) -> SessionCore:
     # Mirrors setup_session_routes (sessions.py): tokenizer + registry + core.
-    tokenizer = load_tokenizer(
-        _ARGS.hf_checkpoint, chat_template_path=_ARGS.chat_template_path, trust_remote_code=True
-    )
+    args = SimpleNamespace(**{**vars(_ARGS), **(extra_args or {})})
+    tokenizer = load_tokenizer(args.hf_checkpoint, chat_template_path=args.chat_template_path, trust_remote_code=True)
     tito_tokenizer = get_tito_tokenizer(
         tokenizer,
-        tokenizer_type=_ARGS.tito_model,
-        chat_template_kwargs=_ARGS.apply_chat_template_kwargs,
-        allowed_append_roles=_ARGS.tito_allowed_append_roles,
+        tokenizer_type=args.tito_model,
+        chat_template_kwargs=args.apply_chat_template_kwargs,
+        allowed_append_roles=args.tito_allowed_append_roles,
     )
-    registry = SessionRegistry(_ARGS, tokenizer, tito_tokenizer=tito_tokenizer)
-    return SessionCore(_UnusedBackend(), registry, _ARGS, _ARGS.session_server_instance_id)
+    registry = SessionRegistry(args, tokenizer, tito_tokenizer=tito_tokenizer)
+    return SessionCore(_UnusedBackend(), registry, args, args.session_server_instance_id)
 
 
 @pytest.fixture(scope="module")
@@ -294,3 +293,108 @@ def test_samples_route_registered_before_catch_all_proxy(app_client):
     assert response.headers["content-type"] == "application/octet-stream"
     reply = decode_samples_reply(response.content, Sample())
     assert reply.empty_reason == "no_records", "catch-all session_proxy swallowed the samples route"
+
+
+# ── fork mode: per-lineage assembly ──
+
+
+@pytest.fixture(scope="module")
+def fork_core():
+    return _build_core(extra_args={"session_rollback_mode": "fork"})
+
+
+_LINEAGE2_ACCUMULATED = [5, 6, 40, 41]
+
+
+def _second_lineage_records():
+    return [_make_record(prompt_token_ids=[5, 6], output_token_ids=[40, 41], output_log_probs=[-0.1, -0.2])]
+
+
+async def _make_forked_session(fork_core, first, first_acc, second, second_acc) -> str:
+    sid = await _make_session(fork_core, first, first_acc)
+    state = fork_core.registry.sessions[sid]
+    lineage = LinearTrajectory()
+    for record in second:
+        lineage.append_record(record)
+    if second_acc is not None:
+        lineage.trajectory_token_ids.append(list(second_acc))
+    state.lineages.append(lineage)
+    return sid
+
+
+async def test_fork_two_lineages_two_samples(fork_core):
+    sid = await _make_forked_session(
+        fork_core, _two_turn_records(), _ACCUMULATED, _second_lineage_records(), _LINEAGE2_ACCUMULATED
+    )
+    status, payload = await _collect_via_op(fork_core, sid)
+    assert status == 200
+    reply = decode_samples_reply(payload, Sample())
+    assert reply.empty_reason is None
+    assert len(reply.samples) == 2
+    first, second = reply.samples
+    assert first.tokens == _ACCUMULATED
+    assert second.tokens == _LINEAGE2_ACCUMULATED
+    assert second.loss_mask == [1, 1]
+    assert second.rollout_log_probs == [-0.1, -0.2]
+    # Metadata: per-lineage list aligned with the samples, max_trim_tokens
+    # lifted to the session level.
+    meta = reply.session_metadata
+    assert [m["accumulated_token_ids"] for m in meta["lineages"]] == [_ACCUMULATED, _LINEAGE2_ACCUMULATED]
+    assert "max_trim_tokens" in meta
+    assert all("max_trim_tokens" not in m for m in meta["lineages"])
+
+
+async def test_fork_aborted_middle_turn_stops_merge(fork_core):
+    """S2 per lineage: merge stops at the first non-COMPLETED turn."""
+    aborted_then_stop = [
+        _make_record(
+            prompt_token_ids=[5, 6], output_token_ids=[40, 41], output_log_probs=[-0.1, -0.2], finish_reason="abort"
+        ),
+        _make_record(prompt_token_ids=[5, 6, 40, 41, 50], output_token_ids=[60], output_log_probs=[-0.3]),
+    ]
+    acc = [5, 6, 40, 41, 50, 60]
+    sid = await _make_forked_session(fork_core, _two_turn_records(), _ACCUMULATED, aborted_then_stop, acc)
+    status, payload = await _collect_via_op(fork_core, sid)
+    assert status == 200
+    reply = decode_samples_reply(payload, Sample())
+    assert len(reply.samples) == 2
+    second = reply.samples[1]
+    assert second.status == Sample.Status.ABORTED
+    assert second.tokens == [5, 6, 40, 41]
+
+
+async def test_fork_empty_lineage_skipped(fork_core):
+    sid = await _make_session(fork_core, _two_turn_records(), _ACCUMULATED)
+    state = fork_core.registry.sessions[sid]
+    state.lineages.append(LinearTrajectory(seed_messages=[{"role": "user", "content": "never answered"}]))
+    status, payload = await _collect_via_op(fork_core, sid)
+    assert status == 200
+    reply = decode_samples_reply(payload, Sample())
+    assert len(reply.samples) == 1
+    assert len(reply.session_metadata["lineages"]) == 1
+
+
+async def test_fork_any_lineage_failure_is_422(fork_core):
+    """One lineage's assembly assertion fails the whole op — no partial replies."""
+    sid = await _make_forked_session(
+        fork_core, _two_turn_records(), _ACCUMULATED, _second_lineage_records(), [5, 6, 40, 99]
+    )
+    status, body = await _collect_via_op(fork_core, sid)
+    assert status == 422
+
+
+async def test_fork_get_session_shape(fork_core):
+    sid = await _make_forked_session(
+        fork_core, _two_turn_records(), _ACCUMULATED, _second_lineage_records(), _LINEAGE2_ACCUMULATED
+    )
+    response = await fork_core.get_session(sid)
+    assert response.status_code == 200
+    body = json.loads(response.body)
+    assert "records" not in body
+    assert len(body["lineages"]) == 2
+    for dump in body["lineages"]:
+        assert set(dump) == {"records", "truncated", "metadata"}
+        assert dump["truncated"] is False
+        assert "max_trim_tokens" not in dump["metadata"]
+    assert body["metadata"] == {"max_trim_tokens": fork_core.registry.tito_tokenizer.max_trim_tokens}
+    assert [len(dump["records"]) for dump in body["lineages"]] == [2, 1]
