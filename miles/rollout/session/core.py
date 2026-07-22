@@ -157,26 +157,26 @@ class SessionCore:
         session_id = self.registry.create_session()
         return Response(content=_render_json({"session_id": session_id}), status_code=200, media_type=JSON_MEDIA_TYPE)
 
-    def _session_metadata(self, session_id: str, session) -> dict:
+    def _session_metadata(self, session_id: str, lineage) -> dict:
         """The per-session assembly/inspection metadata dict, shared by
         `get_session` (records debug dump) and `collect_samples` (samples op)
         so the two can never drift."""
         metadata: dict = {}
         try:
-            mismatch = self.registry.compute_session_mismatch(session)
+            mismatch = self.registry.compute_session_mismatch(lineage)
         except TokenizationError:
             logger.exception("Failed to compute tito_session_mismatch for session %s", session_id)
             mismatch = None
         if mismatch is not None:
             metadata["tito_session_mismatch"] = mismatch
-        metadata["accumulated_token_ids"] = session.token_ids
+        metadata["accumulated_token_ids"] = lineage.token_ids
         metadata["max_trim_tokens"] = self.registry.tito_tokenizer.max_trim_tokens
         return metadata
 
     async def get_session(self, session_id: str) -> Response:
-        session = self.registry.get_session(session_id)
-        metadata = self._session_metadata(session_id, session)
-        payload = GetSessionResponse(session_id=session_id, records=session.records, metadata=metadata)
+        lineage = self.registry.get_session(session_id).lineages[0]
+        metadata = self._session_metadata(session_id, lineage)
+        payload = GetSessionResponse(session_id=session_id, records=lineage.records, metadata=metadata)
         return Response(
             content=_render_json(payload.model_dump(mode="json")), status_code=200, media_type=JSON_MEDIA_TYPE
         )
@@ -197,15 +197,15 @@ class SessionCore:
         deterministic record damage. Unknown exceptions still propagate (a real
         bug must not masquerade as 422).
         """
-        session = self.registry.get_session(session_id)
-        metadata = self._session_metadata(session_id, session)
+        lineage = self.registry.get_session(session_id).lineages[0]
+        metadata = self._session_metadata(session_id, lineage)
         tokenizer = self.registry.tokenizer
-        if not session.records:
+        if not lineage.records:
             return _samples_response(encode_samples_reply([], metadata, empty_reason="no_records"))
         try:
             samples = compute_samples_from_openai_records(
                 self.args,
-                session.records,
+                lineage.records,
                 tokenizer,
                 accumulated_token_ids=metadata.get("accumulated_token_ids"),
                 max_trim_tokens=metadata.get("max_trim_tokens", 0),
@@ -222,16 +222,16 @@ class SessionCore:
         return _samples_response(encode_samples_reply(samples, metadata))
 
     async def delete_session(self, session_id: str) -> Response:
-        session = self.registry.get_session(session_id)
-        if session.closing:
+        state = self.registry.get_session(session_id)
+        if state.closing:
             raise SessionNotFoundError(f"session not found: session_id={session_id}")
-        session.closing = True
+        state.closing = True
         # Acquire the lock so an in-flight chat finishes before we drop the session.
-        await session.lock.acquire()
+        await state.lock.acquire()
         try:
             self.registry.remove_session(session_id)
         finally:
-            session.lock.release()
+            state.lock.release()
         return Response(status_code=204)
 
     async def chat_completions(
@@ -244,14 +244,15 @@ class SessionCore:
         append record (lock held briefly). The lock is NOT held during the slow
         proxy call so DELETE/other ops are not blocked if the agent disconnects.
         """
-        session = self.registry.get_session(session_id)
-        if session.closing:
+        state = self.registry.get_session(session_id)
+        if state.closing:
             raise SessionNotFoundError(f"session not found: session_id={session_id}")
 
         # --- Phase 1: prepare request (lock held briefly) ---
-        async with session.lock:
-            if session.closing:
+        async with state.lock:
+            if state.closing:
                 raise SessionNotFoundError(f"session not found: session_id={session_id}")
+            lineage = state.lineages[0]
 
             try:
                 request_body = json.loads(body) if body else {}
@@ -288,7 +289,7 @@ class SessionCore:
                 }
 
             request_messages = request_body.get("messages", [])
-            prompt_token_ids = session.prepare_pretokenized(
+            prompt_token_ids = lineage.prepare_pretokenized(
                 request_messages,
                 tools=request_body.get("tools"),
                 tito_tokenizer=self.registry.tito_tokenizer,
@@ -297,7 +298,7 @@ class SessionCore:
             logger.debug("Using TITO input_ids: %d tokens", len(prompt_token_ids))
 
             proxy_body = json.dumps(request_body).encode()
-            expected_num_assistant = session.num_assistant
+            expected_num_assistant = lineage.num_assistant
         # --- lock released ---
 
         # --- Phase 2: proxy to backend (NO lock held) ---
@@ -341,20 +342,20 @@ class SessionCore:
         completion_token_ids = [t[1] for t in output_token_logprobs]
 
         # --- Phase 3: update state (lock held briefly) ---
-        async with session.lock:
-            if session.closing:
+        async with state.lock:
+            if state.closing:
                 logger.warning(f"Session {session_id} closed during proxy, skipping state update")
                 return _chat_client_response(result, response, client_stream)
 
-            if session.num_assistant != expected_num_assistant:
+            if lineage.num_assistant != expected_num_assistant:
                 logger.warning(
                     f"Session {session_id} state changed during proxy "
                     f"(expected num_assistant={expected_num_assistant}, "
-                    f"got {session.num_assistant}), skipping state update"
+                    f"got {lineage.num_assistant}), skipping state update"
                 )
                 return _chat_client_response(result, response, client_stream)
 
-            session.update_pretokenized_state(
+            lineage.update_pretokenized_state(
                 request_messages,
                 assistant_message,
                 prompt_token_ids=prompt_token_ids,
@@ -370,7 +371,7 @@ class SessionCore:
                 request=request_body,
                 response=response,
             )
-            session.append_record(record)
+            lineage.append_record(record)
         # --- lock released ---
 
         return _chat_client_response(result, response, client_stream)

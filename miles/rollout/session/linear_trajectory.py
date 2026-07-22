@@ -26,11 +26,10 @@ class LinearTrajectory:
     but the agent may retry from an earlier point (e.g. re-running a tool call),
     in which case the session is rolled back at most one assistant step.
 
-    Concurrency contract: all mutating methods must be called under ``self.lock``.
+    Concurrency contract: all mutating methods must be called under the owning
+    ``SessionState.lock``.
     """
 
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
-    closing: bool = field(default=False, repr=False, compare=False)
     messages: list[dict[str, Any]] = field(default_factory=list)
     records: list[SessionRecord] = field(default_factory=list)
     trajectory_token_ids: list[list[int]] = field(default_factory=list)
@@ -59,7 +58,7 @@ class LinearTrajectory:
         most one assistant step on agent retries) and reuses the stored
         token_ids as the pretokenized prefix.
 
-        Must be called under ``self.lock``.
+        Must be called under the owning ``SessionState.lock``.
         """
         if not self.token_ids:
             return tito_tokenizer.apply_chat_template(
@@ -100,7 +99,7 @@ class LinearTrajectory:
         Appends ``prompt_token_ids + completion_token_ids`` as a new checkpoint.
         Validates that the previously stored token_ids are a prefix of the new
         checkpoint (tolerating up to ``max_trim_tokens`` trailing differences).
-        Must be called under ``self.lock``.
+        Must be called under the owning ``SessionState.lock``.
         """
         all_token_ids = prompt_token_ids + completion_token_ids
 
@@ -234,16 +233,30 @@ class LinearTrajectory:
         self.num_assistant = checkpoint_index + 1
 
 
+@dataclass
+class SessionState:
+    """Per-session concurrency container plus its trajectory lineages.
+
+    Owns the lock/closing gate (previously on ``LinearTrajectory``); the lock
+    guards the lineage list and every trajectory's state. Today each session
+    holds exactly one lineage.
+    """
+
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
+    closing: bool = field(default=False, repr=False, compare=False)
+    lineages: list[LinearTrajectory] = field(default_factory=lambda: [LinearTrajectory()])
+
+
 class SessionRegistry:
-    """Session ID -> trajectory mapping with shared tokenizer resources.
+    """Session ID -> session state mapping with shared tokenizer resources.
 
     Pure CRUD plus read-only computation (compute_session_mismatch).
     Does NOT mutate session state - all mutations are methods on
-    LinearTrajectory; called by the route handler under session.lock.
+    LinearTrajectory; called by the route handler under ``SessionState.lock``.
     """
 
     def __init__(self, args, tokenizer: Any, *, tito_tokenizer: TITOTokenizer):
-        self.sessions: dict[str, LinearTrajectory] = {}
+        self.sessions: dict[str, SessionState] = {}
         self.args = args
         self.tokenizer = tokenizer
         self.tito_tokenizer = tito_tokenizer
@@ -251,10 +264,10 @@ class SessionRegistry:
 
     def create_session(self) -> str:
         session_id = uuid.uuid4().hex
-        self.sessions[session_id] = LinearTrajectory()
+        self.sessions[session_id] = SessionState()
         return session_id
 
-    def get_session(self, session_id: str) -> LinearTrajectory:
+    def get_session(self, session_id: str) -> SessionState:
         session = self.sessions.get(session_id)
         if session is None:
             raise SessionNotFoundError(f"session not found: session_id={session_id}")
@@ -264,22 +277,22 @@ class SessionRegistry:
         if self.sessions.pop(session_id, None) is None:
             raise SessionNotFoundError(f"session not found: session_id={session_id}")
 
-    def compute_session_mismatch(self, session: LinearTrajectory) -> list[dict] | None:
+    def compute_session_mismatch(self, trajectory: LinearTrajectory) -> list[dict] | None:
         """Compare accumulated token IDs against canonical chat template output.
 
-        Read-only: does not mutate session state.
+        Read-only: does not mutate trajectory state.
         """
-        if not session.token_ids:
+        if not trajectory.token_ids:
             return None
         try:
-            tools = session.records[-1].request.get("tools") if session.records else None
+            tools = trajectory.records[-1].request.get("tools") if trajectory.records else None
             expected_ids = self.tito_tokenizer.apply_chat_template(
-                session.messages,
+                trajectory.messages,
                 tools=tools,
                 add_generation_prompt=False,
                 tokenize=True,
             )
-            mismatches = self.comparator.compare_sequences(expected_ids, session.token_ids)
+            mismatches = self.comparator.compare_sequences(expected_ids, trajectory.token_ids)
             return [m.to_dict() for m in mismatches]
         except Exception as e:
             raise TokenizationError(f"failed to compute tito_session_mismatch: {e}") from e

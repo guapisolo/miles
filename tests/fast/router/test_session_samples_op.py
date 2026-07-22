@@ -134,7 +134,7 @@ _AGENT_METADATA = {"shared_key": "from-agent", "agent_only": 1, "max_trim_tokens
 async def _make_session(core, records, accumulated) -> str:
     response = await core.create_session()
     sid = json.loads(response.body)["session_id"]
-    session = core.registry.sessions[sid]
+    session = core.registry.sessions[sid].lineages[0]
     for record in records:
         session.append_record(record)
     if accumulated is not None:

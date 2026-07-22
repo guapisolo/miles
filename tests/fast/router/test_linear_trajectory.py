@@ -91,7 +91,7 @@ class TestSessionCRUD:
 
     def test_get_session(self, registry: SessionRegistry):
         session_id = registry.create_session()
-        session = registry.get_session(session_id)
+        session = registry.get_session(session_id).lineages[0]
         assert session.records == []
 
     def test_get_session_not_found(self, registry: SessionRegistry):
@@ -116,7 +116,7 @@ class TestSessionCRUD:
             response={"choices": []},
         )
 
-        session = registry.get_session(session_id)
+        session = registry.get_session(session_id).lineages[0]
         session.append_record(record)
 
         assert len(session.records) == 1
@@ -159,7 +159,7 @@ class TestSingleUserTurnPretokenized:
     def test_first_turn_renders_from_scratch(self, registry: SessionRegistry):
         """First turn has no prior token_ids, so prepare renders from scratch."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         messages = [SYS_MSG, USER_MSG]
         result = session.prepare_pretokenized(messages, tito_tokenizer=registry.tito_tokenizer)
         assert result == _MOCK_FIRST_TURN_TOKENS
@@ -167,7 +167,7 @@ class TestSingleUserTurnPretokenized:
     def test_two_turn_trajectory(self, registry: SessionRegistry):
         """Full 2-turn: user -> assistant(tool_call) -> tool -> final answer."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
 
         # --- Turn 1: [sys, user] -> assistant with tool_call ---
         turn1_messages = [SYS_MSG, USER_MSG]
@@ -202,7 +202,7 @@ class TestSingleUserTurnPretokenized:
     def test_three_turn_trajectory(self, registry: SessionRegistry):
         """Full 3-turn: user -> ass(tool) -> tool -> ass(tool) -> tool -> final."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
 
         # Turn 1
         t1_msgs = [SYS_MSG, USER_MSG]
@@ -232,7 +232,7 @@ class TestSingleUserTurnPretokenized:
     def test_prefix_mismatch_raises(self, registry: SessionRegistry):
         """update_pretokenized_state asserts stored token_ids is prefix of new."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
 
         with pytest.raises(TokenizationError, match="pretokenized prefix mismatch"):
@@ -247,7 +247,7 @@ class TestSingleUserTurnPretokenized:
     def test_not_append_only_raises(self, registry: SessionRegistry):
         """prepare raises when new messages modify stored prefix."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10], max_trim_tokens=0)
 
         bad_messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, {"role": "assistant", "content": "oops"}]
@@ -261,7 +261,7 @@ class TestSingleUserTurnPretokenized:
     def test_no_system_message(self, registry: SessionRegistry):
         """Works without system message (system is optional)."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         msgs = [USER_MSG]
         session.update_pretokenized_state(msgs, ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
 
@@ -272,7 +272,7 @@ class TestSingleUserTurnPretokenized:
     def test_multiple_system_messages_at_start(self, registry: SessionRegistry):
         """Multiple system messages before the user message are allowed (part of stored prefix)."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         extra_sys = {"role": "system", "content": "Extra instructions."}
         msgs = [SYS_MSG, extra_sys, USER_MSG]
         result = session.prepare_pretokenized(msgs, tito_tokenizer=registry.tito_tokenizer)
@@ -300,7 +300,7 @@ class TestAppendRoleToolOnly:
 
     def test_tool_append_allowed(self, registry: SessionRegistry):
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10], max_trim_tokens=0)
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
@@ -309,7 +309,7 @@ class TestAppendRoleToolOnly:
 
     def test_system_append_rejected(self, registry: SessionRegistry):
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, RETRY_SYS_MSG]
@@ -318,7 +318,7 @@ class TestAppendRoleToolOnly:
 
     def test_user_append_rejected(self, registry: SessionRegistry):
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10], max_trim_tokens=0)
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "extra"}]
@@ -331,7 +331,7 @@ class TestAppendRoleToolSystem:
 
     def test_tool_append_allowed(self, registry_with_system: SessionRegistry):
         sid = registry_with_system.create_session()
-        session = registry_with_system.get_session(sid)
+        session = registry_with_system.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10], max_trim_tokens=0)
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
@@ -340,7 +340,7 @@ class TestAppendRoleToolSystem:
 
     def test_system_append_allowed(self, registry_with_system: SessionRegistry):
         sid = registry_with_system.create_session()
-        session = registry_with_system.get_session(sid)
+        session = registry_with_system.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, RETRY_SYS_MSG]
@@ -350,7 +350,7 @@ class TestAppendRoleToolSystem:
     def test_system_then_assistant_trajectory(self, registry_with_system: SessionRegistry):
         """Full trajectory with a retry system message between tool-call turns."""
         sid = registry_with_system.create_session()
-        session = registry_with_system.get_session(sid)
+        session = registry_with_system.get_session(sid).lineages[0]
 
         t1_msgs = [SYS_MSG, USER_MSG]
         session.update_pretokenized_state(t1_msgs, ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
@@ -370,7 +370,7 @@ class TestAppendRoleToolSystem:
 
     def test_user_append_rejected(self, registry_with_system: SessionRegistry):
         sid = registry_with_system.create_session()
-        session = registry_with_system.get_session(sid)
+        session = registry_with_system.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10], max_trim_tokens=0)
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "extra"}]
@@ -383,7 +383,7 @@ class TestAppendRoleToolUser:
 
     def test_tool_append_allowed(self, registry_with_user: SessionRegistry):
         sid = registry_with_user.create_session()
-        session = registry_with_user.get_session(sid)
+        session = registry_with_user.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10], max_trim_tokens=0)
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1]
@@ -392,7 +392,7 @@ class TestAppendRoleToolUser:
 
     def test_user_append_allowed(self, registry_with_user: SessionRegistry):
         sid = registry_with_user.create_session()
-        session = registry_with_user.get_session(sid)
+        session = registry_with_user.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10], max_trim_tokens=0)
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, {"role": "user", "content": "follow-up"}]
@@ -402,7 +402,7 @@ class TestAppendRoleToolUser:
     def test_user_then_assistant_trajectory(self, registry_with_user: SessionRegistry):
         """Full trajectory: tool → user follow-up → assistant → tool → final."""
         sid = registry_with_user.create_session()
-        session = registry_with_user.get_session(sid)
+        session = registry_with_user.get_session(sid).lineages[0]
 
         # Turn 1: [sys, user] -> assistant(tool_call)
         t1_msgs = [SYS_MSG, USER_MSG]
@@ -426,7 +426,7 @@ class TestAppendRoleToolUser:
 
     def test_system_append_rejected(self, registry_with_user: SessionRegistry):
         sid = registry_with_user.create_session()
-        session = registry_with_user.get_session(sid)
+        session = registry_with_user.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
 
         messages = [SYS_MSG, USER_MSG, ASSISTANT_MSG_1, TOOL_MSG_1, RETRY_SYS_MSG]
@@ -440,7 +440,7 @@ class TestRollback:
     def test_rollback_to_first_assistant(self, registry: SessionRegistry):
         """After 2 completions, rolling back to the first assistant checkpoint works."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
 
         # Turn 1: [sys, user] -> assistant1
         t1_msgs = [SYS_MSG, USER_MSG]
@@ -471,7 +471,7 @@ class TestRollback:
     def test_multi_step_rollback_raises(self, registry: SessionRegistry):
         """Rollback that discards >1 assistant raises MessageValidationError and leaves state unchanged."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
 
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
 
@@ -511,7 +511,7 @@ class TestRollback:
     def test_rollback_then_continue_full_trajectory(self, registry: SessionRegistry):
         """Rollback and then complete a full new trajectory from the checkpoint."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
 
         # Turn 1
         t1_msgs = [SYS_MSG, USER_MSG]
@@ -541,7 +541,7 @@ class TestRollback:
     def test_rollback_fewer_messages_than_stored(self, registry_with_system: SessionRegistry):
         """Rollback triggered when request has strictly fewer messages than stored."""
         sid = registry_with_system.create_session()
-        session = registry_with_system.get_session(sid)
+        session = registry_with_system.get_session(sid).lineages[0]
 
         # Turn 1: [sys, user] -> asst1
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
@@ -563,7 +563,7 @@ class TestRollback:
     def test_rollback_to_second_assistant(self, registry: SessionRegistry):
         """Rollback to the second checkpoint (skipping the third)."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
 
         # 3 completions
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
@@ -592,7 +592,7 @@ class TestRollback:
     def test_no_rollback_when_append_only(self, registry: SessionRegistry):
         """Normal append-only flow does not trigger rollback."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
 
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
 
@@ -609,7 +609,7 @@ class TestRollback:
     def test_rollback_no_assistant_in_prefix_raises(self, registry: SessionRegistry):
         """Rollback raises if no assistant message exists in the matched prefix."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
 
         # Diverge at user message (index 1) - only sys matched, no assistant
@@ -620,7 +620,7 @@ class TestRollback:
     def test_rollback_records_truncated(self, registry: SessionRegistry):
         """Records are truncated in sync with trajectory_token_ids on rollback."""
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
 
         # Turn 1
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
@@ -667,12 +667,12 @@ class TestComputeSessionMismatch:
 
     def test_returns_none_for_empty_token_ids(self, registry: SessionRegistry):
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         assert registry.compute_session_mismatch(session) is None
 
     def test_returns_empty_list_when_no_mismatch(self, registry: SessionRegistry):
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
 
         # Simulate: template returns same IDs as stored
@@ -695,7 +695,7 @@ class TestComputeSessionMismatch:
 
     def test_returns_mismatch_dicts(self, registry: SessionRegistry):
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
 
         registry.tito_tokenizer.apply_chat_template = MagicMock(return_value=[1, 2, 99, 10, 11])
@@ -716,7 +716,7 @@ class TestComputeSessionMismatch:
 
     def test_raises_tokenization_error_on_exception(self, registry: SessionRegistry):
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2, 3], [10, 11], max_trim_tokens=0)
 
         registry.tito_tokenizer.apply_chat_template = MagicMock(side_effect=RuntimeError("tokenizer failed"))
@@ -726,7 +726,7 @@ class TestComputeSessionMismatch:
 
     def test_uses_tools_from_last_record(self, registry: SessionRegistry):
         sid = registry.create_session()
-        session = registry.get_session(sid)
+        session = registry.get_session(sid).lineages[0]
         session.update_pretokenized_state([SYS_MSG, USER_MSG], ASSISTANT_MSG_1, [1, 2], [10], max_trim_tokens=0)
 
         tools = [{"type": "function", "function": {"name": "get_weather"}}]
