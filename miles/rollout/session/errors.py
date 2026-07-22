@@ -5,6 +5,7 @@ Hierarchy
 SessionError (base)
 ├── SessionNotFoundError       → 404  session does not exist
 ├── MessageValidationError     → 400  messages structure/content invalid
+├── TruncatedLineageError      → 409  extending a length-truncated lineage (fork mode)
 ├── TokenizationError          → 500  TITO tokenizer / prefix mismatch
 └── UpstreamResponseError      → 502  SGLang response invalid or unexpected
 """
@@ -30,6 +31,17 @@ class MessageValidationError(SessionError):
     """
 
     status_code: int = 400
+
+
+class TruncatedLineageError(SessionError):
+    """Raised when a request extends a lineage closed by length truncation.
+
+    Only reachable in fork mode: truncation ends a lineage, so its tail can
+    never be extended (409 Conflict — the request conflicts with the
+    lineage's terminal state; 400 stays reserved for structural errors).
+    """
+
+    status_code: int = 409
 
 
 class TokenizationError(SessionError):

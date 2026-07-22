@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from starlette.responses import Response
 
 from miles.rollout.generate_utils.sample_utils import merge_samples
-from miles.rollout.session.dispatch import dispatch_retry
+from miles.rollout.session.dispatch import dispatch_disabled, dispatch_retry
 from miles.rollout.session.errors import (
     MessageValidationError,
     SessionNotFoundError,
@@ -149,8 +149,13 @@ class SessionCore:
         self.args = args
         self.instance_id = session_server_instance_id
         # The single mode selection point (MULTI_LINEAGE_DESIGN.md): resolved
-        # once at construction, no runtime mode checks anywhere else.
-        self.dispatch = dispatch_retry
+        # once at construction, no runtime mode checks anywhere else. The
+        # 'fork' policy exists (dispatch.dispatch_fork) but stays out of this
+        # map until its per-lineage sample assembly lands: serving forked
+        # lineages whose records the data plane would drop is not a coherent
+        # state.
+        mode = getattr(args, "session_rollback_mode", "retry")
+        self.dispatch = {"disabled": dispatch_disabled, "retry": dispatch_retry}[mode]
 
     async def health(self) -> Response:
         body = {"status": "ok"}
@@ -334,6 +339,10 @@ class SessionCore:
                 "assistant message content is None, when tool call parser failed SGLang should still return "
                 "an empty content rather than None. Please check your modified SGLang version."
             )
+        if "finish_reason" not in choice:
+            # Recorded responses must carry finish_reason: sample assembly and
+            # the fork-mode truncation gate both read it from the record.
+            raise UpstreamResponseError("finish_reason missing from choice in upstream response")
 
         output_token_logprobs = meta_info["output_token_logprobs"]
         completion_tokens = meta_info["completion_tokens"]

@@ -1,6 +1,7 @@
 """Integration tests for session HTTP routes (create / get / delete / proxy)."""
 
 import asyncio
+import contextlib
 import json
 import re
 import uuid
@@ -33,9 +34,9 @@ def _parse_sse(body: str) -> list[str]:
     return [block[len("data: ") :] for block in body.split("\n\n") if block.startswith("data: ")]
 
 
-@pytest.fixture(scope="class")
-def router_env():
-    """Create a standalone SessionServer with session routes and a mock backend."""
+@contextlib.contextmanager
+def _serve_router(extra_args: dict | None = None):
+    """Serve a standalone SessionServer with session routes and a mock backend."""
 
     def process_fn(prompt: str) -> ProcessResult:
         return ProcessResult(text=f"echo: {prompt}", finish_reason="stop")
@@ -70,6 +71,7 @@ def router_env():
                 tito_allowed_append_roles=["tool"],
                 trajectory_manager="linear_trajectory",
                 session_server_instance_id=uuid.uuid4().hex,
+                **(extra_args or {}),
             )
             server_obj = SessionServer(args, backend_url=backend.url)
 
@@ -83,6 +85,12 @@ def router_env():
                 yield SimpleNamespace(url=url, backend=backend)
             finally:
                 server.stop()
+
+
+@pytest.fixture(scope="class")
+def router_env():
+    with _serve_router() as env:
+        yield env
 
 
 class TestSessionRoutes:
@@ -687,3 +695,28 @@ class TestRollbackPins:
 
         assert retry.status_code == 200
         assert len(self._get(router_env.url, session_id)["records"]) == 2
+
+
+class TestDisabledMode:
+    """--session-rollback-mode=disabled: any non-extension is a loud 400."""
+
+    def test_extension_ok_but_rollback_rejected(self):
+        with _serve_router({"session_rollback_mode": "disabled"}) as env:
+            session_id = _create_session(env.url)
+            user = {"role": "user", "content": "What is 1+2?"}
+            first = _post_chat(env.url, session_id, {"messages": [user]})
+            assert first.status_code == 200
+            a1 = first.json()["choices"][0]["message"]
+
+            tool = {"role": "tool", "content": "ok", "tool_call_id": "t0"}
+            extend = _post_chat(env.url, session_id, {"messages": [user, a1, tool]})
+            assert extend.status_code == 200
+
+            # The pure-drop retry that retry mode would accept is rejected here.
+            retry = _post_chat(env.url, session_id, {"messages": [user, a1, tool]})
+            assert retry.status_code == 400
+            assert retry.json()["error"].startswith("session rollback is disabled")
+
+            # Rejection mutated nothing: the extension record is still intact.
+            records = requests.get(f"{env.url}/sessions/{session_id}", timeout=5.0).json()["records"]
+            assert len(records) == 2

@@ -2154,6 +2154,19 @@ def get_miles_extra_args_provider(add_custom_arguments=None):
                 help="Message roles allowed to be appended after the pretokenized "
                 "assistant prefix in TITO sessions (default: tool).",
             )
+            parser.add_argument(
+                "--session-rollback-mode",
+                type=str,
+                default="retry",
+                choices=["disabled", "retry"],
+                help="How the session server treats a chat request that does not "
+                "strictly extend the stored history. 'retry' (default): allow the "
+                "agent to discard at most one assistant turn and regenerate; "
+                "'disabled': reject any non-extension with 400 (strict white-box "
+                "mode). A 'fork' mode (one lineage per divergent conversation, for "
+                "subagent-style harnesses) lands together with its per-lineage "
+                "sample assembly.",
+            )
             return parser
 
         def add_user_provided_function_arguments(parser):

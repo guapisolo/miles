@@ -54,11 +54,28 @@ class LinearTrajectory:
     # foreign history) are prompt, not checkpoints: they have no entry in
     # trajectory_token_ids and are never rollback anchors.
     prompt_assistant_count: int = 0
+    # Placeholder claimed at dispatch time for a lineage that has not
+    # committed a turn yet; only fork-mode matching reads it (an uncommitted
+    # lineage accepts only requests extending its seed, which is what keeps
+    # concurrent sibling first-requests out of each other's lineage).
+    seed_messages: list[dict[str, Any]] | None = field(default=None, repr=False)
 
     @property
     def token_ids(self) -> list[int]:
         """Current token IDs — the latest assistant checkpoint."""
         return self.trajectory_token_ids[-1] if self.trajectory_token_ids else []
+
+    @property
+    def truncated(self) -> bool:
+        """The lineage ends in a length-truncated turn.
+
+        Derived, not stored: the last record already carries finish_reason,
+        and a rollback that truncates records makes the flag vanish with the
+        turn it described. Only fork-mode dispatch reads this (409 gate).
+        """
+        if not self.records:
+            return False
+        return self.records[-1].response["choices"][0]["finish_reason"] == "length"
 
     def append_record(self, record: SessionRecord) -> None:
         self.records.append(record)

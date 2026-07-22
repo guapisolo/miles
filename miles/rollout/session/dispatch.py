@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from miles.rollout.session.errors import MessageValidationError
+from miles.rollout.session.errors import MessageValidationError, TruncatedLineageError
 from miles.rollout.session.linear_trajectory import (
     MAX_ASSISTANT_ROLLBACK_STEPS,
     LinearTrajectory,
@@ -22,6 +22,13 @@ from miles.rollout.session.linear_trajectory import (
 from miles.utils.chat_template_utils import message_matches
 
 logger = logging.getLogger(__name__)
+
+# Fork-mode backstop: a runaway harness (replay drift, scrambled history)
+# would otherwise fork a fresh lineage on every request, silently and
+# forever. Normal sessions (main line + a handful of subagents) stay far
+# below this; hitting it is near-certain pathology and fails loud. Hardcoded
+# like MAX_ASSISTANT_ROLLBACK_STEPS; promote to a knob if real demand shows.
+MAX_LINEAGES = 64
 
 
 class Kind(Enum):
@@ -116,3 +123,96 @@ def dispatch_retry(state: SessionState, request_messages: list[dict[str, Any]]) 
             f"request has {len(request_messages)} messages)"
         )
     return DispatchDecision(lineage, rollback=c.rollback)
+
+
+def dispatch_disabled(state: SessionState, request_messages: list[dict[str, Any]]) -> DispatchDecision:
+    """Strict white-box mode: any request that is not a strict extension of
+    the stored history is a harness bug and fails loud."""
+    lineage = state.lineages[0]
+    c = classify_extension(lineage, request_messages)
+    if c.kind is not Kind.EXTEND:
+        raise MessageValidationError(
+            f"session rollback is disabled (--session-rollback-mode=disabled): "
+            f"request must strictly extend the stored history "
+            f"(matched {c.match_len} of {len(lineage.messages)} stored messages)"
+        )
+    return DispatchDecision(lineage)
+
+
+def _extends_seed(seed: list[dict[str, Any]], request_messages: list[dict[str, Any]]) -> bool:
+    if len(request_messages) < len(seed):
+        return False
+    return all(message_matches(seed[i], request_messages[i]) for i in range(len(seed)))
+
+
+def _pick_most_recent(state: SessionState, candidates: list[LinearTrajectory]) -> LinearTrajectory:
+    """Tie-break among extension candidates: latest committed turn wins
+    (``records[-1].timestamp``); never-committed lineages rank by creation
+    order. Twin lineages with identical stored text stay ambiguous — see the
+    design's twin risk note."""
+    return max(
+        candidates,
+        key=lambda lineage: (
+            lineage.records[-1].timestamp if lineage.records else float("-inf"),
+            state.lineages.index(lineage),
+        ),
+    )
+
+
+def dispatch_fork(state: SessionState, request_messages: list[dict[str, Any]]) -> DispatchDecision:
+    """Fork mode: only strict extensions route to an existing lineage; every
+    other shape (pure-drop, divergence, zero overlap) starts a new lineage.
+    No destructive rollback ever happens — abandoned turns stay on their
+    lineage and still produce training samples.
+
+    Placeholder (seed) rule: an uncommitted lineage matches only requests
+    extending its seed, and any uncommitted lineage this function returns has
+    a seed. Both halves are load-bearing for concurrency: without them, two
+    sibling first-requests in flight would both classify as "first turn" of
+    the same empty lineage and the loser's sampled tokens would be silently
+    dropped by the num_assistant guard in Phase 3.
+    """
+    extends: list[LinearTrajectory] = []
+    best_match_len = 0
+    for lineage in state.lineages:
+        if not lineage.trajectory_token_ids:
+            # Uncommitted: the seed (if any) governs matching; an unseeded
+            # lineage (the session's root) accepts anything, like a first turn.
+            if lineage.seed_messages is None or _extends_seed(lineage.seed_messages, request_messages):
+                extends.append(lineage)
+            continue
+        c = classify_extension(lineage, request_messages)
+        best_match_len = max(best_match_len, c.match_len)
+        if c.kind is Kind.EXTEND:
+            extends.append(lineage)
+
+    live = [lineage for lineage in extends if not lineage.truncated]
+    if live:
+        lineage = _pick_most_recent(state, live)
+        if not lineage.trajectory_token_ids and lineage.seed_messages is None:
+            lineage.seed_messages = list(request_messages)
+        return DispatchDecision(lineage)
+
+    if extends:
+        raise TruncatedLineageError(
+            "truncated lineage cannot be extended: the matching lineage ended with "
+            "finish_reason='length' and truncation closes a lineage for good"
+        )
+
+    if len(state.lineages) >= MAX_LINEAGES:
+        raise MessageValidationError(
+            f"lineage cap reached ({MAX_LINEAGES}): request does not extend any lineage "
+            f"and the session cannot fork further — this almost always means the harness "
+            f"is not replaying history verbatim"
+        )
+
+    lineage = LinearTrajectory(seed_messages=list(request_messages))
+    state.lineages.append(lineage)
+    logger.info(
+        "Forking new lineage: request(%d msgs) extends no lineage "
+        "(best overlap %d msgs), session now has %d lineages",
+        len(request_messages),
+        best_match_len,
+        len(state.lineages),
+    )
+    return DispatchDecision(lineage)
