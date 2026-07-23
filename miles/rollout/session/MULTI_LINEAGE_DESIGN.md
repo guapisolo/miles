@@ -23,7 +23,7 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 - **裁决 B:树原生数据模型,v1 全量存储(需求方输入 6)**。session = forest(零重叠请求开新根)。**节点 = 一次模型生成的结束(需求方输入 8)**:`delta_messages` = 本次生成的请求相对父节点新增的消息(env 消息、client 携带的 foreign assistant)+ 本次采样的 assistant;token 存**全量快照** `token_ids`(根→本节点的完整序列,含继承的采样 id 与 canonical env/foreign 段)——与今天 `trajectory_token_ids` 的 checkpoint 语义同构,每节点即一份可直接注入/装配的完整前缀。一次成功提交恰好创建一个节点,`SessionRecord` 与节点 1:1。内存 O(节点数 × 路径长),与今天 per-line checkpoint 列表同阶;增量(delta)存储列为后续优化非目标。
 - **裁决 C:token 继承 best-effort**。挂点 = 匹配路径的最深完整节点;新枝直接以挂点的全量快照起步(采样 id 原样,全量存储下继承 = 一次列表拷贝),仅对 suffix(从首个 mismatch 消息起)canonical retokenize 后追加。节点粒度继承与消息粒度继承 token 等价:采样 token 天然对齐 assistant(节点)边界,env 消息无论继承还是重渲染都是同一 canonical 结果,所以"只 retokenize 首个 mismatch 起"在节点粒度上无保真损失。`message_matches` 的文本相等保证继承合法(TITO 不变量按路径成立);v3"零继承更正确"的论据被反转:留在原采样流上恰是 TITO 的哲学,且 mismatch 的部分本来就不被继承。
 - **裁决 D:foreign assistant = delta 里的 prompt 段,恒许可(需求方输入 7+8)**。client 提供的 assistant——few-shot 首请求、compaction 塞进 break branch 的历史——**不构成节点**,作为所属节点 delta 中的 prompt 段处理:canonical retokenize、loss 恒 0。**不经 `--tito-allowed-append-roles` 门控**(该 arg 保留,仅继续管非 assistant 的环境角色):break branch 携带 assistant 是正当形态,compaction 是典型生产者;前提是我们永远不 cut think,所以带 assistant 过 apply chat template 无 reasoning 丢失问题(v3 零继承的模板顾虑就此消解)。`prompt_assistant_count` 机制被结构性吸收(节点边界只由模型生成定义,client 材料不可能被误当 checkpoint);mid-path 外来 assistant(v4 评审记录的存量边缘)同样被统一。
-- **裁决 E:装配分层**。server 侧:per-leaf 产原料 sample(路径 token 拼接 + 现有 compute/truncate 校验,保 TITO 校验在 server)+ **树结构 metadata**(节点表:parent、在各 leaf 中的 token span、foreign、truncated、提交时间戳;leaf 表:路径、创建序)。**merge 只有一种方向:沿根→leaf 路径自上而下折叠**(两条分歧路径的 token 不可拼接,折叠原语的前缀断言即其体现);server 沿路径把 per-node 原料机械装配成 per-leaf sample——logprobs/replay payload 的路径拼接是 TITO 簿记不是政策——但**不填 loss mask**。唯一真正跨 leaf 的东西是 mask 的 exactly-once **归属决策**(共享节点的 completion 算进哪条 leaf),它属于 merge hook。driver 侧:pick/merge 层拿 (leaf samples, session/tree metadata, rewards) 产最终训练 sample,默认管线复刻今天的训练语义,签名开放用户自定义。
+- **裁决 E:装配分层**。server 侧:per-leaf 产原料 sample(路径 token 拼接 + 现有 compute/truncate 校验,保 TITO 校验在 server)+ **树结构 metadata**(节点表:parent、在各 leaf 中的 token span、foreign、truncated、提交时间戳;leaf 表:路径、创建序)。**merge 只有一种方向:沿根→leaf 路径自上而下折叠**(两条分歧路径的 token 不可拼接,折叠原语的前缀断言即其体现);server 沿路径把 per-node 原料机械装配成 per-leaf sample——logprobs/replay payload 的路径拼接是 TITO 簿记不是政策——但**不填 loss mask**。唯一真正跨 leaf 的东西是 mask 的 exactly-once **归属决策**(共享节点的 completion 算进哪条 leaf),它属于 merge hook。**caller metadata 通道(需求方 2026-07-23)**:`collect_samples` 新增调用方 metadata 入参——custom agent function 结束时把只有 harness 才知道的语义信息(哪条分支是哪个 subagent、任务标签、compaction 位置)返回给 miles,miles 传进 `collect_samples`;server 将其与自己的结构层合并进 `session_metadata` 回流(两层各占独立命名空间,如 `{"tree": …, "agent": …}`,server 对语义层不透明透传、不解释)。driver 侧:pick/merge 层拿 (leaf samples, 双层 session_metadata, rewards) 产最终训练 sample——结构层给形状,语义层给含义,用户这才有足够材料做 reward 分配与 mask 归属;默认管线复刻今天的训练语义,签名开放用户自定义。
 - **裁决 F:retry = pick-samples hook 的默认实现(需求方 2026-07-23 细化)**。sample 挑选是**可定制函数**,retry-trim 只是它的默认实现。默认判据——leaf L 被 trim 当且仅当同时满足三条:(1) L 的路径**不是本 session 最长的 sample**(token 长度计,并列不 trim——并列即 twin/n>1 采样);(2) L 的节点**没有子节点**;(3) L 的父节点存在**比 L 更晚提交的其他儿子**(L 被取代;依赖节点 `committed_at` 时间戳,来源于 lock 内提交序,天然单调)。三条件的组合刚好把非 main-trajectory 的重试噪声全部排除而不误伤:链式重试 A2(t1)/A2'(t2)/A2''(t3 续走)中 A2、A2' 都命中(存在更晚兄弟)、存活枝不命中;深弃枝(A2→A3→A4 后在 A1 处换线)的 leaf A4 因其**自己的父节点** A3 没有更晚儿子而免疫——trim 只在"被直接取代的挂点"处发生,subagent/compaction 形态自然保留。trim 在 RM **之前**(省打分),reward 分配在 merge(RM 之后)。
 - **裁决 G:截断只封"穿过该节点的延伸"**。延伸已截断节点 → 409(`TruncatedSegmentError` 沿用);在截断节点**之前**分叉、或在其文本内分歧(挂到 parent)照常。节点总数上限 `MAX_NODES`(兜底跑飞,原 `MAX_SEGMENTS` 的树版)。
 
@@ -54,9 +54,31 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 | 13 | 生成失败(后端非 200) | 透传、不建节点、树不变;随后任意新请求照常(v4 评审 F2 的 pin 形状,树下天然成立,该 pin 保留) |
 | 14 | DELETE / closing | 语义不变:取 session lock,closing 复查覆盖全树 |
 
+## 数据流(v5 全景)
+
+```mermaid
+sequenceDiagram
+    participant AF as custom agent function(driver)
+    participant SS as session server(trajectory tree)
+    participant PK as pick-samples hook(driver,默认 retry-trim)
+    participant RM as RM(打分)
+    participant MG as merge hook(driver)
+    participant TR as 训练 batch
+    AF->>SS: chat completions × N(找挂点 / 生成 / append 节点)
+    SS-->>AF: 响应流(树在 server 侧长成,全量快照节点)
+    AF->>SS: collect_samples(agent metadata:语义层)
+    SS-->>PK: leaf samples(沿路径装配、唯独不填 loss mask)+ session_metadata(结构层 ∪ 语义层)
+    PK->>RM: 存活 leaf samples(被 trim 的 leaf 不进入后续任何环节)
+    RM->>MG: rewards(per 存活 leaf)
+    Note over MG: loss mask 构造 + exactly-once 归属(只看存活集)+ reward 分配
+    MG-->>TR: 最终 list[Sample]
+```
+
+要点:①树只在 server 侧生长,driver 全程只见 samples 与 metadata;②语义层(agent 知道的"是什么")与结构层(server 知道的"长什么样")在 `collect_samples` 汇合;③政策全部在 driver 侧的两个 hook 里,server 端到 mask 为止零政策;④管线顺序 pick → RM → merge 是硬约定(存活集归属 + 噪声成本止步 serving)。
+
 ## 数据面与 filter/merge 层
 
-**collect_samples(server)**:每个 leaf 产一个原料 Sample——全量存储下 token 即 leaf 节点的快照本身(无需拼接),per-leaf 跑现有 compute → truncate(R3 payload 提取、`max_trim_tokens`、截断裁剪都按路径成立);`session_metadata` 携带树结构:`nodes[{id, parent, truncated, committed_at, completion_span, foreign_spans}]`(completion_span = 本节点采样 completion 在快照中的区间,foreign_spans = delta 内 client 材料的区间——merge 期构造 loss mask 的全部材料)+ `leaves[{path_node_ids, created_order}]`,leaf 序与 samples 序对齐。**沿路径装配到位、唯独不填 loss mask**(每个原料 sample 附 per-node completion span,mask 材料齐全;不存在任何跨 leaf 的 token 操作)。`get_session`:树 dump(节点 + records + 结构),白盒调试面。
+**collect_samples(server)**:每个 leaf 产一个原料 Sample——全量存储下 token 即 leaf 节点的快照本身(无需拼接),per-leaf 跑现有 compute → truncate(R3 payload 提取、`max_trim_tokens`、截断裁剪都按路径成立);`session_metadata` 双层:语义层 = 调用方(agent function)经 `collect_samples` 入参传入的不透明 blob;结构层携带树结构:`nodes[{id, parent, truncated, committed_at, completion_span, foreign_spans}]`(completion_span = 本节点采样 completion 在快照中的区间,foreign_spans = delta 内 client 材料的区间——merge 期构造 loss mask 的全部材料)+ `leaves[{path_node_ids, created_order}]`,leaf 序与 samples 序对齐。**沿路径装配到位、唯独不填 loss mask**(每个原料 sample 附 per-node completion span,mask 材料齐全;不存在任何跨 leaf 的 token 操作)。`get_session`:树 dump(节点 + records + 结构),白盒调试面。
 
 **driver 侧默认管线**(复刻今天的训练语义,每步都可替换):
 
