@@ -1,6 +1,6 @@
 # Session Server Trajectory Tree 设计:always-branch serving + merge 期策略(v5)
 
-状态:v5 方向性重构(2026-07-23,需求方裁定)。serving 侧收敛为唯一行为——在树上找挂点、永不破坏、永不因失配拒绝;retry 降级为装配期 filter 的特例;loss mask 构造后移至 merge 阶段并开放用户自定义;分叉 best-effort 继承已匹配前缀的 token。v4 的两轴参数化(步数上限 × 超限行为)整体被取代:三个旧档位与 hybrid 角的差异全部移出 serving 层。历史版本(v2 linear/auto 双轴、v3 三值 enum、v4 两轴 + 独立评审六项修订)全文保存在 `backup/session-design-docs` 分支,本文不再复述。
+状态:v5.1(2026-07-23,第二轮独立评审 verdict accept-with-changes——方向与删除收益确认成立;九项修订中 F1/F2/F4-F10 已按处方并入本文「v5.1 评审修订」节,F3 待需求方裁决)。v5 方向性重构(同日,需求方裁定)。serving 侧收敛为唯一行为——在树上找挂点、永不破坏、永不因失配拒绝;retry 降级为装配期 filter 的特例;loss mask 构造后移至 merge 阶段并开放用户自定义;分叉 best-effort 继承已匹配前缀的 token。v4 的两轴参数化(步数上限 × 超限行为)整体被取代:三个旧档位与 hybrid 角的差异全部移出 serving 层。历史版本(v2 linear/auto 双轴、v3 三值 enum、v4 两轴 + 独立评审六项修订)全文保存在 `backup/session-design-docs` 分支,本文不再复述。
 
 v5 需求方输入(逐条,本文的推导起点):
 
@@ -43,6 +43,7 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 | 2 | 恰等于某节点 N 的路径(degenerate,suffix 空) | 在 N 下生成新子节点(今天的退化延伸语义;N 已有子时即 retry 形状,新子为兄弟) |
 | 3 | 匹配到内部节点 N 后 suffix 分歧(经典分叉/重试) | 新枝挂 N,与既有子为兄弟 |
 | 4 | 分歧发生在某节点 delta 的 env 消息内 | 挂点 = 该节点的 parent,suffix 从分歧 env 消息起 |
+| 4b | 分歧(或纯前缀重发)落在**根节点 delta 内**(无任何完整匹配节点;含"重发 `[U1]` 对已存 `[U1,a1]`"——今天的 no-anchor 400 形状) | 开新根,200(v5.1/F4 补行;两根互为前缀成为常态,strict 开关是 fail-loud 替代) |
 | 5 | 分歧发生在某节点的 assistant 文本(client 改写/压缩了历史回复,compaction 形态) | 同 4 挂 parent;suffix 中的 assistant 一律成为 foreign 节点(prompt,loss 0),恒许可(裁决 D),200 |
 | 6 | 零重叠(subagent 自带 system prompt) | 新根(forest);首请求整个 prompt 段(env + few-shot assistant)落在根下首个节点的 delta 里,该节点以首次采样的 assistant 收尾 |
 | 7 | 延伸已截断节点(挂点 = 截断节点) | 409 `TruncatedSegmentError`(裁决 G) |
@@ -53,6 +54,19 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 | 12 | `MAX_NODES` 超限 | 400,文案可辨识(harness 跑飞兜底) |
 | 13 | 生成失败(后端非 200) | 透传、不建节点、树不变;随后任意新请求照常(v4 评审 F2 的 pin 形状,树下天然成立,该 pin 保留) |
 | 14 | DELETE / closing | 语义不变:取 session lock,closing 复查覆盖全树 |
+
+## v5.1 评审修订(2026-07-23,第二轮独立评审九项,F3 除外均已定)
+
+- **F1 samples wire 契约修订(N3 前置)**:现行 `COMPUTED_FIELDS` allowlist(`samples/codec.py`)不含 `reward` 与 `metadata`,server 内 hook 的产出会在 decode overlay 时被静默丢弃。修订:`reward` 与 per-sample `metadata` 加入 allowlist;**server 输出权威**——`agentic_tool_call.py` 现行的 driver 侧 `agent_metadata` 逐 sample 合并与 `session_metadata` 落 `samples[-1]` 在 session 路径上退役(server 已持有语义层,双写必致覆盖或重复),该文件与其 golden test 入 N4 锚点。
+- **F2 分支↔leaf 对齐键(定案)**:结构层 node 表携带每个节点的 **OpenAI response id**(record 里现成,agent 在每轮响应里看到同一 id,零新增 wire 面);语义层约定:per-branch reward/标签**按 response id 键控**。hook 由 id join 语义层与结构层,twin/并发 sibling 均无歧义。
+- **F4 匹配完备性**:案例矩阵补 4b 行(根 delta 内分歧/纯前缀重发 → 开新根;今天最常见的 harness bug 从 400 变静默新根,strict 开关是 fail-loud 替代,写入 release note);**虚拟森林根**:兄弟根在 picker 判定中互为兄弟(否则根级重试永不被 trim);twin 下降歧义:找挂点是对 (深度, 提交序) 的全候选搜索,并列取最近提交——单游标描述不完备,以此为准。
+- **F5 TITO assistant 后缀分词 = 显式工程量**:今天 `_split_appended_segments`/`tokenize_additional_non_assistant` 在两层硬拒 assistant 段,segment 分词用合成 dummy 上下文,边界修正按 family 子类各管(Qwen3 `<|im_end|>`+newline 等)。修订:新增"真实路径上下文的后缀分词"原语承载 assistant 段;role assert 移出 tokenizer、归 strict 判定;per-family 固定模板 spike(mid-path assistant 渲染保留 reasoning 与边界 token)为 **N1 入口证据门**。
+- **F6 server 内 hook 执行契约**:(a) 仅接受 sync callable,async 在 load 时拒绝;(b) hook 异常一律捕获映射 422、body 携带 hook 身份(用户政策 bug 不得伪装成 server 死亡;今天仅 Assertion/ValueError→422,其余 500);(c) hook 在事件循环上同步执行,长 CPU 会停摆该实例全部 session——**知情接受**并写入 arg help;(d) pick 纯度用同一性校验强制(返回集必须是入参对象子集);(e) 生产仅支持 import-path 加载(`function_registry` 是进程本地的,spawn 出的 session server 进程看不到 driver 注册,仅限进程内测试);(f) 语义层缺失(agent function 抛错后 `collect_samples` 仍会被调)时默认 merge 的 reward 缺省语义:reward=None 原样透传,不造默认值。
+- **F7 截断机制归属**:`TruncatedSegmentError`/409 与节点 `truncated` 标记是**引入**而非沿用(本分支不存在),落 N2b。
+- **F8 序号与折叠语义**:节点排序键 = per-session 逻辑提交序号 `seq`(lock 内单调递增),`committed_at`(墙钟)仅装饰——picker/tie-break 一律用 `seq`;默认 merge 沿用折叠原语的 early-stop(non-COMPLETED / replay-gap 处停折),exactly-once 台账只记**实际折入**的 span(结构层 node 表与成品 token 跨度可能因 early-stop 不一致,以台账为准);reward 赋值在折叠**之后**(折叠原语对 reward 做相等断言,折前逐 turn 赋值必炸);`MAX_NODES` 权威检查在 Phase 3(Phase 1 检查仅 fast-fail,并发下允许轻微过冲)。
+- **F9 N2 拆分**:见里程碑 N2a/N2b。
+- **F10 简化收编**:foreign 段区间装配期 derive 不落存储;`get_session` 树 dump 首版 = records + node 表,不新造 response model(调试面 schema 后置)。
+- **F3(待需求方裁决)**:三条件 picker 与"默认管线复刻旧训练语义 / `session_verify` 零修改全绿"两个 claim 冲突——末轮重试的被弃 leaf 若 completion 更长,即为全 session 最长 → 条件(1)保它存活 → 出 2 个 sample 且 mask 归属(最早存活 leaf)落在被弃线上,主线整段共享前缀被 mask 成 0;等长免 trim 的 twin 保护因 completion 长度几乎必不相等而形同虚设。两案:(A) 三条件原样保留,显式撤回上述两个 claim(接受概率性双样本,配 F1 的 per-sample metadata);(B) 条件(1)改为**取代判定**——childless ∧ 存在更晚兄弟(按 `seq`)即 trim,长度不再参与;线性重试确定性复刻今天,代价是 twin 的 n=2 采样中较早者必被误杀(twin 与 pure-drop 重试在树上结构不可分,irreducible,文档记为已知代价)。裁决前 N4 验收标准暂缓生效。
 
 ## 数据流(v5 全景)
 
@@ -74,7 +88,7 @@ sequenceDiagram
 
 ## 数据面与 filter/merge 层
 
-**collect_samples(server)**:每个 leaf 产一个原料 Sample——全量存储下 token 即 leaf 节点的快照本身(无需拼接),per-leaf 跑现有 compute → truncate(R3 payload 提取、`max_trim_tokens`、截断裁剪都按路径成立);`session_metadata` 双层:语义层 = 调用方(agent function)经 `collect_samples` 入参传入的不透明 blob;结构层携带树结构:`nodes[{id, parent, truncated, committed_at, completion_span, foreign_spans}]`(completion_span = 本节点采样 completion 在快照中的区间,foreign_spans = delta 内 client 材料的区间——merge 期构造 loss mask 的全部材料)+ `leaves[{path_node_ids, created_order}]`,leaf 序与 samples 序对齐。**沿路径装配到位、唯独不填 loss mask**(每个原料 sample 附 per-node completion span,mask 材料齐全;不存在任何跨 leaf 的 token 操作)。`get_session`:树 dump(节点 + records + 结构),白盒调试面。
+**collect_samples(server)**:每个 leaf 产一个原料 Sample——全量存储下 token 即 leaf 节点的快照本身(无需拼接),per-leaf 跑现有 compute → truncate(R3 payload 提取、`max_trim_tokens`、截断裁剪都按路径成立);`session_metadata` 双层:语义层 = 调用方(agent function)经 `collect_samples` 入参传入的不透明 blob;结构层携带树结构:`nodes[{id, parent, truncated, seq, committed_at, completion_span, response_id}]`(completion_span = 本节点采样 completion 在快照中的区间;foreign 段区间不落存储、装配期由 `delta_messages` + 分词现derive——评审 F10b,少一份要维护一致性的状态;`seq` = per-session 逻辑提交序号,`response_id` 见 v5.1/F2)+ `leaves[{path_node_ids, created_order}]`,leaf 序与 samples 序对齐。**沿路径装配到位、唯独不填 loss mask**(每个原料 sample 附 per-node completion span,mask 材料齐全;不存在任何跨 leaf 的 token 操作)。`get_session`:树 dump(节点 + records + 结构),白盒调试面。
 
 **server 侧装配管线**(`collect_samples` 内顺次执行;两个 hook 由 session server 进程经 `load_function` 加载,默认实现复刻今天的训练语义)。前提:**reward 已就绪**——sandbox 执行与打分全部封装在 custom agent function 内(它掌握任务结局,跑完即有分),reward 随语义层经 `collect_samples` 入参进入 server;管线里没有独立的 RM stage。
 
@@ -92,10 +106,11 @@ sequenceDiagram
 ## 里程碑(v5,待冻结后评审)
 
 1. **N1 树数据模型 + 找挂点(纯增,不接线)**:`TrajectoryNode`/`SessionTree`、案例矩阵 1-12 的纯单测(含 twin 并列、foreign assistant delta、截断);不触碰 serving 路径。
-2. **N2 serving 切换(公开行为变更点)**:Phase 1 改找挂点 + 继承注入,Phase 3 改 append 节点;rollback 机制与 `LinearTrajectory` 退役;M2 rollback pins 退役、换树匹配矩阵的 HTTP pin(200+分枝取代 400 家族,逐条对照旧 pin 写明行为差异);`MAX_NODES`;409 沿用。
-3. **N3 数据面**:per-leaf 原料 sample + 树 metadata;`get_session` 树 dump;S1/S2/R3/截断的 per-leaf 语义测试。
-4. **N4 pick/merge 层(server 内)**:两个 hook 在 `collect_samples` 内接线(load_function 挂载、纯挑选契约、per-sample leaf 描述子、caller metadata 入参)+ 默认 retry-trim 实现(三条件判据测试:链式重试、深弃枝免疫、twin 并列不 trim、根级重试)+ 默认 merge(exactly-once 归属存活集 + 平铺键同构输出);`session_verify` 与 metrics 在默认管线下零修改全绿。
-5. **N5 e2e 与收尾**:`session_verify_runner` 树变体(需 GPU CI,uncovered delta 沿旧记录);`MAX_NODES`/日志/WARN 打磨。
+2. **N2a serving 切换·行为保持半程(评审 F9)**:树数据模型接线进 serving(Phase 1 找挂点 + 继承注入,Phase 3 append 节点),但挂上**单链守卫**复现今天全部可观测行为——M2′ rollback pins 逐字节零修改全绿;`LinearTrajectory` 退役。该守卫不是脚手架,它几乎逐字就是 `--session-strict-append-only` 的实现(冻结交付物提前落地)。含 F5 的 TITO 扩展:assistant-bearing 后缀的 canonical 分词(真实上下文后缀分词原语;role assert 移出 tokenizer、归 strict 判定),前置 per-family 模板 spike 为 N1 入口证据门(固定模板渲染 mid-path assistant 须保留 reasoning 与边界 token)。
+3. **N2b serving 切换·政策翻转(公开行为变更点,自包含小 diff)**:默认从单链守卫切到 always-branch;M2′ rollback pins 退役 ↔ 树匹配矩阵 HTTP pin 落地在**同一个 diff** 里逐条对照;引入节点 `truncated` 标记与 `TruncatedSegmentError → 409`(评审 F7:是"引入"非"沿用",本分支 errors.py 尚无此类;`TRUNCATION_HANDLING_DESIGN.md` 的替代方向在此正式化);`MAX_NODES = 1024`(权威检查在 Phase 3,评审 F8)。
+4. **N3 数据面**:per-leaf 原料 sample + 树 metadata;`get_session` 树 dump;S1/S2/R3/截断的 per-leaf 语义测试。
+5. **N4 pick/merge 层(server 内)**:两个 hook 在 `collect_samples` 内接线(load_function 挂载、纯挑选契约、per-sample leaf 描述子、caller metadata 入参)+ 默认 retry-trim 实现(三条件判据测试:链式重试、深弃枝免疫、twin 并列不 trim、根级重试)+ 默认 merge(exactly-once 归属存活集 + 平铺键同构输出);`session_verify` 与 metrics 在默认管线下零修改全绿。
+6. **N5 e2e 与收尾**:`session_verify_runner` 树变体(需 GPU CI,uncovered delta 沿旧记录);`MAX_NODES`/日志/WARN 打磨。
 
 ## Roadmap
 
