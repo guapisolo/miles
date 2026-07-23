@@ -25,7 +25,7 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 - **裁决 D:foreign assistant = delta 里的 prompt 段,恒许可(需求方输入 7+8)**。client 提供的 assistant——few-shot 首请求、compaction 塞进 break branch 的历史——**不构成节点**,作为所属节点 delta 中的 prompt 段处理:canonical retokenize、loss 恒 0。**不经 `--tito-allowed-append-roles` 门控**(该 arg 保留,仅继续管非 assistant 的环境角色):break branch 携带 assistant 是正当形态,compaction 是典型生产者;前提是我们永远不 cut think,所以带 assistant 过 apply chat template 无 reasoning 丢失问题(v3 零继承的模板顾虑就此消解)。`prompt_assistant_count` 机制被结构性吸收(节点边界只由模型生成定义,client 材料不可能被误当 checkpoint);mid-path 外来 assistant(v4 评审记录的存量边缘)同样被统一。
 - **裁决 E:装配分层**。server 侧:per-leaf 产原料 sample(路径 token 拼接 + 现有 compute/truncate 校验,保 TITO 校验在 server)+ **树结构 metadata**(节点表:parent、在各 leaf 中的 token span、foreign、truncated、提交时间戳;leaf 表:路径、创建序)。**merge 只有一种方向:沿根→leaf 路径自上而下折叠**(两条分歧路径的 token 不可拼接,折叠原语的前缀断言即其体现);server 沿路径把 per-node 原料机械装配成 per-leaf sample——logprobs/replay payload 的路径拼接是 TITO 簿记不是政策——但**不填 loss mask**。唯一真正跨 leaf 的东西是 mask 的 exactly-once **归属决策**(共享节点的 completion 算进哪条 leaf),它属于 merge hook。**caller metadata 通道(需求方 2026-07-23)**:`collect_samples` 新增调用方 metadata 入参——custom agent function 结束时把只有 harness 才知道的语义信息(哪条分支是哪个 subagent、任务标签、compaction 位置,以及 sandbox 跑完即有的 reward)返回给 miles,miles 传进 `collect_samples`;server 将其与自己的结构层合并进 `session_metadata`(两层独立命名空间,如 `{"tree": …, "agent": …}`,server 对语义层不透明透传、hook 可读)。pick/merge 两个 hook 在 **session server 进程内**消费 (leaf_samples, 双层 session_metadata) 产最终训练 sample——结构层给形状,语义层给含义与 reward;miles 侧只管调用 `collect_samples` 并原样收成品(CPU-heavy 装配不回流训练侧)。
 - **裁决 F:retry = pick-samples hook 的默认实现(需求方 2026-07-23 细化)**。sample 挑选是**可定制函数**,retry-trim 只是它的默认实现。默认判据——leaf L 被 trim 当且仅当同时满足三条:(1) L 的路径**不是本 session 最长的 sample**(token 长度计,并列不 trim——并列即 twin/n>1 采样);(2) L 的节点**没有子节点**;(3) L 的父节点存在**比 L 更晚提交的其他儿子**(L 被取代;依赖节点 `committed_at` 时间戳,来源于 lock 内提交序,天然单调)。三条件的组合刚好把非 main-trajectory 的重试噪声全部排除而不误伤:链式重试 A2(t1)/A2'(t2)/A2''(t3 续走)中 A2、A2' 都命中(存在更晚兄弟)、存活枝不命中;深弃枝(A2→A3→A4 后在 A1 处换线)的 leaf A4 因其**自己的父节点** A3 没有更晚儿子而免疫——trim 只在"被直接取代的挂点"处发生,subagent/compaction 形态自然保留。reward 由 agent function 在生成过程中算好、随语义层进入 metadata(picker 因此可 reward-aware);reward 的最终分配在 merge。
-- **裁决 G:截断只封"穿过该节点的延伸"**。延伸已截断节点 → 409(`TruncatedSegmentError` 沿用);在截断节点**之前**分叉、或在其文本内分歧(挂到 parent)照常。节点总数上限 `MAX_NODES`(兜底跑飞,原 `MAX_SEGMENTS` 的树版)。
+- **裁决 G:截断只封"穿过该节点的延伸"**。延伸已截断节点 → 409(`TruncatedSegmentError` 沿用);在截断节点**之前**分叉、或在其文本内分歧(挂到 parent)照常。节点总数上限 `MAX_NODES = 1024`(需求方 2026-07-23;兜底跑飞,原 `MAX_SEGMENTS` 的树版,硬编码、有真实需求再提 knob)。
 
 ## 约束变化(相对 v3/v4)
 
@@ -99,11 +99,11 @@ sequenceDiagram
 
 ## Roadmap
 
-**近期(本轮交付)**:
-1. 冻结 v5 实施包:仅剩 `MAX_NODES` 初值(提议 256)一处待钉(pick/merge 接线点已定:session server 进程内 `collect_samples` 原位)。
-2. 独立评审一轮(refactor-heavy 纪律,重点:N2 公开行为变更面、per-node span 元数据契约、两 hook 接口)。
-3. N1 树数据模型 + 找挂点(纯增)→ N2 serving 切换(行为变更点,旧 rollback pins 退役换树矩阵 pin)→ N3 数据面(per-leaf 原料 + 树 metadata + 树 dump)→ N4 pick/merge 层(两个 load_function hook + 默认实现)→ N5 收尾(日志/WARN/`MAX_NODES` 打磨)。
-4. 基线:`feat/session-rollback-mode` 现有 M1+M2′+M3′ 三个 commit 作垫脚石保留;历史继续按"烙进原始 commit"的纪律重写。
+**近期(2026-07-23 全部裁决闭合,冻结完成)**:
+1. 已钉死的全部决策:always-branch 树 + 全量快照节点(生成结束即节点)+ foreign assistant 恒许可;`--session-strict-append-only`(默认关,单链不变量守卫);picker 三条件默认 retry-trim;pick → merge 于 **session server 进程内** `collect_samples` 原位执行,`load_function` 挂载;caller metadata 通道(语义层含 reward,sandbox 在 agent function 内跑完即有分);`MAX_NODES = 1024`。
+2. 独立评审一轮(refactor-heavy 纪律,重点:N2 公开行为变更面、树匹配矩阵完备性、两 hook 接口契约、per-node span 元数据、`collect_samples` 入参兼容)。
+3. 实施基座(策略由实施方定,需求方已授权):**保留** M1+M2′(SessionState + 旧行为 pins + failed-first-turn pin)与 M3′(判定纯函数化 + few-shot 修复)作垫脚石 commit——M2 旧 pins 留在历史里使 N2 的 diff 逐条展示"旧 pin 删除 ↔ 树矩阵 pin 新增",公开行为变更 review 一目了然;**丢弃** v4 的 M4′ WIP stash;N1-N5 以新 commit 叠加,语义上属早期 commit 的修正按既有纪律烙回原 commit;`v3-impl-backup` 保留供 N2 对照。
+4. N1 → N5 依序落地,每级全绿后进下一级。
 
 **中期(依赖外部条件)**:
 - GPU e2e:`session_verify_runner` 树变体(4×H200 CI,本地不可跑)——树匹配、pick/merge 默认管线的端到端验证;默认配置必须绿。
@@ -124,5 +124,5 @@ sequenceDiagram
 - **exactly-once 与 reward 归属的张力**:默认"最早 leaf 训练共享前缀",但共享前缀的 reward 来自该 leaf 的 outcome——分叉后其他枝的高 reward 不回流。这正是开放给自定义 merge 的空间,默认不做聪明事。
 - **twin 歧义**(并列匹配取最近提交)沿 v3 记录;树下 twin 是合法兄弟,歧义只影响挂点选择的确定性。
 - **radix cache**:继承提高 KV 前缀命中(v3 零继承的已接受代价被收回)。
-- **树 dump 体积**与 `MAX_NODES` 取值(初值 256?)——**开放问题 4**。
+- **树 dump 体积**:`MAX_NODES = 1024` 已定(开放问题 4 闭合);`get_session` 全树 dump 在大树下的响应体积留意实测,必要时后续加分页/裁剪参数。
 - **侵入性**:`linear_trajectory.py` 重写为树是本设计最大 diff;对冲是删除量(rollback 全家、seed、门卫、prompt_assistant_count)与并发模型的实质简化。N2 是不可回避的大里程碑,需要独立评审一轮后再实施。
