@@ -62,7 +62,7 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 
 1. **retry-trim filter(裁决 F,RM 前)**:按树 metadata trim 高度 1 的弃枝 leaf。
 2. **RM**:对存活 leaf sample 打分(现有 `batched_async_rm` 路径)。
-3. **merge(RM 后,用户可自定义)**:签名 `merge_fn(leaf_samples, session_metadata, rewards) -> list[Sample]`。默认实现:每个采样节点的 loss 归属创建序最早的含它的 leaf(exactly-once),foreign/env 段 loss 0,reward 原样随 leaf;自定义空间:按 reward 重新分配节点归属、跨枝广播 advantage、合并兄弟等。
+3. **merge(RM 后,用户可自定义)**:签名 `merge_fn(leaf_samples, session_metadata, rewards) -> list[Sample]`,以 `custom_agent_function_path` + `load_function` 的既有模式挂载(如 `--session-merge-function-path`)。默认实现直接复用现有折叠原语 `merge_samples`/`_merge_sample_pair`(`generate_utils/sample_utils.py`,今天 loss mask 的唯一构造点):沿每条存活 leaf 的路径折叠 per-node sample,节点 loss 归属创建序最早的含它的 leaf(exactly-once),foreign/env 段 loss 0,reward 原样随 leaf;自定义空间:按 reward 重新分配节点归属、跨枝广播 advantage、合并兄弟等。server 侧的改动薄到只有一件事:`core.py` collect_samples 里 `samples = [merge_samples(...)]` 这一行(最终折叠)挪出 server——compute/truncate 原样留在 server(其 TODO 早已点名 splitting 缺口)。
 4. 平铺键兼容(v4 评审 F1 的裁决延续):merge 输出的每个 sample 带平铺 metadata(`tito_session_mismatch`、`accumulated_token_ids` per leaf),`ray/rollout/metrics.py` 与 `session_verify_agent` 零修改。
 
 ## 状态模型与实现落点
@@ -83,7 +83,7 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 
 - **公开行为变更**(撤保真):依赖 rollback 400 做 harness 排错的部署失去 fail-loud;树日志(分枝 INFO、深分叉 WARN)是替代观测面。是否保留一个白盒 strict 开关(任何非 leaf 延伸 400,一行判定)——**开放问题 1,倾向保留、默认关**。
 - **sample 数与 RM 成本**:每 leaf 一原料 sample,重试风暴下 leaf 膨胀;trim 在 RM 前止血,`MAX_NODES` 兜底。**开放问题 2:trim 判据确认**——弃枝"高度==1"以采样节点计;链式重试(同挂点 k 个 depth-1 兄弟)全 trim 只留存活枝;存活枝 = 含最近提交后代的那支。
-- **自定义 merge 的挂载点**——**开放问题 3**:倾向 driver 侧 rollout 管线里 RM 之后的显式 merge 阶段(与 filter_hub 并列的 hub 形态),而非 agent function 参数。
+- **自定义 merge 的挂载点**——**开放问题 3(已收窄)**:机制定案为 `load_function` 路径 arg(仓库唯一现存自定义函数模式,`custom_agent_function_path` 先例);位置在 driver 管线 RM 之后(reward 在场);剩余待定仅剩接线点——`generate_and_rm` 内联 vs 独立 merge 阶段,冻结时定。
 - **exactly-once 与 reward 归属的张力**:默认"最早 leaf 训练共享前缀",但共享前缀的 reward 来自该 leaf 的 outcome——分叉后其他枝的高 reward 不回流。这正是开放给自定义 merge 的空间,默认不做聪明事。
 - **twin 歧义**(并列匹配取最近提交)沿 v3 记录;树下 twin 是合法兄弟,歧义只影响挂点选择的确定性。
 - **radix cache**:继承提高 KV 前缀命中(v3 零继承的已接受代价被收回)。
