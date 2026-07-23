@@ -1,8 +1,10 @@
-# Session Server Rollback 模式设计:disabled / retry / fork 单轴,fork 即多 segment
+# Session Server Rollback 设计:回滚步数上限 × 超限行为 两轴,split 即多 segment
 
-状态:设计草案待评审(2026-07-22,v3:模式轴重构——`--session-rollback-mode {disabled, retry, fork}` 单旋钮取代 v2 的 `linear/auto` 双值轴;v3.1:首轮独立评审后修订——红基线 M0 前置、HTTP 级 rollback pin tests 先钉后拆、fork 占位(seed)语义、`truncated` 派生化;v3.2:上游 #1759 简化 codec 收编红基线问题,M0 作废,基线重建于各 PR 最新 heads 并实测全绿)。评审者需要决定的问题:(1) 单旋钮取代双轴的轴设计;(2) 四个已选定裁决——retry 模式下 divergent 续接沿用今天的 ≤1 rollback(保真锚定)、fork 零继承直接 retokenize、截断 409 仅 fork 模式、数据面形状按模式分支。
+状态:v4 修订(2026-07-23,两轴参数化取代三值 enum;M1-M5 已按 v3 实现于 `feat/session-rollback-mode`,v4 是参数面重构增量,见里程碑 M6)。历史:v3(2026-07-22)`--session-rollback-mode {disabled, retry, fork}` 单旋钮取代 v2 的 `linear/auto` 双值轴;v3.1 首轮独立评审后修订(红基线 M0 前置、HTTP 级 rollback pin tests 先钉后拆、fork 占位(seed)语义、`truncated` 派生化);v3.2 上游 #1759 简化 codec 收编红基线问题,M0 作废,基线重建实测全绿。
 
-需求方已裁定、不再是评审问题:三值语义按"输入与历史的形状"划分(严格延伸之外,pure-drop 与 divergent 的处置矩阵见语义总表);fork 模式无破坏性 rollback(非延伸形态一律开新 segment);message 匹配过程 per session 并发度必须为 1(由 session lock 保证,见 I3)。
+v4 需求方裁定:三值 enum 只是一个二维参数空间里三个角的投影,应直接暴露两个正交参数——`--max-assistant-rollback-steps N`(硬编码常量提升为 arg)与超限行为 `{split, error}`;默认 `(1, split)`,即"≤1 步破坏性重试、超限开新线"的混合语义(v2 auto 的回归)。v3 三档语义完整保留为参数空间的三个角(见轴设计 v4),但**默认行为不再逐字节等于今天的 retry**(超限从 400 变为开新线),约束 1 相应改写。评审者需要决定的问题:(1) 两轴参数化与默认值 `(1, split)`;(2) 超限行为 flag 的最终名字;(3) 沿用 v3 的裁决——split 零继承 retokenize、截断封线(v4 修订见语义总表下注)、数据面形状按超限行为分支。
+
+需求方已裁定、不再是评审问题:语义按"输入与历史的形状"划分(处置矩阵见语义总表);split 开新线永不破坏既有 segment,破坏性 rollback 的深度由步数轴独立控制;message 匹配过程 per session 并发度必须为 1(由 session lock 保证,见 I3)。
 
 前置依赖:本设计基于 PR #1758/#1759/#1760(sample 装配下沉到 session server)与 PR #1762(fake streaming)之后的代码形态。`TRUNCATION_HANDLING_DESIGN.md` 已废弃,其替代方向(截断即终点)在本文 fork 模式下正式化;`FAKE_STREAMING_DESIGN.md` 非目标清单中的"trajectory 层多 segment 方向备忘"即本文。
 
@@ -19,13 +21,13 @@ session server 的使用者对"请求与存储历史不匹配"的期望分三档
 
 三档的产品权重并不均等(需求方裁定,v3):**严格线性的 harness 在现实中几乎不存在**——一个只会严格 append 历史的 harness 等价于纯 tool call 执行层,没有 memory 操作、历史编辑、subagent 派生;真实 harness(Claude Code 类)天然带这些行为。因此"是否允许多 segment"不是值得独立抽象的产品维度(v2 的 `linear/auto` 轴据此废除,见方案选择),`fork` 是面向目标场景的主线档;`disabled`/`retry` 的存在价值是现状保真、白盒调试与退化执行层场景,而非目标产品形态。
 
-成功图景:一个旋钮三档。默认 `retry` 下所有现有部署零感知;`disabled` 给白盒用户更强的 fail-loud;`fork` 下每条不能延伸既有 segment 的请求开一条新 segment,各自 TITO 追踪、各自装配为一个训练 Sample,`collect_samples` 返回 n 个 Sample,驱动侧现有 multi-sample 路径原样消化,任何 token 不被重复训练。
+成功图景(v4):两个正交参数覆盖全部四角。默认 `(1, split)` 下朴素重试仍是破坏性重生成(废弃 turn 视为噪声不训练),而 subagent/深分叉开新 segment 各自 TITO 追踪、各自装配为一个训练 Sample,`collect_samples` 返回 n 个 Sample,驱动侧现有 multi-sample 路径原样消化,任何 token 不被重复训练;`(1, error)` 角逐字节复刻今天的行为供保真回退;`(0, error)` 给白盒用户最强 fail-loud;`(0, split)` 给零破坏偏好(每个生成过的 turn 都是数据)。
 
 ## 约束
 
 硬约束(违反即方案不成立):
 
-1. **retry 模式行为保真(desired requirement,需求方指令)**:retry 即现状——错误码与文案、wire 形状、恒单 Sample 装配与 422 语义、≤1 rollback 的触发条件全部不变。证明方式:存量测试在默认模式下**零修改**全绿。
+1. **`(1, error)` 角行为保真(desired requirement,v4 改写)**:今天行为的逐字节锚点是 `(steps=1, overflow=error)` 角——错误码与文案(含 `max_assistant_rollback_steps=1` 插值)、wire 形状、恒单 Sample 装配与 422 语义、≤1 rollback 触发条件全部不变;证明方式:M2 的 HTTP 级 pin tests 在该角**零修改**全绿。v3 之前此约束绑定在"默认档"上;v4 需求方知情裁定默认改为 `(1, split)`,默认部署的行为变化(超限 400 → 开新线)是**显式产品决策**,不是保真渗漏,风险节记录其后果。
 2. **单 session URL(fact)**:每个 rollout sample 绑定一个固定 session id 的 URL,harness 无法新建 session;分叉必须在 session 内部表达。
 3. **OpenAI 方言、任意 client(fact)**:无法要求 harness 携带 segment id、mode 标记等自定义字段;segment 归属只能从 `messages` 内容推断,mode 只能由 miles 侧配置。
 4. **TITO 不变量(fact)**:每条 segment 的训练 token 必须是原始采样 id;`input_ids` 预分词注入、checkpoint 前缀校验、accumulated 对齐断言按 segment 独立成立。
@@ -59,6 +61,23 @@ v2 曾设计两个维度:`--session-trajectory-mode linear/auto`(segment 多寡)
 - **fork**:多 segment;任何非严格延伸 → 开新 segment 继续 rollout,**无破坏性 rollback**(旧 segment 完整保留并正常出 Sample)。
 
 v2 的 auto(subagent fork + 保留 ≤1 破坏性 rollback 的混合体)不再是独立档位;若 fork 模式实测暴露问题(见风险),可作为第 4 档回归,不影响本轴设计。
+
+### 轴设计 v4:两参数取代三值 enum(需求方裁定,2026-07-23)
+
+v3 实现落地后需求方复盘:三档的全部语义差异可以被两个正交参数无残留地表示,enum 应当消失——
+
+- `--max-assistant-rollback-steps N`(默认 1,≥0):允许的破坏性 rollback 深度上限,以 assistant 计,即原硬编码 `MAX_ASSISTANT_ROLLBACK_STEPS` 提升为 arg。**`N=0` 定义为"完全禁止破坏性回滚"**——任何非严格延伸都走超限行为,包括 `discard_count=0` 的纯尾部环境消息裁剪(该形状实践不可达,见"1 步失配"节,但语义必须钉死,否则 `(0,*)` 两角与 v3 的 disabled/fork 不严格重合)。
+- `--session-rollback-overflow {split, error}`(默认 `split`;本文用短名行文,需求方原始拼写 `--session-behavior-exceed-rollback-limit`,最终名评审定):需要的 rollback 超出上限、或 matched prefix 内无锚点时的处置——`split` 开新 segment 继续(既有线原样保留并出 Sample),`error` 400。
+
+四角与 v3 三档的映射:
+
+| | overflow=error | overflow=split |
+| --- | --- | --- |
+| steps=0 | = v3 disabled(任何非延伸 400) | = v3 fork(永不破坏,任何非延伸开新线) |
+| steps=1 | = v3 retry(今天行为,byte-exact 保真角) | **默认**;= v2 auto 混合体(≤1 破坏性重试,超限开新线) |
+| steps=N>1 | 深回退 retry(自然泛化,零额外机制) | 深回退混合(自然泛化) |
+
+收益:v2 auto 无需以"第 4 档"回归——它就是默认角;深回退不需要新档位;dispatch 从三个策略函数收敛为一个按 `(steps, overflow)` 参数化的策略(见分支设计 v4)。代价与后果(需求方知情裁定,风险节展开):默认行为相对今天变化(超限 400 → 静默开新线并多出 Sample);1 步歧义(重试 vs 恰从最近 checkpoint 分叉的 subagent)进入默认档,由"严格延伸恒优先于回滚"缓解、`steps=0` 逃生。数据面形状的分支条件从 `mode == fork` 改为 `overflow == split`,分支点数不变。
 
 ### fork 档的机制
 
@@ -171,22 +190,24 @@ sequenceDiagram
 
 ## 设计
 
-### 模式接口与语义总表
+### 参数接口与语义总表(v4)
 
-`--session-rollback-mode {disabled, retry, fork}`,默认 `retry`。沿 [arguments.py](miles/utils/arguments.py) 现有 rollout args 通道进入,`SessionRegistry` 构造时读取一次选定分派函数;运行期不可变。
+`--max-assistant-rollback-steps`(默认 1)+ `--session-rollback-overflow`(默认 `split`),沿 [arguments.py](miles/utils/arguments.py) 现有 rollout args 通道进入,`SessionCore` 构造时读取一次组装分派策略;运行期不可变。
 
-按"输入与存储历史的形状"逐行给出三档处置(历史 `(A,B,C)`,`C` 为最近一个 assistant;"1 步失配"的精确定义见下节,**计量单位是 assistant,不是 message**):
+按"输入与存储历史的形状"给出四角处置(历史 `(A,B,C)`,`C` 为最近一个 assistant;"步"的精确定义见下节,**计量单位是 assistant,不是 message**;`(1, error)` 列 = 今天的行为,byte-exact 保真角):
 
-| 输入形状 | disabled | retry(= 现状) | fork |
-| --- | --- | --- | --- |
-| 严格延伸(`(A,B,C,+…)`) | 接受 | 接受 | 接受(多条命中取最近活跃) |
-| pure-drop,丢 ≤1 个 assistant(`(A,B)`,丢 `C` 重试) | 400 | 破坏性 rollback,重新生成(harness 主动抛弃旧的) | fork 新 segment(旧线保留出 Sample) |
-| divergent,丢 ≤1 个 assistant(`(A,B,D)`,回退后接新内容) | 400 | 破坏性 rollback + 续接(= 今天 docstring 的 `tool₁_different` 例,裁决 1) | fork 新 segment |
-| 丢 ≥2 个 assistant,或 matched prefix 内无 assistant 锚点(含 subagent 零重叠) | 400 | 400(= 现状) | fork 新 segment |
-| 严格延伸已截断的 segment | 接受(现状,merge 停在截断 turn) | 接受(现状,同左) | 409 `TruncatedSegmentError`(裁决 3) |
-| segment 数超 `MAX_SEGMENTS = 64` | 不可达(恒 1) | 不可达(恒 1) | 400 兜底 |
-| `collect_samples` | 1 个 Sample(422 语义现状) | 1 个 Sample(现状) | n 个 Sample,创建序 |
-| `get_session` / metadata | 现形状 | 现形状 | per-segment 形状 |
+| 输入形状 | (0, error) ≙ disabled | (1, error) ≙ retry 现状 | (0, split) ≙ fork | (1, split) 默认混合 |
+| --- | --- | --- | --- | --- |
+| 严格延伸(`(A,B,C,+…)`) | 接受 | 接受 | 接受(多条命中取最近活跃) | 同左 |
+| pure-drop,丢 ≤1 个 assistant(`(A,B)`,丢 `C` 重试) | 400 | 破坏性 rollback,重新生成 | 开新 segment(旧线保留出 Sample) | 破坏性 rollback,重新生成(废弃 turn 不训练) |
+| divergent,丢 ≤1 个 assistant(`(A,B,D)`,回退后接新内容) | 400 | 破坏性 rollback + 续接 | 开新 segment | 破坏性 rollback + 续接 |
+| 丢 ≥2 个 assistant,或 matched prefix 内无锚点(含 subagent 零重叠) | 400 | 400(= 现状) | 开新 segment | 开新 segment |
+| 严格延伸已截断的 segment | 接受(现状,merge 停在截断 turn) | 接受(现状,同左) | 409 `TruncatedSegmentError` | 409(截断只封 EXTEND 路由,见下注) |
+| segment 数超 `MAX_SEGMENTS = 64` | 不可达(恒 1) | 不可达(恒 1) | 400 兜底 | 400 兜底 |
+| `collect_samples` | 1 个 Sample(422 语义现状) | 1 个 Sample(现状) | n 个 Sample,创建序 | n 个 Sample,创建序 |
+| `get_session` / metadata | 现形状 | 现形状 | per-segment 形状 | per-segment 形状 |
+
+截断修订(v4):截断只封 **EXTEND** 路由。`steps≥1` 时,丢弃截断 turn 的合法 rollback 照常允许——`truncated` 是派生属性,records 被 rollback 截掉后自动解封(v3 裁决 3 的设计红利),这与 `(1, error)` = 今天 retry 的行为一致(今天截断后 1 步重试本就允许)。`(0, split)` 无 rollback 路,保持 v3 fork 的 409 语义逐字不变。
 
 ### "1 步失配"的精确定义(计量单位是 assistant,不是 message)
 
@@ -195,10 +216,10 @@ sequenceDiagram
 - **锚点**:matched prefix 内最后一个 **segment 自己生成的** assistant(`prompt_assistant_count` 之后的;首请求携带的 assistant 属于 prompt,既不是锚点也不参与计数)。
 - **步数**:`discard_count = 已生成 assistant 总数 − (锚点序数 + 1)`,即锚点之后被丢弃的 assistant 数。
 - `discard_count == 0`:只丢尾部环境消息,不算一步。注:该形状在实践中**不可达**——存储历史恒以 assistant 收尾(`update_pretokenized_state` 落账即 `request + [assistant]`),`match_len < len(stored)` 必至少丢一个 assistant;`classify_extension` 防御性处理即可,不要为它写专门分支。
-- `discard_count == 1`:恰丢一个 assistant,无论连带丢弃或替换多少条环境消息,都是"1 步",retry 档允许。
-- `discard_count ≥ 2`,或 matched prefix 内无锚点:retry 档 400;fork 档一律 fork。
+- `discard_count == k ≥ 1`:恰丢 k 个 assistant,无论连带丢弃或替换多少条环境消息,都是"k 步";`max_steps ≥ 1` 且 `k ≤ max_steps` 时允许破坏性 rollback(`max_steps = 0` 时回滚机制整体关闭,见轴设计 v4)。
+- 超限(`k > max_steps`)或 matched prefix 内无锚点:`overflow=error` → 400;`overflow=split` → 开新 segment。
 
-计数示例(历史 `[sys, u, a1, t1, a2]`,`a*` 为 assistant、`t*` 为 tool):
+计数示例(历史 `[sys, u, a1, t1, a2]`,`a*` 为 assistant、`t*` 为 tool;列名沿用 v3 档名,即 `(1, error)` 与 `(0, split)` 两角——`(1, split)` 在前两列为"允许"的行与 retry 列同判,在 retry 列为 400 的行改为开新 segment):
 
 | 输入 | 丢弃内容 | discard_count | retry 档 | fork 档 |
 | --- | --- | --- | --- | --- |
@@ -210,17 +231,17 @@ sequenceDiagram
 | `[sys, u]` | `a1, t1, a2`(锚点 `a1` 也被丢) | 2(且无锚点) | 400 | fork |
 | 历史多一轮(`…, t2, a3`),输入 `[sys, u, a1, t1]` | `a2, a3` | 2 | 400 | fork |
 
-### 分支设计(mode 在代码里的落点)
+### 分支设计(参数在代码里的落点,v4)
 
-总则:mode 只允许出现在**一处选定 + 两处 early-return**,其余代码零 mode 判断。
+总则:两参数只允许出现在**一处选定 + 两处 early-return**,其余代码零参数判断。
 
-| mode 落点 | 位置 | disabled / retry | fork |
+| 参数落点 | 位置 | overflow=error | overflow=split |
 | --- | --- | --- | --- |
-| 唯一选定点 | `SessionRegistry.__init__`:`self.dispatch = dispatch_<mode>` | 构造时函数指针定死 | 同左 |
+| 唯一选定点 | `SessionCore.__init__`:按 `(max_steps, overflow)` 组装 `self.dispatch`(v3 文曾写 `SessionRegistry`,实现因 import 环落在 `SessionCore`,v4 沿用实现现状) | 构造时定死 | 同左 |
 | early-return 1 | `SessionCore.collect_samples` 首行 | 现函数体原位不动(含 422) | `return self._collect_samples_forked(...)` |
 | early-return 2 | `SessionCore.get_session` / `_session_metadata` 首行 | 现函数体原位不动 | `return self._get_session_forked(...)` |
 
-明确的**非落点**(审查清单):`chat_completions` 三段式主体、`LinearTrajectory` 全部方法、`samples/merge.py`、`samples/codec.py`、`errors.py`、FastAPI adapter——不允许出现任何 mode 判断。
+明确的**非落点**(审查清单):`chat_completions` 三段式主体、`LinearTrajectory` 全部方法、`samples/merge.py`、`samples/codec.py`、`errors.py`、FastAPI adapter——不允许出现任何参数判断。
 
 分派全家住进新模块 `miles/rollout/session/dispatch.py`(独立成模块是审查便利性偏好,并入 `linear_trajectory.py` 同样满足落点审查,实施时二选一)。判定与变更拆开:纯函数 `classify_extension` 从 `_try_detect_and_rollback_to_assistant_checkpoint` 抽出判定半边;变更半边原样抽为 `LinearTrajectory.apply_rollback`(截断 `messages`/`trajectory_token_ids`/`records` + 现有日志),只有 retry 档会触发它:
 
@@ -245,42 +266,38 @@ class DispatchDecision:
     created: bool = False             # fork 新建(日志用)
 ```
 
-三个策略函数;拒绝一律走异常(`errors.py` 状态码映射同路,`chat_completions` 主体不感知拒绝分支):
+参数化单策略(v3 已实现的 `dispatch_disabled` / `dispatch_retry` / `dispatch_fork` 在 M6 退役并入);拒绝一律走异常(`errors.py` 状态码映射同路,`chat_completions` 主体不感知拒绝分支)。优先级不变量:**严格延伸 > 合法 rollback > 超限行为**——有线可延伸就绝不破坏,这是 1 步歧义(重试 vs sibling 分叉)的主要缓解:
 
 ```python
-def dispatch_disabled(state, request_messages):
-    segment = state.segments[0]
-    c = classify_extension(segment, request_messages)
-    if c.kind is not MatchKind.EXTEND:
-        raise MessageValidationError(...)          # 非严格延伸一律 400
-    return DispatchDecision(segment, rollback=None)
-
-def dispatch_retry(state, request_messages):       # = 今天的语义,文案逐字保真(约束 1)
-    segment = state.segments[0]
-    c = classify_extension(segment, request_messages)
-    if c.kind is MatchKind.DIVERGED:
-        raise MessageValidationError(...)          # 按诊断字段复原今天的两种文案
-    return DispatchDecision(segment, rollback=c.rollback)   # EXTEND,或 ≤1 ROLLBACK(含 divergent 续接)
-
-def dispatch_fork(state, request_messages):        # 只认严格延伸;永不破坏性回退
-    candidates = [(l, c) for l in state.segments
-                  if (c := classify_extension(l, request_messages)).kind is MatchKind.EXTEND]
-    live = [(l, c) for l, c in candidates if not l.truncated]
-    if live:
-        segment, c = _pick_most_recent(live)       # 并列取最近落账者,无落账则创建序(twin 歧义见风险)
-        if not segment.trajectory_token_ids and segment.seed_messages is None:
-            segment.seed_messages = request_messages   # 未落账且未占位的 segment 返回前必占位(根 segment 首请求即此路径)
-        return DispatchDecision(segment, rollback=None)
-    if candidates:
-        raise TruncatedSegmentError(...)           # 409:命中者全部已截断——截断只封闭尾部延伸(裁决 3)
-    if len(state.segments) >= MAX_SEGMENTS:
-        raise MessageValidationError("segment cap reached (64): ...")   # 文案必须可辨识,区别于结构非法 400
-    segment = LinearTrajectory(seed_messages=request_messages)          # 锁内立即占位,见下
-    state.segments.append(segment)                 # pure-drop / divergent / 零重叠统一 fork
-    return DispatchDecision(segment, rollback=None, created=True)   # INFO 日志:重叠消息数、segment 总数
+def make_dispatch(max_steps: int, overflow: str):
+    def dispatch(state, request_messages):
+        # 1. 全线纯判定(锁内):未落账线按 seed 判 EXTEND(占位语义原样),已落账线走 classify_extension
+        results = classify_all(state, request_messages)
+        # 2. 严格延伸优先(永不破坏):未截断的 EXTEND 命中取最近活跃,未占位则补占位
+        live = [(seg, c) for seg, c in results if c.kind is MatchKind.EXTEND and not seg.truncated]
+        if live:
+            return DispatchDecision(_pick_most_recent(live))
+        # 3. 合法 rollback 次之(max_steps ≥ 1;多线下同样取最近活跃)
+        permitted = [(seg, c) for seg, c in results
+                     if c.rollback is not None and max_steps >= 1 and c.rollback.discard_count <= max_steps]
+        if permitted:
+            seg, c = _pick_most_recent(permitted)
+            return DispatchDecision(seg, rollback=c.rollback)   # 调用方同锁内 apply;可吃掉截断 turn(自动解封)
+        # 4. 超限
+        if overflow == "error":
+            raise MessageValidationError(...)   # (1, error) 角逐字复原今天两种文案(含 max_assistant_rollback_steps={N} 插值);
+                                                # steps=0 的文案改述为"rollback 已关闭"(原 disabled 文案,措辞 v4 更新,非保真面)
+        if any(c.kind is MatchKind.EXTEND for _, c in results):
+            raise TruncatedSegmentError(...)    # 409:能延伸的线全部已截断且无 rollback 路可走
+        if len(state.segments) >= MAX_SEGMENTS:
+            raise MessageValidationError("segment cap reached (64): ...")   # 文案可辨识,区别于结构非法 400
+        segment = LinearTrajectory(seed_messages=request_messages)          # 锁内立即占位,见下
+        state.segments.append(segment)
+        return DispatchDecision(segment, created=True)          # INFO 日志:重叠消息数、segment 总数
+    return dispatch
 ```
 
-**占位(seed)语义——fork 档并发正确性的关键**:fork 在锁内创建新 segment 时立即以 `request_messages` 占位(`seed_messages`);未落账(无 token checkpoint)的 segment 的延伸判定以 seed 为准——请求与 seed 相等或为其严格延伸才判 `EXTEND`,其余一律不匹配;Phase 3 落账后 committed messages 接管,seed 失效。这堵住两个洞:(1) **并发 sibling 首请求争抢**——若空 segment 对任意请求判 EXTEND(disabled/retry 的首轮语义),并发的第二个 subagent 首请求会被路由进第一个刚 fork 出的空 segment,在 Phase 3 被 `num_assistant` 门卫丢弃、采样 token 无声丢失;占位后第二个请求与 seed 不匹配,各 fork 各的。(2) **首轮 proxy 失败留下的空 segment**——占位后它只吸收与 seed 相同的重试,不会被后续任意请求按"最近活跃"吸走。统一规则:**dispatch 把任何未落账且未占位的 segment 返回给调用方之前必须落 seed**——session 创建时的根 segment 未占位,fork 档下首个到达的请求经 EXTEND 路径选中它时同样即刻占位(伪代码中的补占位行),并发的第二个首请求因此与 seed 不匹配、各 fork 各的。disabled/retry 不读 seed(单 segment,首轮语义照旧),字段本身 mode-free。"最近活跃"的度量定义一处:`records[-1].timestamp`(现有字段,无需新增计时状态),未落账者按创建序——与 twin 歧义的并列裁决共用此定义。
+**占位(seed)语义——split 并发正确性的关键**:split 在锁内创建新 segment 时立即以 `request_messages` 占位(`seed_messages`);未落账(无 token checkpoint)的 segment 的延伸判定以 seed 为准——请求与 seed 相等或为其严格延伸才判 `EXTEND`,其余一律不匹配;Phase 3 落账后 committed messages 接管,seed 失效。这堵住两个洞:(1) **并发 sibling 首请求争抢**——若空 segment 对任意请求判 EXTEND(disabled/retry 的首轮语义),并发的第二个 subagent 首请求会被路由进第一个刚 fork 出的空 segment,在 Phase 3 被 `num_assistant` 门卫丢弃、采样 token 无声丢失;占位后第二个请求与 seed 不匹配,各 fork 各的。(2) **首轮 proxy 失败留下的空 segment**——占位后它只吸收与 seed 相同的重试,不会被后续任意请求按"最近活跃"吸走。统一规则:**dispatch 把任何未落账且未占位的 segment 返回给调用方之前必须落 seed**——session 创建时的根 segment 未占位,split 下首个到达的请求经 EXTEND 路径选中它时同样即刻占位(伪代码中的补占位行),并发的第二个首请求因此与 seed 不匹配、各 fork 各的。`overflow=error` 下恒单 segment、seed 不可达,字段本身参数无关。"最近活跃"的度量定义一处:`records[-1].timestamp`(现有字段,无需新增计时状态),未落账者按创建序——与 twin 歧义的并列裁决共用此定义。
 
 `chat_completions` Phase 1 的改后形态(三档走同一段代码,无分支):
 
@@ -313,7 +330,7 @@ async with state.lock:
 
 ## 实施包(refactor-heavy 冻结件)
 
-实施权限待评审与授权;实现在 `.claude/worktrees` 的独立 worktree,不动用户 checkout。
+M1-M5 已实现并验证(`feat/session-rollback-mode`,基于 v3 语义;全套 174 tests 绿);M6 为 v4 增量,实施权限待授权。
 
 ### 前置条件与基线
 
@@ -323,8 +340,8 @@ async with state.lock:
 
 ### 契约许可
 
-- **preserve(逐字节)**:默认档(retry)下全部 HTTP 面——错误码与文案、`GetSessionResponse`/metadata 形状、samples reply 与 422 语义、恒单 Sample;samples codec wire 格式;驱动侧契约。oracle = HTTP 级测试(**含 M2 新增的 rollback pin tests**——存量 HTTP 测试对 rollback 面零覆盖,必须先钉后拆)零修改全绿。
-- **migrate/新增(显式)**:新 arg `--session-rollback-mode`(默认 retry);新错误类型 `TruncatedSegmentError → 409`(仅 fork 档可达);fork 档的 `GetSessionResponse` per-segment 形状(mode 分支,retry 形状不动);`LinearTrajectory` 内部 API(`lock`/`closing` 上移、rollback 判定/变更拆分)——内部结构,允许内部单测机械适配,HTTP 级测试不许动。
+- **preserve(逐字节;v4 改锚:`(1, error)` 角而非默认档)**:该角下全部 HTTP 面——错误码与文案、`GetSessionResponse`/metadata 形状、samples reply 与 422 语义、恒单 Sample;samples codec wire 格式;驱动侧契约。oracle = HTTP 级测试(**含 M2 新增的 rollback pin tests**——存量 HTTP 测试对 rollback 面零覆盖,必须先钉后拆)零修改全绿。
+- **migrate/新增(显式)**:v3 曾新增 arg `--session-rollback-mode`(默认 retry),M6 将其撤除、代之以 `--max-assistant-rollback-steps`(默认 1)+ `--session-rollback-overflow`(默认 split)——enum 未随任何 release 发布,无兼容负担;新错误类型 `TruncatedSegmentError → 409`(仅 fork 档可达);fork 档的 `GetSessionResponse` per-segment 形状(mode 分支,retry 形状不动);`LinearTrajectory` 内部 API(`lock`/`closing` 上移、rollback 判定/变更拆分)——内部结构,允许内部单测机械适配,HTTP 级测试不许动。
 - **在包内的已知行为变化(bug fix)**:`prompt_assistant_count` 修正——仅改变今天会静默损坏状态的输入(few-shot 首请求 + rollback)的行为,附回归单测。
 
 ### 里程碑(每个 = 一个可独立回滚的 commit,完成即跑验证)
@@ -334,6 +351,7 @@ async with state.lock:
 3. **M3 classify 拆分(retry 语义不变)**:新建 `dispatch.py`(`classify_extension`、`MatchResult`、`DispatchDecision`);`apply_rollback` 变更半边抽到 `LinearTrajectory`;`prompt_assistant_count` 修正(few-shot characterization 随之翻转,行为变化边界仅此形状);`dispatch_retry` 硬接线为唯一策略(尚无 arg)。后置状态:现行为全链路走新结构,HTTP 面行为与文案不变。验证:HTTP 级测试(含 M2 pin)零修改全绿;`test_linear_trajectory.py` TestRollback 允许**语义重写**(判定改走 `classify_extension`、变更改走 `apply_rollback`)——其保真职责已由 M2 的 HTTP pin 接管。回滚:revert。
 4. **M4 mode 接口 + disabled + fork 分派机制**:`--session-rollback-mode` arg(**本里程碑 choices 仅 `{disabled, retry}`**)与 `SessionRegistry.__init__` 策略选定;`dispatch_disabled`;`dispatch_fork` 全量落地(含 seed 占位、409、`MAX_SEGMENTS` 可辨识文案、fork 日志)并被单测覆盖但**不入 choices**——数据面未跟上前放开 fork 会静默丢弃非首 segment 的训练数据,不构成连贯后置状态。后置状态:默认行为不变,disabled 可用,fork 机制代码完整但不可达。验证:语义总表全矩阵单测(3 档 × 7 形状,纯 `SessionState` 级,占位判定须显式含**空 session 两个不同首请求并发**与并发 sibling 两种形状)+ disabled 档最小 HTTP 测试(非延伸请求 400)+ 存量测试全绿。回滚:revert。
 5. **M5 数据面 + fork 放开 + e2e**:`collect_samples`/`get_session`/metadata 的 fork 档 early-return 分支(metadata 形状见数据流三);arg choices 加入 `fork`;router 级测试(现有 `MockSGLangServer` harness 走 subagent fork、并发 sibling、409)与装配测试(双 segment 出 2 个 Sample、新 Sample `loss_mask` 长度 == 自身 `response_length` 的 token 级断言、S2 per-segment);e2e 增 `--session-rollback-mode fork` 的 subagent 分叉 agent 变体(**不开启** `partial_rollout` 与 `recompute_logprobs_via_prefill`,见风险),断言 Sample 数 == segment 数。后置状态:三档全部可用。验证:全部新旧测试绿;e2e 变体在 CI 跑通。回滚:revert(fork choice 随 revert 消失,退回 M4 连贯态)。
+6. **M6 参数面重构(v4,待授权)**:撤除 `--session-rollback-mode`,新增 `--max-assistant-rollback-steps`(默认 1,≥0)与 `--session-rollback-overflow {split, error}`(默认 split;flag 名评审定);`MAX_ASSISTANT_ROLLBACK_STEPS` 常量退役为 arg;三个 dispatch 策略函数并入按 `(steps, overflow)` 参数化的单策略(优先级:严格延伸 > 合法 rollback > 超限行为);两处数据面 early-return 改判 `overflow == "split"`;steps=0 的超限文案改述为"rollback 已关闭"并更新其(本分支新增、非保真面的)测试;新增 `(1, split)` 混合角测试:≤1 破坏性重试、超限开新线、多线下延伸优先于回滚(不破坏)、rollback 吃掉截断 turn 即解封、`(N>1, error)` 深回退泛化。后置状态:四角全部可达,默认 `(1, split)`。验证:`(1, error)` 角对 M2 pin **零修改**全绿(保真锚点移交,v4 硬门槛)+ 全部新旧测试绿。回滚:revert(退回 v3 三档)。
 
 ### 不可逆动作与发布
 
@@ -341,10 +359,12 @@ async with state.lock:
 
 ### 通过标准
 
-M1/M3 后 HTTP 级测试(含 M2 pin)在白名单适配之外零修改全绿(retry 保真硬门槛;"存量测试"的精确范围 = tests/fast 下 session/router 相关全部测试,白名单仅三项:M1 的取对象适配、M3 的 TestRollback 语义重写、M3 的 few-shot characterization 断言翻转(契约许可的 bug fix 条目));M4/M5 后新旧测试全绿;mode 落点严格限于「分支设计」清单(一处选定 + 两处 early-return),非落点文件不允许出现 mode 判断;fork 档在 M5 之前不可达。
+M1/M3 后 HTTP 级测试(含 M2 pin)在白名单适配之外零修改全绿(retry 保真硬门槛;"存量测试"的精确范围 = tests/fast 下 session/router 相关全部测试,白名单仅三项:M1 的取对象适配、M3 的 TestRollback 语义重写、M3 的 few-shot characterization 断言翻转(契约许可的 bug fix 条目));M4/M5 后新旧测试全绿;参数落点严格限于「分支设计」清单(一处选定 + 两处 early-return),非落点文件不允许出现参数判断;fork 档在 M5 之前不可达(v3 历史门槛);M6 后 `(1, error)` 角对 M2 pin 零修改全绿是 v4 的保真硬门槛。
 
 ## 风险与开放问题
 
+- **默认行为翻转(v4 引入)**:今天 >1 步失配的 400 在默认 `(1, split)` 下静默变为开新线并多出 Sample;依赖 fail-loud 发现 harness bug 的部署需显式 `--session-rollback-overflow error`。发布物(release note / arg help)必须写明。
+- **1 步歧义破坏(v4 默认角)**:subagent 恰从最近 checkpoint 分叉的首请求形状与 1 步重试不可区分,默认角按重试处理、破坏性删掉该线尾 turn;若该线还有在飞请求,回来后不匹配 → 级联开线。缓解:分派优先级"严格延伸恒优先于 rollback"(有线可延伸就不破坏);零破坏需求走 `steps=0`;rollback 与 fork 均留 INFO 日志。残余风险接受(需求方裁定:1 步失配的先验以重试为主)。
 - **retry 保真渗漏(风险)**:共享 helper(classify、装配)重写时行为漂移。缓解:存量测试零修改硬门槛;切分 2 单独落地并带两种形状的文案回归;评审面为 retry 路径 diff。
 - **fork 档重放漂移 → segment 膨胀(新风险,v3 引入)**:v2 的 auto 用 ≤1 rollback 兜住"harness 重放丢 `reasoning_content`"类漂移(每轮最多一次破坏性回退);fork 档没有 rollback,漂移的每一轮都判非延伸 → 每轮 fork 一条新 segment,直至 `MAX_SEGMENTS` 后 400,且每条弃线都出 Sample 进训练。缓解:fork INFO 日志 + 重叠含 assistant 的 fork 升 WARN;harness 必须逐字节重放收到的 message(标准 OpenAI client 默认如此);若实测高频,考虑第 4 档(fork + 内嵌 ≤1 破坏性回退,即 v2 的 auto 混合体)。
 - **fork 档被放弃尾部的 reward 归属(开放,原备选 C 之争)**:pure-drop 重试在 fork 档产生"旧线含被抛弃 assistant 且照常出 Sample"——它是 on-policy 采样、可训练,但 outcome-only RM 下它未导向最终结果,归属含糊。`batched_async_rm` 独立打分是默认;outcome-only 场景的计价策略归 rm_hub / 用户 agent 函数,需评审确认默认可接受。
