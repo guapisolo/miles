@@ -23,7 +23,7 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 - **裁决 B:树原生数据模型,v1 全量存储(需求方输入 6)**。session = forest(零重叠请求开新根)。**节点 = 一次模型生成的结束(需求方输入 8)**:`delta_messages` = 本次生成的请求相对父节点新增的消息(env 消息、client 携带的 foreign assistant)+ 本次采样的 assistant;token 存**全量快照** `token_ids`(根→本节点的完整序列,含继承的采样 id 与 canonical env/foreign 段)——与今天 `trajectory_token_ids` 的 checkpoint 语义同构,每节点即一份可直接注入/装配的完整前缀。一次成功提交恰好创建一个节点,`SessionRecord` 与节点 1:1。内存 O(节点数 × 路径长),与今天 per-line checkpoint 列表同阶;增量(delta)存储列为后续优化非目标。
 - **裁决 C:token 继承 best-effort**。挂点 = 匹配路径的最深完整节点;新枝直接以挂点的全量快照起步(采样 id 原样,全量存储下继承 = 一次列表拷贝),仅对 suffix(从首个 mismatch 消息起)canonical retokenize 后追加。节点粒度继承与消息粒度继承 token 等价:采样 token 天然对齐 assistant(节点)边界,env 消息无论继承还是重渲染都是同一 canonical 结果,所以"只 retokenize 首个 mismatch 起"在节点粒度上无保真损失。`message_matches` 的文本相等保证继承合法(TITO 不变量按路径成立);v3"零继承更正确"的论据被反转:留在原采样流上恰是 TITO 的哲学,且 mismatch 的部分本来就不被继承。
 - **裁决 D:foreign assistant = delta 里的 prompt 段,恒许可(需求方输入 7+8)**。client 提供的 assistant——few-shot 首请求、compaction 塞进 break branch 的历史——**不构成节点**,作为所属节点 delta 中的 prompt 段处理:canonical retokenize、loss 恒 0。**不经 `--tito-allowed-append-roles` 门控**(该 arg 保留,仅继续管非 assistant 的环境角色):break branch 携带 assistant 是正当形态,compaction 是典型生产者;前提是我们永远不 cut think,所以带 assistant 过 apply chat template 无 reasoning 丢失问题(v3 零继承的模板顾虑就此消解)。`prompt_assistant_count` 机制被结构性吸收(节点边界只由模型生成定义,client 材料不可能被误当 checkpoint);mid-path 外来 assistant(v4 评审记录的存量边缘)同样被统一。
-- **裁决 E:装配分层**。server 侧:per-leaf 产原料 sample(路径 token 拼接 + 现有 compute/truncate 校验,保 TITO 校验在 server)+ **树结构 metadata**(节点表:parent、在各 leaf 中的 token span、foreign、truncated、提交时间戳;leaf 表:路径、创建序)。**merge 只有一种方向:沿根→leaf 路径自上而下折叠**(两条分歧路径的 token 不可拼接,折叠原语的前缀断言即其体现);server 沿路径把 per-node 原料机械装配成 per-leaf sample——logprobs/replay payload 的路径拼接是 TITO 簿记不是政策——但**不填 loss mask**。唯一真正跨 leaf 的东西是 mask 的 exactly-once **归属决策**(共享节点的 completion 算进哪条 leaf),它属于 merge hook。**caller metadata 通道(需求方 2026-07-23)**:`collect_samples` 新增调用方 metadata 入参——custom agent function 结束时把只有 harness 才知道的语义信息(哪条分支是哪个 subagent、任务标签、compaction 位置)返回给 miles,miles 传进 `collect_samples`;server 将其与自己的结构层合并进 `session_metadata` 回流(两层各占独立命名空间,如 `{"tree": …, "agent": …}`,server 对语义层不透明透传、不解释)。driver 侧:pick/merge 层拿 (leaf samples, 双层 session_metadata——语义层内含 agent function 算好的 reward) 产最终训练 sample——结构层给形状,语义层给含义,用户这才有足够材料做 reward 分配与 mask 归属;默认管线复刻今天的训练语义,签名开放用户自定义。
+- **裁决 E:装配分层**。server 侧:per-leaf 产原料 sample(路径 token 拼接 + 现有 compute/truncate 校验,保 TITO 校验在 server)+ **树结构 metadata**(节点表:parent、在各 leaf 中的 token span、foreign、truncated、提交时间戳;leaf 表:路径、创建序)。**merge 只有一种方向:沿根→leaf 路径自上而下折叠**(两条分歧路径的 token 不可拼接,折叠原语的前缀断言即其体现);server 沿路径把 per-node 原料机械装配成 per-leaf sample——logprobs/replay payload 的路径拼接是 TITO 簿记不是政策——但**不填 loss mask**。唯一真正跨 leaf 的东西是 mask 的 exactly-once **归属决策**(共享节点的 completion 算进哪条 leaf),它属于 merge hook。**caller metadata 通道(需求方 2026-07-23)**:`collect_samples` 新增调用方 metadata 入参——custom agent function 结束时把只有 harness 才知道的语义信息(哪条分支是哪个 subagent、任务标签、compaction 位置,以及 sandbox 跑完即有的 reward)返回给 miles,miles 传进 `collect_samples`;server 将其与自己的结构层合并进 `session_metadata`(两层独立命名空间,如 `{"tree": …, "agent": …}`,server 对语义层不透明透传、hook 可读)。pick/merge 两个 hook 在 **session server 进程内**消费 (leaf_samples, 双层 session_metadata) 产最终训练 sample——结构层给形状,语义层给含义与 reward;miles 侧只管调用 `collect_samples` 并原样收成品(CPU-heavy 装配不回流训练侧)。
 - **裁决 F:retry = pick-samples hook 的默认实现(需求方 2026-07-23 细化)**。sample 挑选是**可定制函数**,retry-trim 只是它的默认实现。默认判据——leaf L 被 trim 当且仅当同时满足三条:(1) L 的路径**不是本 session 最长的 sample**(token 长度计,并列不 trim——并列即 twin/n>1 采样);(2) L 的节点**没有子节点**;(3) L 的父节点存在**比 L 更晚提交的其他儿子**(L 被取代;依赖节点 `committed_at` 时间戳,来源于 lock 内提交序,天然单调)。三条件的组合刚好把非 main-trajectory 的重试噪声全部排除而不误伤:链式重试 A2(t1)/A2'(t2)/A2''(t3 续走)中 A2、A2' 都命中(存在更晚兄弟)、存活枝不命中;深弃枝(A2→A3→A4 后在 A1 处换线)的 leaf A4 因其**自己的父节点** A3 没有更晚儿子而免疫——trim 只在"被直接取代的挂点"处发生,subagent/compaction 形态自然保留。reward 由 agent function 在生成过程中算好、随语义层进入 metadata(picker 因此可 reward-aware);reward 的最终分配在 merge。
 - **裁决 G:截断只封"穿过该节点的延伸"**。延伸已截断节点 → 409(`TruncatedSegmentError` 沿用);在截断节点**之前**分叉、或在其文本内分歧(挂到 parent)照常。节点总数上限 `MAX_NODES`(兜底跑飞,原 `MAX_SEGMENTS` 的树版)。
 
@@ -58,32 +58,30 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 
 ```mermaid
 sequenceDiagram
-    participant AF as custom agent function(driver:跑 harness + 打分)
-    participant SS as session server(trajectory tree)
-    participant PK as pick-samples hook(driver,默认 retry-trim)
-    participant MG as merge hook(driver)
+    participant AF as custom agent function(miles rollout 进程:跑 harness + sandbox + 打分)
+    participant SS as session server 进程
     participant TR as 训练 batch
     AF->>SS: chat completions × N(找挂点 / 生成 / append 节点)
-    SS-->>AF: 响应流(树在 server 侧长成,全量快照节点)
-    Note over AF: reward 在 agent function 内算好(它掌握任务结局)
+    SS-->>AF: 响应流(trajectory tree 在 server 内长成,全量快照节点)
+    Note over AF: sandbox 跑完即有分——reward 在 agent function 内就绪
     AF->>SS: collect_samples(agent metadata:语义层,含 reward)
-    SS-->>PK: leaf samples(沿路径装配、唯独不填 loss mask)+ session_metadata(结构层 ∪ 语义层)
-    PK->>MG: 存活 leaf samples(被 trim 的不进入后续任何环节;picker 可 reward-aware)
-    Note over MG: loss mask 构造 + exactly-once 归属(只看存活集)+ reward 分配
-    MG-->>TR: 最终 list[Sample]
+    Note over SS: per-leaf 沿路径装配(不填 mask)→ pick hook(默认 retry-trim)→ merge hook(mask 构造 + exactly-once 归属 + reward 分配)——全部在 server 进程内,hook 经 load_function 加载
+    SS-->>AF: 最终成品 list[Sample] + 平铺 metadata(与今天同构)
+    AF-->>TR: 原样交给训练管线
 ```
 
-要点:①树只在 server 侧生长,driver 全程只见 samples 与 metadata;②语义层(含 reward)与结构层在 `collect_samples` 汇合——**打分发生在 agent function 内部**,进入管线时 reward 已就绪,管线里没有独立 RM stage;③政策全部在 driver 侧两个 hook,server 到 mask 为止零政策;④pick 先于 merge 是硬约定(存活集归属 + 噪声成本止步 serving);⑤两个 hook 的接线点 = generate hub 内 `collect_samples` 返回之后顺次执行,无需新 pipeline stage(开放问题 3 就此定案)。
+要点:①树只在 server 侧生长;②sandbox 执行与打分全部封装在 custom agent function 内,进入 `collect_samples` 时 reward 已在语义层就绪,管线里没有独立 RM stage;③**miles 侧只管调 `collect_samples`**,一切 CPU-heavy 装配(折叠、mask)与两个政策 hook 都在 session server 进程内执行(#1759 的下沉哲学延续:records/token 不离开 server;被 trim 的 leaf 连 wire 都不过);④pick 先于 merge 是硬约定(存活集归属 + 噪声成本止步 serving);⑤返回形状与今天同构(n 个成品 sample + 平铺 metadata),下游零适配。
 
 ## 数据面与 filter/merge 层
 
 **collect_samples(server)**:每个 leaf 产一个原料 Sample——全量存储下 token 即 leaf 节点的快照本身(无需拼接),per-leaf 跑现有 compute → truncate(R3 payload 提取、`max_trim_tokens`、截断裁剪都按路径成立);`session_metadata` 双层:语义层 = 调用方(agent function)经 `collect_samples` 入参传入的不透明 blob;结构层携带树结构:`nodes[{id, parent, truncated, committed_at, completion_span, foreign_spans}]`(completion_span = 本节点采样 completion 在快照中的区间,foreign_spans = delta 内 client 材料的区间——merge 期构造 loss mask 的全部材料)+ `leaves[{path_node_ids, created_order}]`,leaf 序与 samples 序对齐。**沿路径装配到位、唯独不填 loss mask**(每个原料 sample 附 per-node completion span,mask 材料齐全;不存在任何跨 leaf 的 token 操作)。`get_session`:树 dump(节点 + records + 结构),白盒调试面。
 
-**driver 侧默认管线**(generate hub 内、`collect_samples` 返回后顺次执行;复刻今天的训练语义,每步可替换)。前提:**reward 已就绪**——打分封装在 custom agent function 内(规则 verifier 或模型 RM 都由它调度,它掌握任务结局),随语义层进入 `session_metadata`;管线里没有独立的 RM stage。
+**server 侧装配管线**(`collect_samples` 内顺次执行;两个 hook 由 session server 进程经 `load_function` 加载,默认实现复刻今天的训练语义)。前提:**reward 已就绪**——sandbox 执行与打分全部封装在 custom agent function 内(它掌握任务结局,跑完即有分),reward 随语义层经 `collect_samples` 入参进入 server;管线里没有独立的 RM stage。
 
-1. **pick-samples hook(裁决 F,可定制)**:`pick_fn(leaf_samples, session_metadata) -> list[Sample]`,以 `load_function` 路径 arg 挂载(如 `--session-sample-picker-path`);纯挑选契约——可丢弃/重排、不得改写 token 内容;语义层里有 reward,picker 可以 reward-aware。默认实现 = 裁决 F 的三条件 retry-trim。被 trim 的 leaf **完全不进入后续任何环节**(不参与 mask 归属、不折叠、不进训练)——always-branch 造出的噪声分枝,其成本被限定在 serving 期的那一次生成,不在下游放大。为了让挑选后对齐不依赖列表位置,**每个原料 sample 的 metadata 自带本 leaf 的描述子**(节点 id 路径、parent、committed_at、路径 token 长度、是否有子),session 级树表随行——自定义实现可据此做任意策略(全保留做 tree-RL、按分支宽度采样、只留最长 top-k、按 reward 阈值等)。
-2. **merge hook(可定制)**:签名 `merge_fn(leaf_samples, session_metadata) -> list[Sample]`(reward 在语义层内),同样以 `load_function` 模式挂载(如 `--session-merge-function-path`)。默认实现直接复用现有折叠原语 `merge_samples`/`_merge_sample_pair`(`generate_utils/sample_utils.py`,今天 loss mask 的唯一构造点):沿每条存活 leaf 的路径折叠 per-node sample,节点 loss 归属创建序最早的**存活** leaf(exactly-once;**pick 先于 merge 是硬约定**——归属必须算在存活集合上,否则共享节点的最早 leaf 被 trim 时其 completion 会无声地从训练数据消失),foreign/env 段 loss 0,reward 按语义层分配随 leaf;自定义空间:按 reward 重新分配共享节点的 mask 归属、跨枝广播 advantage(对各 sample 的数值操作,非 token 合并)等。server 侧的改动薄到只有一件事:`core.py` collect_samples 里 `samples = [merge_samples(...)]` 这一行(最终折叠)挪出 server——compute/truncate 原样留在 server(其 TODO 早已点名 splitting 缺口)。
-3. 平铺键兼容(v4 评审 F1 的裁决延续):merge 输出的每个 sample 带平铺 metadata(`tito_session_mismatch`、`accumulated_token_ids` per leaf),`ray/rollout/metrics.py` 与 `session_verify_agent` 零修改。
+1. **per-leaf 装配(非政策,不可定制)**:沿每条 leaf 路径跑现有 compute → truncate,产原料 sample(logprobs/replay payload 的路径拼接是 TITO 簿记),唯独不填 loss mask。
+2. **pick-samples hook(裁决 F,可定制)**:`pick_fn(leaf_samples, session_metadata) -> list[Sample]`,arg 如 `--session-sample-picker-path`;纯挑选契约——可丢弃/重排、不得改写 token 内容;语义层里有 reward,picker 可以 reward-aware。默认实现 = 裁决 F 的三条件 retry-trim。被 trim 的 leaf **完全不进入后续任何环节**(不参与 mask 归属、不折叠、不过 wire、不进训练)——always-branch 造出的噪声分枝,其成本被限定在 serving 期的那一次生成。为了让挑选不依赖列表位置,**每个原料 sample 的 metadata 自带本 leaf 描述子**(节点 id 路径、parent、committed_at、路径 token 长度、是否有子),树表随行——自定义可做任意策略(全保留做 tree-RL、按分支宽度采样、只留最长 top-k、按 reward 阈值等)。
+3. **merge hook(可定制)**:`merge_fn(leaf_samples, session_metadata) -> list[Sample]`(reward 在语义层内),arg 如 `--session-merge-function-path`。默认实现复用现有折叠原语 `merge_samples`/`_merge_sample_pair`(`generate_utils/sample_utils.py`,今天 loss mask 的唯一构造点):沿每条存活 leaf 的路径折叠 per-node sample,节点 loss 归属创建序最早的**存活** leaf(exactly-once;**pick 先于 merge 是硬约定**——归属必须算在存活集合上,否则共享节点的最早 leaf 被 trim 时其 completion 会无声地从训练数据消失),foreign/env 段 loss 0,reward 按语义层分配随 leaf;自定义空间:按 reward 重新分配共享节点的 mask 归属、跨枝广播 advantage(对各 sample 的数值操作,非 token 合并)等。实现落点:`core.py` collect_samples 里今天硬编码的 `samples = [merge_samples(...)]` 一行被 hook 调度取代,位置不动、变成可换。
+4. 平铺键天然兼容:server 返回的成品 sample 与今天同构(平铺 `tito_session_mismatch`、`accumulated_token_ids`),`ray/rollout/metrics.py` 与 `session_verify_agent` 零修改、无需映射层。
 
 ## 状态模型与实现落点
 
@@ -96,13 +94,13 @@ sequenceDiagram
 1. **N1 树数据模型 + 找挂点(纯增,不接线)**:`TrajectoryNode`/`SessionTree`、案例矩阵 1-12 的纯单测(含 twin 并列、foreign assistant delta、截断);不触碰 serving 路径。
 2. **N2 serving 切换(公开行为变更点)**:Phase 1 改找挂点 + 继承注入,Phase 3 改 append 节点;rollback 机制与 `LinearTrajectory` 退役;M2 rollback pins 退役、换树匹配矩阵的 HTTP pin(200+分枝取代 400 家族,逐条对照旧 pin 写明行为差异);`MAX_NODES`;409 沿用。
 3. **N3 数据面**:per-leaf 原料 sample + 树 metadata;`get_session` 树 dump;S1/S2/R3/截断的 per-leaf 语义测试。
-4. **N4 pick/merge 层**:pick-samples hook 接口(load_function 挂载、纯挑选契约、per-sample leaf 描述子)+ 默认 retry-trim 实现(三条件判据测试:链式重试、深弃枝免疫、twin 并列不 trim、根级重试)、默认 merge(exactly-once 归属 + 平铺键)、两个自定义入口的接线与文档;`session_verify` 与 metrics 在默认管线下全绿。
+4. **N4 pick/merge 层(server 内)**:两个 hook 在 `collect_samples` 内接线(load_function 挂载、纯挑选契约、per-sample leaf 描述子、caller metadata 入参)+ 默认 retry-trim 实现(三条件判据测试:链式重试、深弃枝免疫、twin 并列不 trim、根级重试)+ 默认 merge(exactly-once 归属存活集 + 平铺键同构输出);`session_verify` 与 metrics 在默认管线下零修改全绿。
 5. **N5 e2e 与收尾**:`session_verify_runner` 树变体(需 GPU CI,uncovered delta 沿旧记录);`MAX_NODES`/日志/WARN 打磨。
 
 ## Roadmap
 
 **近期(本轮交付)**:
-1. 冻结 v5 实施包:仅剩 `MAX_NODES` 初值(提议 256)一处待钉(pick/merge 接线点已定:generate hub 内 `collect_samples` 之后)。
+1. 冻结 v5 实施包:仅剩 `MAX_NODES` 初值(提议 256)一处待钉(pick/merge 接线点已定:session server 进程内 `collect_samples` 原位)。
 2. 独立评审一轮(refactor-heavy 纪律,重点:N2 公开行为变更面、per-node span 元数据契约、两 hook 接口)。
 3. N1 树数据模型 + 找挂点(纯增)→ N2 serving 切换(行为变更点,旧 rollback pins 退役换树矩阵 pin)→ N3 数据面(per-leaf 原料 + 树 metadata + 树 dump)→ N4 pick/merge 层(两个 load_function hook + 默认实现)→ N5 收尾(日志/WARN/`MAX_NODES` 打磨)。
 4. 基线:`feat/session-rollback-mode` 现有 M1+M2′+M3′ 三个 commit 作垫脚石保留;历史继续按"烙进原始 commit"的纪律重写。
@@ -122,7 +120,7 @@ sequenceDiagram
 - **公开行为变更**(撤保真):依赖 rollback 400 做 harness 排错的部署失去 fail-loud;树日志(分枝 INFO、深分叉 WARN)是替代观测面。缓解:strict 开关(下条,需求方已倾向保留)。
 - **strict 开关(开放问题 1 已定案:保留、默认关)**:定义 = **"树永远是一条链"的不变量守卫**。接受四类:空树首请求(few-shot prompt assistant 照常)、严格延伸唯一 leaf、退化重发(请求==到 leaf 的完整路径,leaf 下生成独子)、失败生成后的任意新首请求(failed-first-turn pin 在 strict 下同样成立)。拒绝三类(400 + 诊断:匹配到的节点与首个失配消息序号):会开第二条根的、会产生兄弟节点的(挂 internal 节点/退化重发到已有子节点,即一切 retry/分叉形状)、延伸 suffix 携带 client assistant 的(strict 下回归 `--tito-allowed-append-roles` 门控,默认拒——白盒模式要抓的正是"主链上出现模型没生成过的 assistant";普通模式的 foreign 恒许可服务于分枝,strict 不许分枝故不适用)。不变:延伸已截断 leaf 仍 409。该定义恰好复刻 v3 disabled 档的全部可观测行为(文案换树词汇、诊断更详),实现为找挂点出口的单一判定。arg 名已定:`--session-strict-append-only`(需求方 2026-07-23)。
 - **sample 数与打分成本**:每 leaf 一原料 sample,重试风暴下 leaf 膨胀;打分封装在 agent function 内、成本形状由用户掌控(可只对关心的枝打分);默认 picker 止血的是 merge 与训练侧的噪声,`MAX_NODES` 兜底。开放问题 2 已定案(裁决 F 三条件,需求方 2026-07-23)。
-- **自定义 pick/merge 的挂载点**——**开放问题 3 已定案**:机制 = `load_function` 路径 arg(仓库唯一现存自定义函数模式,`custom_agent_function_path` 先例);接线点 = generate hub 内 `collect_samples` 返回之后顺次执行——reward 已在语义层就绪,无需新 pipeline stage。
+- **自定义 pick/merge 的挂载点**——**开放问题 3 已定案(需求方修正)**:机制 = `load_function` 路径 arg(`custom_agent_function_path` 先例);执行位置 = **session server 进程内** `collect_samples` 中(今天硬编码 merge 行的原位),不在 miles rollout 侧——miles 只管调 collect_samples,CPU-heavy 装配全部留在 server。约束随记:hook 函数须可被 session server 进程 import(args 本就流到 server,同 codebase 成立)。
 - **exactly-once 与 reward 归属的张力**:默认"最早 leaf 训练共享前缀",但共享前缀的 reward 来自该 leaf 的 outcome——分叉后其他枝的高 reward 不回流。这正是开放给自定义 merge 的空间,默认不做聪明事。
 - **twin 歧义**(并列匹配取最近提交)沿 v3 记录;树下 twin 是合法兄弟,歧义只影响挂点选择的确定性。
 - **radix cache**:继承提高 KV 前缀命中(v3 零继承的已接受代价被收回)。
