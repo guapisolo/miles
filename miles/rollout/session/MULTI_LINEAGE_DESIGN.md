@@ -66,7 +66,7 @@ v3/v4 把"请求与存储历史失配"当作需要 serving 期裁决的三难(�
 - **F8 序号与折叠语义**:节点排序键 = per-session 逻辑提交序号 `seq`(lock 内单调递增),`committed_at`(墙钟)仅装饰——picker/tie-break 一律用 `seq`;默认 merge 沿用折叠原语的 early-stop(non-COMPLETED / replay-gap 处停折),exactly-once 台账只记**实际折入**的 span(结构层 node 表与成品 token 跨度可能因 early-stop 不一致,以台账为准);reward 赋值在折叠**之后**(折叠原语对 reward 做相等断言,折前逐 turn 赋值必炸);`MAX_NODES` 权威检查在 Phase 3(Phase 1 检查仅 fast-fail,并发下允许轻微过冲)。
 - **F9 N2 拆分**:见里程碑 N2a/N2b。
 - **F10 简化收编**:foreign 段区间装配期 derive 不落存储;`get_session` 树 dump 首版 = records + node 表,不新造 response model(调试面 schema 后置)。
-- **F3(待需求方裁决)**:三条件 picker 与"默认管线复刻旧训练语义 / `session_verify` 零修改全绿"两个 claim 冲突——末轮重试的被弃 leaf 若 completion 更长,即为全 session 最长 → 条件(1)保它存活 → 出 2 个 sample 且 mask 归属(最早存活 leaf)落在被弃线上,主线整段共享前缀被 mask 成 0;等长免 trim 的 twin 保护因 completion 长度几乎必不相等而形同虚设。两案:(A) 三条件原样保留,显式撤回上述两个 claim(接受概率性双样本,配 F1 的 per-sample metadata);(B) 条件(1)改为**取代判定**——childless ∧ 存在更晚兄弟(按 `seq`)即 trim,长度不再参与;线性重试确定性复刻今天,代价是 twin 的 n=2 采样中较早者必被误杀(twin 与 pure-drop 重试在树上结构不可分,irreducible,文档记为已知代价)。裁决前 N4 验收标准暂缓生效。
+- **F3(已裁决,需求方 2026-07-23)**:默认 picker 判据改为**时序取代 + 长度护栏**。(a) trim 判定只看时序:childless ∧ 存在 `seq` 更晚的兄弟(虚拟森林根下根级同理),长度不参与判定——"默认只允许 retry"的形态假设下,mainstream 必然时序更靠后,时序是理论上充分的判别器;(b) **hard assert 护栏**:每个被 trim 的 leaf 断言其成品长度 ≤ 存活枝最长 leaf 的成品长度,违反即 422(body 携带 picker 身份与两个 leaf 的 response id)——被弃者比 mainstream 还长意味着树不是 retry 形态,默认 picker 拒绝装懂,fail-loud 提示换自定义 picker。后果如实记录:与"逐字复刻今天"存在一处知情偏差——今天"末轮重试且被弃更长"被破坏性销毁、静默成功出 1 个 sample,默认 picker 下同形状 422(写入 release note 与 arg help);twin n=2 的较早者被 trim(较短)或触发 422(较长),默认 picker 不支持刻意 n>1 采样,自定义 picker 承接(irreducible,已记)。N4 验收标准恢复生效,"复刻旧训练语义"claim 措辞收窄为"护栏内确定性复刻"。
 
 ## 数据流(v5 全景)
 
