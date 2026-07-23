@@ -2,7 +2,7 @@
 
 状态:v4 修订(2026-07-23,两轴参数化取代三值 enum;M1-M5 已按 v3 实现于 `feat/session-rollback-mode`,v4 是参数面重构增量,见里程碑 M6)。历史:v3(2026-07-22)`--session-rollback-mode {disabled, retry, fork}` 单旋钮取代 v2 的 `linear/auto` 双值轴;v3.1 首轮独立评审后修订(红基线 M0 前置、HTTP 级 rollback pin tests 先钉后拆、fork 占位(seed)语义、`truncated` 派生化);v3.2 上游 #1759 简化 codec 收编红基线问题,M0 作废,基线重建实测全绿。
 
-v4 需求方裁定:三值 enum 只是一个二维参数空间里三个角的投影,应直接暴露两个正交参数——`--max-assistant-rollback-steps N`(硬编码常量提升为 arg)与超限行为 `{split, error}`;默认 `(1, split)`,即"≤1 步破坏性重试、超限开新线"的混合语义(v2 auto 的回归)。v3 三档语义完整保留为参数空间的三个角(见轴设计 v4),但**默认行为不再逐字节等于今天的 retry**(超限从 400 变为开新线),约束 1 相应改写。评审者需要决定的问题:(1) 两轴参数化与默认值 `(1, split)`;(2) 超限行为 flag 的最终名字;(3) 沿用 v3 的裁决——split 零继承 retokenize、截断封线(v4 修订见语义总表下注)、数据面形状按超限行为分支。
+v4 需求方裁定:三值 enum 只是一个二维参数空间里三个角的投影,应直接暴露两个正交参数——`--session-max-assistant-rollback-steps N`(硬编码常量提升为 arg)与超限行为 `{split, error}`;默认 `(1, split)`,即"≤1 步破坏性重试、超限开新线"的混合语义(v2 auto 的回归)。v3 三档语义完整保留为参数空间的三个角(见轴设计 v4),但**默认行为不再逐字节等于今天的 retry**(超限从 400 变为开新线),约束 1 相应改写。评审者需要决定的问题:(1) 两轴参数化与默认值 `(1, split)`;(2) 超限行为 flag 的最终名字;(3) 沿用 v3 的裁决——split 零继承 retokenize、截断封线(v4 修订见语义总表下注)、数据面形状按超限行为分支。
 
 需求方已裁定、不再是评审问题:语义按"输入与历史的形状"划分(处置矩阵见语义总表);split 开新线永不破坏既有 segment,破坏性 rollback 的深度由步数轴独立控制;message 匹配过程 per session 并发度必须为 1(由 session lock 保证,见 I3)。
 
@@ -66,7 +66,7 @@ v2 的 auto(subagent fork + 保留 ≤1 破坏性 rollback 的混合体)不再�
 
 v3 实现落地后需求方复盘:三档的全部语义差异可以被两个正交参数无残留地表示,enum 应当消失——
 
-- `--max-assistant-rollback-steps N`(默认 1,≥0):允许的破坏性 rollback 深度上限,以 assistant 计,即原硬编码 `MAX_ASSISTANT_ROLLBACK_STEPS` 提升为 arg。**`N=0` 定义为"完全禁止破坏性回滚"**——任何非严格延伸都走超限行为,包括 `discard_count=0` 的纯尾部环境消息裁剪(该形状实践不可达,见"1 步失配"节,但语义必须钉死,否则 `(0,*)` 两角与 v3 的 disabled/fork 不严格重合)。
+- `--session-max-assistant-rollback-steps N`(默认 1,≥0):允许的破坏性 rollback 深度上限,以 assistant 计,即原硬编码 `MAX_ASSISTANT_ROLLBACK_STEPS` 提升为 arg。**`N=0` 定义为"完全禁止破坏性回滚"**——任何非严格延伸都走超限行为,包括 `discard_count=0` 的纯尾部环境消息裁剪(该形状实践不可达,见"1 步失配"节,但语义必须钉死,否则 `(0,*)` 两角与 v3 的 disabled/fork 不严格重合)。
 - `--session-rollback-overflow {split, error}`(默认 `split`;本文用短名行文,需求方原始拼写 `--session-behavior-exceed-rollback-limit`,最终名评审定):需要的 rollback 超出上限、或 matched prefix 内无锚点时的处置——`split` 开新 segment 继续(既有线原样保留并出 Sample),`error` 400。
 
 四角与 v3 三档的映射:
@@ -192,7 +192,7 @@ sequenceDiagram
 
 ### 参数接口与语义总表(v4)
 
-`--max-assistant-rollback-steps`(默认 1)+ `--session-rollback-overflow`(默认 `split`),沿 [arguments.py](miles/utils/arguments.py) 现有 rollout args 通道进入,`SessionCore` 构造时读取一次组装分派策略;运行期不可变。
+`--session-max-assistant-rollback-steps`(默认 1)+ `--session-rollback-overflow`(默认 `split`),沿 [arguments.py](miles/utils/arguments.py) 现有 rollout args 通道进入,`SessionCore` 构造时读取一次组装分派策略;运行期不可变。
 
 按"输入与存储历史的形状"给出四角处置(历史 `(A,B,C)`,`C` 为最近一个 assistant;"步"的精确定义见下节,**计量单位是 assistant,不是 message**;`(1, error)` 列 = 今天的行为,byte-exact 保真角):
 
@@ -341,7 +341,7 @@ M1-M5 已实现并验证(`feat/session-rollback-mode`,基于 v3 语义;全套 17
 ### 契约许可
 
 - **preserve(逐字节;v4 改锚:`(1, error)` 角而非默认档)**:该角下全部 HTTP 面——错误码与文案、`GetSessionResponse`/metadata 形状、samples reply 与 422 语义、恒单 Sample;samples codec wire 格式;驱动侧契约。oracle = HTTP 级测试(**含 M2 新增的 rollback pin tests**——存量 HTTP 测试对 rollback 面零覆盖,必须先钉后拆)零修改全绿。
-- **migrate/新增(显式)**:v3 曾新增 arg `--session-rollback-mode`(默认 retry),M6 将其撤除、代之以 `--max-assistant-rollback-steps`(默认 1)+ `--session-rollback-overflow`(默认 split)——enum 未随任何 release 发布,无兼容负担;新错误类型 `TruncatedSegmentError → 409`(仅 fork 档可达);fork 档的 `GetSessionResponse` per-segment 形状(mode 分支,retry 形状不动);`LinearTrajectory` 内部 API(`lock`/`closing` 上移、rollback 判定/变更拆分)——内部结构,允许内部单测机械适配,HTTP 级测试不许动。
+- **migrate/新增(显式)**:v3 曾新增 arg `--session-rollback-mode`(默认 retry),M6 将其撤除、代之以 `--session-max-assistant-rollback-steps`(默认 1)+ `--session-rollback-overflow`(默认 split)——enum 未随任何 release 发布,无兼容负担;新错误类型 `TruncatedSegmentError → 409`(仅 fork 档可达);fork 档的 `GetSessionResponse` per-segment 形状(mode 分支,retry 形状不动);`LinearTrajectory` 内部 API(`lock`/`closing` 上移、rollback 判定/变更拆分)——内部结构,允许内部单测机械适配,HTTP 级测试不许动。
 - **在包内的已知行为变化(bug fix)**:`prompt_assistant_count` 修正——仅改变今天会静默损坏状态的输入(few-shot 首请求 + rollback)的行为,附回归单测。
 
 ### 里程碑(每个 = 一个可独立回滚的 commit,完成即跑验证)
@@ -351,7 +351,7 @@ M1-M5 已实现并验证(`feat/session-rollback-mode`,基于 v3 语义;全套 17
 3. **M3 classify 拆分(retry 语义不变)**:新建 `dispatch.py`(`classify_extension`、`MatchResult`、`DispatchDecision`);`apply_rollback` 变更半边抽到 `LinearTrajectory`;`prompt_assistant_count` 修正(few-shot characterization 随之翻转,行为变化边界仅此形状);`dispatch_retry` 硬接线为唯一策略(尚无 arg)。后置状态:现行为全链路走新结构,HTTP 面行为与文案不变。验证:HTTP 级测试(含 M2 pin)零修改全绿;`test_linear_trajectory.py` TestRollback 允许**语义重写**(判定改走 `classify_extension`、变更改走 `apply_rollback`)——其保真职责已由 M2 的 HTTP pin 接管。回滚:revert。
 4. **M4 mode 接口 + disabled + fork 分派机制**:`--session-rollback-mode` arg(**本里程碑 choices 仅 `{disabled, retry}`**)与 `SessionRegistry.__init__` 策略选定;`dispatch_disabled`;`dispatch_fork` 全量落地(含 seed 占位、409、`MAX_SEGMENTS` 可辨识文案、fork 日志)并被单测覆盖但**不入 choices**——数据面未跟上前放开 fork 会静默丢弃非首 segment 的训练数据,不构成连贯后置状态。后置状态:默认行为不变,disabled 可用,fork 机制代码完整但不可达。验证:语义总表全矩阵单测(3 档 × 7 形状,纯 `SessionState` 级,占位判定须显式含**空 session 两个不同首请求并发**与并发 sibling 两种形状)+ disabled 档最小 HTTP 测试(非延伸请求 400)+ 存量测试全绿。回滚:revert。
 5. **M5 数据面 + fork 放开 + e2e**:`collect_samples`/`get_session`/metadata 的 fork 档 early-return 分支(metadata 形状见数据流三);arg choices 加入 `fork`;router 级测试(现有 `MockSGLangServer` harness 走 subagent fork、并发 sibling、409)与装配测试(双 segment 出 2 个 Sample、新 Sample `loss_mask` 长度 == 自身 `response_length` 的 token 级断言、S2 per-segment);e2e 增 `--session-rollback-mode fork` 的 subagent 分叉 agent 变体(**不开启** `partial_rollout` 与 `recompute_logprobs_via_prefill`,见风险),断言 Sample 数 == segment 数。后置状态:三档全部可用。验证:全部新旧测试绿;e2e 变体在 CI 跑通。回滚:revert(fork choice 随 revert 消失,退回 M4 连贯态)。
-6. **M6 参数面重构(v4,待授权)**:撤除 `--session-rollback-mode`,新增 `--max-assistant-rollback-steps`(默认 1,≥0)与 `--session-rollback-overflow {split, error}`(默认 split;flag 名评审定);`MAX_ASSISTANT_ROLLBACK_STEPS` 常量退役为 arg;三个 dispatch 策略函数并入按 `(steps, overflow)` 参数化的单策略(优先级:严格延伸 > 合法 rollback > 超限行为);两处数据面 early-return 改判 `overflow == "split"`;steps=0 的超限文案改述为"rollback 已关闭"并更新其(本分支新增、非保真面的)测试;新增 `(1, split)` 混合角测试:≤1 破坏性重试、超限开新线、多线下延伸优先于回滚(不破坏)、rollback 吃掉截断 turn 即解封、`(N>1, error)` 深回退泛化。后置状态:四角全部可达,默认 `(1, split)`。验证:`(1, error)` 角对 M2 pin **零修改**全绿(保真锚点移交,v4 硬门槛)+ 全部新旧测试绿。回滚:revert(退回 v3 三档)。
+6. **M6 参数面重构(v4,待授权)**:撤除 `--session-rollback-mode`,新增 `--session-max-assistant-rollback-steps`(默认 1,≥0)与 `--session-rollback-overflow {split, error}`(默认 split;flag 名评审定);`MAX_ASSISTANT_ROLLBACK_STEPS` 常量退役为 arg;三个 dispatch 策略函数并入按 `(steps, overflow)` 参数化的单策略(优先级:严格延伸 > 合法 rollback > 超限行为);两处数据面 early-return 改判 `overflow == "split"`;steps=0 的超限文案改述为"rollback 已关闭"并更新其(本分支新增、非保真面的)测试;新增 `(1, split)` 混合角测试:≤1 破坏性重试、超限开新线、多线下延伸优先于回滚(不破坏)、rollback 吃掉截断 turn 即解封、`(N>1, error)` 深回退泛化。后置状态:四角全部可达,默认 `(1, split)`。验证:`(1, error)` 角对 M2 pin **零修改**全绿(保真锚点移交,v4 硬门槛)+ 全部新旧测试绿。回滚:revert(退回 v3 三档)。
 
 ### 不可逆动作与发布
 
